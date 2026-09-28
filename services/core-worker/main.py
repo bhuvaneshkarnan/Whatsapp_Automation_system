@@ -31,13 +31,13 @@ import re
 try:
     from providers.gemini import call_gemini, GeminiError
     from providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response, strip_repetitive_greetings
-    from providers.transcription import transcribe_voice_message, TranscriptionError
+    from providers.transcription import transcribe_voice_message, TranscriptionError, analyze_inbound_image
     from providers.rule_engine import apply_rule_engine, db_row_to_rule
     from providers.whatsapp_sender import send_text, send_template, mark_as_read, send_typing_indicator, WhatsAppSendError
 except (ImportError, ModuleNotFoundError):
     from core_worker.providers.gemini import call_gemini, GeminiError
     from core_worker.providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response, strip_repetitive_greetings
-    from core_worker.providers.transcription import transcribe_voice_message, TranscriptionError
+    from core_worker.providers.transcription import transcribe_voice_message, TranscriptionError, analyze_inbound_image
     from core_worker.providers.rule_engine import apply_rule_engine, db_row_to_rule
     from core_worker.providers.whatsapp_sender import send_text, send_template, mark_as_read, send_typing_indicator, WhatsAppSendError
 
@@ -1247,8 +1247,34 @@ class CoreWorker:
                 # Media / rich message fallback extraction if body_text is empty or just generic placeholder
                 if not body_text or not body_text.strip() or body_text in ["📷 [Photo]", "🎥 [Video]", "📄 [Document]", "🎤 [Voice Note]"]:
                     if msg_type == "image" or "image" in raw_data:
+                        img_id = raw_data.get("image", {}).get("id")
                         img_caption = raw_data.get("image", {}).get("caption")
-                        body_text = f"📷 {img_caption}" if img_caption else "📷 [Photo]"
+                        wa_token_img = (creds.get("access_token") if creds else None) or fields.get("accessToken")
+                        # Attempt Gemini vision analysis on the inbound photo
+                        if img_id and wa_token_img:
+                            try:
+                                gemini_key_img = await self._get_tenant_gemini_key(tenant_id)
+                                groq_key_img = await self._get_tenant_groq_key(tenant_id)
+                                img_desc = await analyze_inbound_image(
+                                    media_id=img_id,
+                                    wa_access_token=wa_token_img,
+                                    gemini_api_key=gemini_key_img,
+                                    groq_api_key=groq_key_img,
+                                    tenant_id=tenant_id,
+                                )
+                                if img_desc and img_desc.strip():
+                                    if img_caption:
+                                        body_text = f"📷 [Photo] {img_caption} | Image content: {img_desc.strip()}"
+                                    else:
+                                        body_text = f"📷 [Photo] Image content: {img_desc.strip()}"
+                                    logger.info("image_analyzed", conv_id=conv_id, desc_preview=img_desc[:60])
+                                else:
+                                    body_text = f"📷 {img_caption}" if img_caption else "📷 [Photo]"
+                            except Exception as e_img:
+                                logger.warning("image_analysis_failed", error=str(e_img))
+                                body_text = f"📷 {img_caption}" if img_caption else "📷 [Photo]"
+                        else:
+                            body_text = f"📷 {img_caption}" if img_caption else "📷 [Photo]"
                     elif msg_type == "video" or "video" in raw_data:
                         vid_caption = raw_data.get("video", {}).get("caption")
                         body_text = f"🎥 {vid_caption}" if vid_caption else "🎥 [Video]"
@@ -2487,7 +2513,7 @@ end
             "   - Organically detect and reply in the customer's exact language and dialect (Tamil in Tamil, Tanglish in Tanglish, Hinglish in Hinglish, English in English).\n"
             "7. KNOWLEDGE GROUNDING & SPECIAL ACTIONS:\n"
             "   - Ground every single fact 100% in this business's verified data below. Never invent or guess.\n"
-            "   - VOICE NOTES: When customer sends a voice note, warmly acknowledge it and directly answer their query.\n"
+            "   - VOICE NOTES: When customer sends a voice note, reply DIRECTLY to what they asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any acknowledgement of the audio format. Just answer their question naturally.\n"
             "   - HUMAN ESCALATION: Append [ACTION:HUMAN_TAKEOVER] ONLY AND EXCLUSIVELY when the customer explicitly demands to stop talking to the AI or demands human staff (e.g. 'stop bot', 'connect me to a real agent', 'talk to human'). NEVER append [ACTION:HUMAN_TAKEOVER] for normal pricing questions, doctor consultations, therapy bookings, or routine medical questions."
         )
 
@@ -3281,10 +3307,10 @@ end
         elif is_voice_note:
             funnel_stage = "VOICE_NOTE_INBOUND"
             stage_directive = (
-                f"The customer sent a WhatsApp voice note transcribed as: '{voice_note_content or message_text}'. "
-                f"1. Warmly acknowledge their voice note in Line 1 (e.g. 'Got your voice note!'). "
-                f"2. Directly answer whatever question, query, or service detail they asked about using ONLY this business's verified details below. "
-                f"3. Keep your reply short, direct, and conversational (1 to 3 short lines). Never ask them to type what they just spoke."
+                f"The customer sent a WhatsApp voice note. The transcribed content of what they said is: '{voice_note_content or message_text}'. "
+                f"Reply DIRECTLY to their question or request using only this business's verified details. "
+                f"Do NOT say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any phrase acknowledging the voice note format. "
+                f"Just answer what they asked naturally and conversationally in 1 to 3 short lines."
             )
         elif is_ongoing_conversation:
             # Check if customer sent an affirmative or confirmation to bot's previous question
@@ -3322,7 +3348,7 @@ end
         if is_voice_note and funnel_stage != "VOICE_NOTE_INBOUND":
             stage_directive = (
                 f"The customer sent a voice note transcribed as: '{voice_note_content or message_text}'. "
-                f"Warmly acknowledge their voice note in Line 1 (e.g. 'Got your voice note!'), then address their query directly: "
+                f"Reply DIRECTLY to what they asked without any preamble or acknowledgement of the voice note format. "
                 + stage_directive
             )
 
@@ -3490,7 +3516,7 @@ end
             "- NO REPEATED BOOKING CONFIRMATIONS: If an appointment slot was already agreed earlier in the chat, do NOT append 'your slot is booked' or re-propose times on unrelated inquiries; simply answer their question directly.",
         ]
         if is_voice_note:
-            reinforcement_parts.append("- VOICE NOTE INBOUND: Acknowledge the voice note warmly and answer directly.")
+            reinforcement_parts.append("- VOICE NOTE INBOUND: Reply DIRECTLY to what the customer asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any variant acknowledging the voice format. Just answer their question naturally.")
         if is_media_only:
             reinforcement_parts.append("- UNREAD MEDIA: Warmly acknowledge and politely ask how we can help.")
         reinforcement_rule = "\n".join(reinforcement_parts)

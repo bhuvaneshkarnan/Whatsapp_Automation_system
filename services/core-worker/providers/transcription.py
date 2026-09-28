@@ -229,3 +229,110 @@ async def transcribe_voice_message(
             pass
 
     raise TranscriptionError("No working transcription provider or API key available")
+
+
+async def analyze_with_gemini_vision(image_bytes: bytes, mime_type: str, gemini_api_key: str, timeout: float = 12.0) -> str:
+    """
+    Analyze image using Gemini multimodal vision.
+    Returns a concise 1-2 sentence description of what is visible in the customer's photo.
+    """
+    start = time.monotonic()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={gemini_api_key}"
+
+    clean_mime = "image/jpeg"
+    if "png" in mime_type: clean_mime = "image/png"
+    elif "webp" in mime_type: clean_mime = "image/webp"
+    elif "jpeg" in mime_type or "jpg" in mime_type: clean_mime = "image/jpeg"
+
+    b64_img = base64.b64encode(image_bytes).decode("utf-8")
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "inlineData": {
+                            "mimeType": clean_mime,
+                            "data": b64_img,
+                        }
+                    },
+                    {
+                        "text": (
+                            "You are an assistant for a healthcare / wellness clinic on WhatsApp. "
+                            "Analyze this image sent by a customer. "
+                            "In 1-2 concise sentences, clearly describe what is shown (any visible text, document, prescription, medicine, skin/body issue, coupon, clinic flyer, or question). "
+                            "Return ONLY the concise factual description so the WhatsApp AI assistant can reply appropriately."
+                        )
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 200,
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            res = await client.post(url, json=payload)
+    except httpx.RequestError as e:
+        raise TranscriptionError(f"Gemini Vision request error: {e}")
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    if res.status_code != 200:
+        raise TranscriptionError(f"Gemini Vision HTTP {res.status_code}: {res.text[:200]}")
+
+    try:
+        data = res.json()
+        desc = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        logger.info("gemini_vision_analysis_success", latency_ms=latency_ms, desc_len=len(desc))
+        return desc
+    except Exception as e:
+        raise TranscriptionError(f"Gemini Vision parse error: {e}")
+
+
+async def analyze_inbound_image(
+    media_id: str,
+    wa_access_token: str,
+    gemini_api_key: Optional[str] = None,
+    groq_api_key: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> str:
+    """
+    Download inbound WhatsApp photo and analyze with multimodal vision AI.
+    """
+    img_bytes, mime_type = await download_whatsapp_media(media_id, wa_access_token)
+
+    # Cache image locally for CRM view
+    if tenant_id and img_bytes:
+        try:
+            cache_dir = os.path.join("/tmp/wa_media", str(tenant_id))
+            os.makedirs(cache_dir, exist_ok=True)
+            ext = ".jpg"
+            if "png" in mime_type: ext = ".png"
+            elif "webp" in mime_type: ext = ".webp"
+            cached_path = os.path.join(cache_dir, f"{media_id}{ext}")
+            with open(cached_path, "wb") as f:
+                f.write(img_bytes)
+        except Exception as cache_err:
+            logger.debug("image_cache_write_warn", error=str(cache_err))
+
+    # 1. Try Gemini Vision (Tenant Key)
+    if gemini_api_key:
+        try:
+            return await analyze_with_gemini_vision(img_bytes, mime_type, gemini_api_key)
+        except Exception as e:
+            logger.warning("gemini_vision_failed_trying_env", error=str(e))
+
+    # 2. Try Platform Master Gemini Key from env
+    env_gemini = os.getenv("GEMINI_API_KEY")
+    if env_gemini:
+        try:
+            return await analyze_with_gemini_vision(img_bytes, mime_type, env_gemini)
+        except Exception as e:
+            logger.warning("env_gemini_vision_failed", error=str(e))
+
+    return ""
+
