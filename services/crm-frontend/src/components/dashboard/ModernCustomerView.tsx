@@ -2098,48 +2098,30 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 3. Status Dropdown — options from Manage CRM → Outcome Statuses */}
+                          {/* 3. Status — matches Pipeline Columns exactly */}
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             {(() => {
-                              const currentVal = cust.call_status || (
-                                cust.status === 'converted' || cust.converted ? 'Converted' :
-                                cust.status === 'contacted' ? 'Contacted' :
-                                cust.status === 'follow-up' ? 'Contacted' :
-                                cust.status === 'lost' ? 'Lost' :
-                                (outcomeStatuses[0] || 'New')
-                              );
-                              const badgeStyle = getOutcomeStatusStyle(currentVal);
+                              const stageStyle = STAGE_STYLES[cust.status] || STAGE_STYLES['new'];
                               return (
                                 <select
-                                  value={currentVal}
+                                  value={cust.status || 'new'}
                                   onChange={(e) => {
-                                    const val = e.target.value;
-                                    const vLower = val.toLowerCase();
-                                    let mappedStatus: Customer['status'] = 'contacted';
-                                    if (vLower.includes('new')) {
-                                      mappedStatus = 'new';
-                                    } else if (vLower.includes('convert') || vLower.includes('won') || vLower.includes('confirm') || vLower.includes('booked')) {
-                                      mappedStatus = 'converted';
-                                    } else if (vLower.includes('lost') || vLower.includes('wrong') || vLower.includes('not interest') || vLower.includes('blue flag')) {
-                                      mappedStatus = 'lost';
-                                    } else if (vLower.includes('follow') || vLower.includes('remind') || vLower.includes('callback')) {
-                                      mappedStatus = 'follow-up';
-                                    }
+                                    const newStatus = e.target.value as Customer['status'];
                                     handleQuickUpdate(cust.id, {
-                                      call_status: val,
-                                      status: mappedStatus,
-                                      converted: mappedStatus === 'converted',
+                                      status: newStatus,
+                                      converted: newStatus === 'converted',
                                     });
                                   }}
                                   disabled={updatingId === cust.id}
-                                  className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[155px] truncate ${badgeStyle.bg} ${badgeStyle.text} ${badgeStyle.border}`}
+                                  className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[175px] truncate ${stageStyle.bg} ${stageStyle.text} ${stageStyle.border}`}
                                 >
-                                  {cust.call_status && !outcomeStatuses.includes(cust.call_status) && (
-                                    <option value={cust.call_status}>{cust.call_status}</option>
-                                  )}
-                                  {outcomeStatuses.map((st) => (
-                                    <option key={st} value={st}>{st}</option>
+                                  {stages.map((st) => (
+                                    <option key={st.id} value={st.id}>{st.label}</option>
                                   ))}
+                                  {/* Fallback: if customer has a status not in any stage, still show it */}
+                                  {cust.status && !stages.find((s) => s.id === cust.status) && (
+                                    <option value={cust.status}>{cust.status}</option>
+                                  )}
                                 </select>
                               );
                             })()}
