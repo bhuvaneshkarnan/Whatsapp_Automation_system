@@ -2485,7 +2485,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     next_actions: [],
     services_list: [],
     concerns_list: [],
-    pipeline_columns: [],
+    pipeline_columns: [
+      { id: 'new',       label: 'New Inquiry',             visible: true },
+      { id: 'contacted', label: 'Contacted / In Progress', visible: true },
+      { id: 'follow-up', label: 'Follow-up Due',           visible: true },
+      { id: 'converted', label: 'Booked / Converted',      visible: true },
+      { id: 'lost',      label: 'Lost / Inactive',         visible: true },
+    ],
   });
   const [newDropdownItemInput, setNewDropdownItemInput] = useState('');
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
