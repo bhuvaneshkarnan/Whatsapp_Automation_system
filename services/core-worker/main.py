@@ -1188,14 +1188,9 @@ class CoreWorker:
                 )
             )
 
-            # Only auto-mark as read (blue ticks) and show native "typing..." indicator if AI is handling this chat.
+            # Auto-mark as read and native typing indicator will be dispatched right before AI reply generation
             # If in Human Mode or delinquent/paused, keep as delivered (2 grey ticks) until staff opens chat in CRM.
             typing_started_at = time.monotonic()
-            if not sub_delinquent and is_active is not False and conv_status != "human" and creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
-                try:
-                    await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
-                except Exception as e:
-                    logger.warning("typing_indicator_dispatch_failed", error=str(e))
 
             # ── 4. Process Voice Notes / Audio Messages ───────────────────────
             msg_type = fields.get("type", "text")
@@ -1447,16 +1442,22 @@ class CoreWorker:
                         last_hash = last_info.get("hash")
                         last_count = last_info.get("count", 1)
                         last_ts = last_info.get("ts", now_ts)
-                        if last_hash == msg_hash and (now_ts - last_ts) < 90:
+                        COMMON_SHORT_WORDS = {
+                            "hi", "hii", "hiii", "hello", "hey", "yes", "no", "ok", "okay",
+                            "thanks", "thank you", "seri", "vanakkam", "services", "book", "price"
+                        }
+                        is_short_word = norm_msg in COMMON_SHORT_WORDS or len(norm_msg) <= 4
+                        max_dup_window = 2.0 if is_short_word else 4.0
+                        if last_hash == msg_hash and (now_ts - last_ts) < max_dup_window:
                             new_count = last_count + 1
-                            await self.redis.setex(dup_key, 90, json.dumps({"hash": msg_hash, "count": new_count, "ts": now_ts}))
+                            await self.redis.setex(dup_key, 10, json.dumps({"hash": msg_hash, "count": new_count, "ts": now_ts}))
                             logger.warning(
                                 "skipping_ai_duplicate_inbound_message",
                                 conv_id=conv_id, tenant_id=tenant_id, phone=clean_from_phone,
                                 count=new_count, snippet=body_text[:50]
                             )
-                            if new_count >= 3:
-                                # Repetitive spam or automated ping-pong: auto-switch to human mode
+                            if new_count >= 5:
+                                # Rapid abusive spam (5+ identical messages within 10s): auto-switch to human mode
                                 await self.db_pool.execute(
                                     """UPDATE conversations
                                        SET status = 'human',
@@ -1466,9 +1467,9 @@ class CoreWorker:
                                 )
                             body_text = None
                         else:
-                            await self.redis.setex(dup_key, 90, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
+                            await self.redis.setex(dup_key, 10, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
                     else:
-                        await self.redis.setex(dup_key, 90, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
+                        await self.redis.setex(dup_key, 10, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
                 except Exception as dup_err:
                     logger.debug("duplicate_check_error", error=str(dup_err))
 
@@ -1492,6 +1493,11 @@ class CoreWorker:
             elif conv_status == "human":
                 logger.info("skipping_ai_human_mode", conv_id=conv_id, tenant_id=tenant_id)
             elif body_text:
+                if creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
+                    try:
+                        await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
+                    except Exception as e:
+                        logger.warning("typing_indicator_dispatch_failed", error=str(e))
                 await self._generate_and_send_reply(
                     tenant_id=tenant_id,
                     conv_id=conv_id,
@@ -4612,23 +4618,16 @@ end
                             )
                             continue
 
-                        # 2. Sliding window pair rate limit: Max 3 messages in 60s
+                        # 2. Sliding window pair rate limit: Prevent runaway loops (> 12 messages in 60s)
                         pair_count = await self.redis.incr(rate_key)
                         if pair_count == 1:
                             await self.redis.expire(rate_key, 60)
-                        if pair_count > 3:
+                        if pair_count > 12:
                             logger.warning(
                                 "wa_send_throttled_pair_rate_limit_preempted",
                                 tenant_id=tenant_id, phone=clean_target_phone, count=pair_count
                             )
-                            await self.redis.setex(cooldown_key, 900, "1")  # 15m cooldown
-                            await self.db_pool.execute(
-                                """UPDATE conversations
-                                   SET status = 'human',
-                                       wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{ai_disabled_reason}', '"pair_rate_limit_preempted"')
-                                   WHERE id = $1::uuid AND tenant_id = $2::uuid""",
-                                conv_id, tenant_id
-                            )
+                            await self.redis.setex(cooldown_key, 30, "1")  # Short 30s cooldown
                             await self.db_pool.execute(
                                 "UPDATE messages SET status = 'failed', error_code = 'pair_rate_limit_preempted' WHERE id = $1::uuid AND tenant_id = $2::uuid",
                                 str(out_msg_id), tenant_id
