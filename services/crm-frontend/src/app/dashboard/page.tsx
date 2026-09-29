@@ -11405,65 +11405,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   const urgentCount = todayUpcomingBookings.length + hotLeadsList.length + unreadConversations.length;
 
                   return (
-                    <div className="space-y-5">
-                      {/* ── TOP MISSION CONTROL HEADER ── */}
-                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-border">
+                    <div className="space-y-4">
+                      {/* ── TOP CLEAN HEADER & CONTROLS ── */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xl">👋</span>
-                            <h2 className="text-lg sm:text-xl font-bold text-text-primary tracking-tight">
-                              Welcome back, {settingsForm.name || branding.brand_name || 'Clinic Team'}!
+                            <BarChart2 className="w-5 h-5 text-accent stroke-[1.8]" />
+                            <h2 className="text-base sm:text-lg font-bold text-text-primary tracking-tight">
+                              Overview
                             </h2>
                           </div>
-                          <p className="text-xs text-text-muted mt-1 flex items-center gap-1.5 flex-wrap">
-                            <span>Live Action Desk</span>
-                            <span>•</span>
-                            <span>Attend to today&apos;s patients, lock in hot leads, and monitor collections in real time.</span>
+                          <p className="text-xs text-text-muted mt-0.5">
+                            Real-time workspace activity, daily schedule, and revenue summary.
                           </p>
                         </div>
 
-                        {/* Top Action Controls & Simplified Period Switcher */}
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          {/* Big Action Button 1: Book Appointment */}
-                          <button
-                            type="button"
-                            onClick={() => setIsAddBookingOpen(true)}
-                            className="min-h-[40px] px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-lg shadow-sm transition-all duration-150 flex items-center gap-2 cursor-pointer touch-manipulation hover:shadow-md"
-                            title="Schedule a new appointment or lab test"
-                          >
-                            <Plus className="w-4 h-4 stroke-[2.5]" />
-                            <span>Book Appointment</span>
-                          </button>
-
-                          {/* Big Action Button 2: WhatsApp Inbox */}
-                          <button
-                            type="button"
-                            onClick={() => setActiveNav('inbox')}
-                            className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all duration-150 flex items-center gap-2 cursor-pointer touch-manipulation relative"
-                            title="Open WhatsApp chats"
-                          >
-                            <MessageSquare className="w-4 h-4 stroke-[2]" />
-                            <span>WhatsApp Inbox</span>
-                            {unreadConversations.length > 0 && (
-                              <span className="px-1.5 py-0.2 text-[10px] font-bold bg-white text-emerald-800 rounded-full font-mono">
-                                {unreadConversations.length}
-                              </span>
-                            )}
-                          </button>
-
-                          {/* Big Action Button 3: Add Customer */}
-                          <button
-                            type="button"
-                            onClick={() => setShowAddCustomerModal(true)}
-                            className="min-h-[40px] px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer touch-manipulation"
-                            title="Add a new patient or contact"
-                          >
-                            <UserPlus className="w-4 h-4 text-text-muted stroke-[2]" />
-                            <span className="hidden sm:inline">Add Client</span>
-                          </button>
-
-                          {/* Simplified Period Pills */}
-                          <div className="flex items-center p-0.5 bg-surface-subtle rounded-lg border border-border shrink-0">
+                        {/* Top Clean Actions & Period Selector */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Period Selector Presets */}
+                          <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
                             {[
                               { id: 'today', label: 'Today' },
                               { id: '7d', label: '7D' },
@@ -11477,10 +11437,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   setAnalyticsPeriod(preset.id as any);
                                   loadDashboardAnalytics(preset.id as any, undefined, '', '', analyticsCompare);
                                 }}
-                                className={`min-h-[34px] px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                                className={`px-2.5 py-1 text-xs rounded-xs transition-all cursor-pointer font-medium ${
                                   analyticsPeriod === preset.id
-                                    ? 'bg-surface text-text-primary font-bold shadow-2xs border border-border-strong'
-                                    : 'text-text-muted hover:text-text-primary border border-transparent'
+                                    ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
+                                    : 'text-text-secondary hover:text-text-primary border border-transparent'
                                 }`}
                               >
                                 {preset.label}
@@ -11497,15 +11457,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               loadBookings();
                               loadContacts();
                             }}
-                            className="h-9 w-9 bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary border border-border rounded-lg transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
-                            title="Refresh dashboard data"
+                            className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
+                            title="Refresh overview data"
                           >
-                            <RotateCcw className={`w-3.5 h-3.5 stroke-[2] ${loadingDashboardAnalytics ? 'animate-spin text-accent' : ''}`} />
+                            <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingDashboardAnalytics ? 'animate-spin' : ''}`} />
+                          </button>
+
+                          <div className="h-5 w-px bg-border hidden sm:block shrink-0" />
+
+                          {/* Primary Quick CTA: Book Appointment */}
+                          <button
+                            type="button"
+                            onClick={() => setIsAddBookingOpen(true)}
+                            className="h-7 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-xs cursor-pointer shrink-0"
+                          >
+                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Book Appointment</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* ── 4 "BIG TOUCH" GLANCE CARDS ── */}
+                      {/* ── 4 CORE ESSENTIAL SUMMARY METRIC CARDS ── */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                         {/* Card 1: Today's Schedule */}
                         <div
@@ -11513,228 +11485,167 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setActiveNav('bookings');
                             setBookingFilter('upcoming');
                           }}
-                          className="bg-surface border border-border hover:border-emerald-500/60 rounded-xl p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs hover:shadow-sm group relative overflow-hidden"
+                          className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">Today&apos;s Schedule</span>
-                            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center">
-                              <CalendarDays className="w-4 h-4 stroke-[2]" />
+                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Today&apos;s Schedule</span>
+                            <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                              <CalendarDays className="w-4 h-4 stroke-[1.8]" />
                             </div>
                           </div>
-                          <div className="flex items-baseline gap-2">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-text-primary font-mono tabular-nums">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
                               {todayBookingsList.length}
                             </p>
-                            <span className="text-xs font-medium text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
                               {todayUpcomingBookings.length} upcoming
                             </span>
                           </div>
-                          <p className="text-[11px] text-text-muted flex items-center justify-between">
-                            <span>{todayAttendedBookings.length} attended today</span>
-                            <span className="text-accent group-hover:translate-x-0.5 transition-transform font-medium">View list →</span>
+                          <p className="text-[11px] text-text-muted truncate">
+                            {todayAttendedBookings.length} attended today • click to view list
                           </p>
                         </div>
 
-                        {/* Card 2: Needs Attention (Zero-Leakage Indicator) */}
+                        {/* Card 2: Needs Attention */}
                         <div
-                          onClick={() => {
-                            const el = document.getElementById('zero-leakage-action-deck');
-                            if (el) el.scrollIntoView({ behavior: 'smooth' });
-                            else setActiveNav('customers');
-                          }}
-                          className={`bg-surface border rounded-xl p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs hover:shadow-sm group relative overflow-hidden ${
-                            urgentCount > 0 ? 'border-amber-400/80 bg-amber-50/15' : 'border-border'
-                          }`}
+                          onClick={() => setActiveNav('customers')}
+                          className="bg-surface border border-border hover:border-amber-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
-                              {urgentCount > 0 && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
-                              <span>Needs Attention</span>
-                            </span>
-                            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 border border-amber-300 flex items-center justify-center">
-                              <Flame className="w-4 h-4 stroke-[2]" />
+                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Needs Attention</span>
+                            <div className="w-7 h-7 rounded-sm bg-amber-50 text-amber-600 flex items-center justify-center">
+                              <Activity className="w-4 h-4 stroke-[1.8]" />
                             </div>
                           </div>
-                          <div className="flex items-baseline gap-2">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-amber-800 font-mono tabular-nums">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
                               {urgentCount}
                             </p>
-                            <span className="text-xs font-semibold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
-                              Zero-Leakage
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                              urgentCount > 0 ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-surface-subtle text-text-muted border-border'
+                            }`}>
+                              {urgentCount > 0 ? `${urgentCount} pending` : 'All clear'}
                             </span>
                           </div>
-                          <p className="text-[11px] text-text-muted flex items-center justify-between">
-                            <span>{hotLeadsList.length} leads • {todayUpcomingBookings.length} visits</span>
-                            <span className="text-amber-700 font-semibold group-hover:translate-x-0.5 transition-transform">Take action ↓</span>
+                          <p className="text-[11px] text-text-muted truncate">
+                            {hotLeadsList.length} leads waiting • {todayUpcomingBookings.length} visits to attend
                           </p>
                         </div>
 
                         {/* Card 3: WhatsApp Chats */}
                         <div
                           onClick={() => setActiveNav('inbox')}
-                          className="bg-surface border border-border hover:border-blue-500/60 rounded-xl p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs hover:shadow-sm group relative overflow-hidden"
+                          className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">WhatsApp Chats</span>
-                            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 border border-blue-200/60 flex items-center justify-center">
-                              <MessageSquare className="w-4 h-4 stroke-[2]" />
+                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">WhatsApp Chats</span>
+                            <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
+                              <MessageSquare className="w-4 h-4 stroke-[1.8]" />
                             </div>
                           </div>
-                          <div className="flex items-baseline gap-2">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-text-primary font-mono tabular-nums">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
                               {conversations.length}
                             </p>
                             {unreadConversations.length > 0 ? (
-                              <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
                                 {unreadConversations.length} unread
                               </span>
                             ) : (
-                              <span className="text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
                                 All caught up
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-text-muted flex items-center justify-between">
-                            <span>{conversations.filter(c => c.ai_enabled !== false).length} automated by AI</span>
-                            <span className="text-accent group-hover:translate-x-0.5 transition-transform font-medium">Open inbox →</span>
+                          <p className="text-[11px] text-text-muted truncate">
+                            {conversations.filter(c => c.ai_enabled !== false).length} automated by AI • click to open
                           </p>
                         </div>
 
                         {/* Card 4: Attended Revenue */}
                         <div
                           onClick={() => setActiveNav('billing')}
-                          className="bg-surface border border-border hover:border-emerald-500/60 rounded-xl p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs hover:shadow-sm group relative overflow-hidden"
+                          className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">Attended Revenue</span>
-                            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center">
-                              <TrendingUp className="w-4 h-4 stroke-[2]" />
+                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Attended Revenue</span>
+                            <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                              <TrendingUp className="w-4 h-4 stroke-[1.8]" />
                             </div>
                           </div>
-                          <div className="flex items-baseline gap-1">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-emerald-700 font-mono tabular-nums truncate">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="text-2xl font-bold text-emerald-700 font-mono tabular-nums truncate">
                               {currentCurrencySymbol}{dashboardAnalyticsData
-                                ? Number(dashboardAnalyticsData.summary.total_revenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })
-                                : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                ? Number(dashboardAnalyticsData.summary.total_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </p>
                           </div>
-                          <p className="text-[11px] text-text-muted flex items-center justify-between">
-                            <span>
-                              {todayRevenueVal > 0 ? `Today: ${currentCurrencySymbol}${todayRevenueVal.toLocaleString()}` : `${dashboardAnalyticsData?.summary.completed_bookings || 0} completed`}
-                            </span>
-                            <span className="text-accent group-hover:translate-x-0.5 transition-transform font-medium">View fees →</span>
+                          <p className="text-[11px] text-text-muted truncate">
+                            {todayRevenueVal > 0 ? `Today: ${currentCurrencySymbol}${todayRevenueVal.toLocaleString()} • ` : ''}Realized revenue
                           </p>
                         </div>
                       </div>
 
-                      {/* ── ⚡ ZERO-LEAKAGE URGENT ACTION DECK ── */}
-                      <div id="zero-leakage-action-deck" className="bg-surface-subtle/80 border border-border rounded-xl p-4 sm:p-5 space-y-3.5 shadow-2xs">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-border">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                              <Zap className="w-4 h-4 stroke-[2.5]" />
+                      {/* ── ACTION QUEUE: ONLY DISPLAY IF THERE ARE PENDING ACTIONS ── */}
+                      {urgentCount > 0 && (
+                        <div className="bg-surface border border-border rounded-md p-3.5 space-y-3 shadow-xs">
+                          <div className="flex items-center justify-between pb-2 border-b border-border">
+                            <div className="flex items-center gap-2">
+                              <CalendarClock className="w-4 h-4 text-accent stroke-[1.8]" />
+                              <h4 className="font-semibold text-xs text-text-primary">Today&apos;s Appointments & Action Queue</h4>
+                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary">
+                                {urgentCount} pending
+                              </span>
                             </div>
-                            <div>
-                              <h3 className="text-sm font-bold text-text-primary flex items-center gap-2">
-                                <span>Action Queue: Attend to Patients & Leads</span>
-                                <span className="text-[11px] font-bold px-2 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 rounded-full font-mono">
-                                  {urgentCount} Waiting
-                                </span>
-                              </h3>
-                              <p className="text-[11px] text-text-muted">
-                                Lock in appointments, attend home collections, and follow up so no customer drops off.
-                              </p>
-                            </div>
+                            <span className="text-[11px] text-text-muted hidden sm:inline">
+                              Direct desk actions to attend patients and prevent lead drop-off
+                            </span>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-xs text-text-muted font-medium">One-tap desk actions</span>
-                          </div>
-                        </div>
-
-                        {/* Action Cards Grid */}
-                        {urgentCount === 0 ? (
-                          <div className="py-7 px-4 text-center bg-surface border border-border rounded-xl space-y-2">
-                            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 mx-auto flex items-center justify-center">
-                              <CheckCircle2 className="w-5 h-5 stroke-[2]" />
-                            </div>
-                            <h4 className="text-sm font-bold text-text-primary">All Caught Up! Zero Customer Leakage</h4>
-                            <p className="text-xs text-text-muted max-w-md mx-auto">
-                              Every appointment today is attended, and all inquiries have been followed up. Great work!
-                            </p>
-                            <div className="pt-2">
-                              <button
-                                type="button"
-                                onClick={() => setIsAddBookingOpen(true)}
-                                className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-lg shadow-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                                <span>Book New Patient</span>
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                            {/* 1. Today's Upcoming Bookings */}
-                            {todayUpcomingBookings.slice(0, 4).map((b) => {
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {/* Upcoming Today Bookings */}
+                            {todayUpcomingBookings.slice(0, 3).map((b) => {
                               const cleanPhone = (b.contact_phone || '').replace(/[^0-9]/g, '');
-                              const hasHome = (b.location || b.notes || '').toLowerCase().includes('home') || (b.service || '').toLowerCase().includes('home');
                               return (
                                 <div
                                   key={b.id}
-                                  className="bg-surface border-2 border-emerald-500/30 hover:border-emerald-500 rounded-xl p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-all duration-150"
+                                  className="p-3 bg-surface-subtle border border-border rounded-md space-y-2 hover:border-border-strong transition-colors"
                                 >
-                                  <div className="space-y-1.5">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1">
-                                        <Clock className="w-3 h-3 stroke-[2]" />
-                                        <span>Today at {formatTime12(b.start_time)}</span>
-                                      </span>
-                                      <span className="text-xs font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                        {currentCurrencySymbol}{b.price || 0}
-                                      </span>
-                                    </div>
+                                  <div className="flex items-center justify-between gap-1 text-[11px]">
+                                    <span className="font-medium text-text-secondary">
+                                      {formatTime12(b.start_time)}
+                                    </span>
+                                    <span className="font-mono font-bold text-text-primary">
+                                      {currentCurrencySymbol}{b.price || 0}
+                                    </span>
+                                  </div>
 
-                                    <div>
-                                      <h4 className="text-sm font-bold text-text-primary truncate">
-                                        {b.contact_name || 'Patient'}
-                                      </h4>
-                                      <p className="text-xs text-text-secondary truncate mt-0.5 font-medium">
-                                        {b.service || 'Appointment'}
-                                      </p>
-                                    </div>
-
+                                  <div>
+                                    <p className="font-medium text-xs text-text-primary truncate">
+                                      {b.contact_name || 'Patient'}
+                                    </p>
+                                    <p className="text-[11px] text-text-muted truncate">
+                                      {b.service}
+                                    </p>
                                     {b.location && (
-                                      <p className="text-[11px] text-text-muted flex items-start gap-1 line-clamp-1">
-                                        <MapPin className="w-3 h-3 text-rose-500 shrink-0 mt-0.5" />
-                                        <span className="truncate">{b.location}</span>
+                                      <p className="text-[10px] text-text-muted truncate flex items-center gap-1 mt-0.5">
+                                        <MapPin className="w-3 h-3 text-text-muted shrink-0" />
+                                        <span>{b.location}</span>
                                       </p>
-                                    )}
-
-                                    {b.payment_status === 'unpaid' && (b.price || 0) > 0 && (
-                                      <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded inline-block">
-                                        Fee Unpaid ({hasHome ? 'Pay at Collection' : 'Pay at Desk'})
-                                      </span>
                                     )}
                                   </div>
 
-                                  {/* Action Buttons */}
-                                  <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-border">
-                                    {b.contact_phone ? (
+                                  <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
+                                    {b.contact_phone && (
                                       <a
                                         href={`tel:${formatDialablePhone(b.contact_phone)}`}
-                                        className="min-h-[34px] bg-surface-subtle hover:bg-surface border border-border rounded-lg text-[11px] font-bold text-text-primary flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                                        title="Call patient"
+                                        className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
+                                        title="Call"
                                       >
-                                        <Phone className="w-3 h-3 text-emerald-600 stroke-[2]" />
+                                        <Phone className="w-3 h-3 text-emerald-600 stroke-[1.8]" />
                                         <span>Call</span>
                                       </a>
-                                    ) : (
-                                      <span className="min-h-[34px] bg-surface-subtle border border-border rounded-lg text-[11px] text-text-muted flex items-center justify-center">
-                                        No Phone
-                                      </span>
                                     )}
-
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -11742,20 +11653,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         if (match) setSelectedConv(match);
                                         setActiveNav('inbox');
                                       }}
-                                      className="min-h-[34px] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-[11px] font-bold text-emerald-800 flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                                      title="Open WhatsApp chat"
+                                      className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
+                                      title="Chat"
                                     >
-                                      <MessageSquare className="w-3 h-3 text-emerald-600 stroke-[2]" />
+                                      <MessageSquare className="w-3 h-3 text-accent stroke-[1.8]" />
                                       <span>Chat</span>
                                     </button>
-
                                     <button
                                       type="button"
                                       onClick={() => handleUpdateBookingStatus(b.id, 'completed', undefined, true)}
-                                      className="min-h-[34px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer shadow-2xs transition-colors"
-                                      title="Mark completed & send review link"
+                                      className="h-6.5 px-2 text-[11px] font-medium bg-accent hover:bg-accent-hover text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
+                                      title="Mark completed"
                                     >
-                                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                      <Check className="w-3 h-3 stroke-[2.5]" />
                                       <span>Done</span>
                                     </button>
                                   </div>
@@ -11763,52 +11673,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               );
                             })}
 
-                            {/* 2. Hot Leads Waiting for Closing */}
-                            {hotLeadsList.slice(0, 4).map((c) => {
+                            {/* Hot Leads */}
+                            {hotLeadsList.slice(0, 3).map((c) => {
                               const cleanPhone = (c.phone || '').replace(/[^0-9]/g, '');
                               return (
                                 <div
                                   key={c.id}
-                                  className="bg-surface border-2 border-amber-500/30 hover:border-amber-500 rounded-xl p-3.5 flex flex-col justify-between gap-3 shadow-xs transition-all duration-150"
+                                  className="p-3 bg-surface-subtle border border-border rounded-md space-y-2 hover:border-border-strong transition-colors"
                                 >
-                                  <div className="space-y-1.5">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md flex items-center gap-1">
-                                        <Flame className="w-3 h-3 text-amber-600 stroke-[2]" />
-                                        <span>Hot Lead — Follow up</span>
+                                  <div className="flex items-center justify-between gap-1 text-[11px]">
+                                    <span className="font-semibold text-amber-700">
+                                      Hot Lead
+                                    </span>
+                                    {(c.deal_value || 0) > 0 && (
+                                      <span className="font-mono font-bold text-text-primary">
+                                        {currentCurrencySymbol}{c.deal_value}
                                       </span>
-                                      {(c.deal_value || 0) > 0 && (
-                                        <span className="text-xs font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                          {currentCurrencySymbol}{c.deal_value}
-                                        </span>
-                                      )}
-                                    </div>
+                                    )}
+                                  </div>
 
-                                    <div>
-                                      <h4 className="text-sm font-bold text-text-primary truncate">
-                                        {c.name || 'Valued Customer'}
-                                      </h4>
-                                      <p className="text-xs text-text-muted font-mono mt-0.5">
-                                        {c.phone}
-                                      </p>
-                                    </div>
-
-                                    <p className="text-[11px] text-text-secondary truncate font-medium">
-                                      Interested: <span className="text-text-primary">{c.health_concern || 'Health Package / Checkup'}</span>
+                                  <div>
+                                    <p className="font-medium text-xs text-text-primary truncate">
+                                      {c.name || 'Prospect'}
+                                    </p>
+                                    <p className="text-[11px] text-text-muted truncate">
+                                      {c.health_concern || 'General Inquiring'}
                                     </p>
                                   </div>
 
-                                  {/* Action Buttons */}
-                                  <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-border">
+                                  <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
                                     <a
                                       href={`tel:${formatDialablePhone(c.phone)}`}
-                                      className="min-h-[34px] bg-surface-subtle hover:bg-surface border border-border rounded-lg text-[11px] font-bold text-text-primary flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                                      title="Call lead"
+                                      className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
                                     >
-                                      <Phone className="w-3 h-3 text-emerald-600 stroke-[2]" />
+                                      <Phone className="w-3 h-3 text-emerald-600 stroke-[1.8]" />
                                       <span>Call</span>
                                     </a>
-
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -11816,22 +11716,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         if (match) setSelectedConv(match);
                                         setActiveNav('inbox');
                                       }}
-                                      className="min-h-[34px] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-[11px] font-bold text-emerald-800 flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                                      title="Chat on WhatsApp"
+                                      className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
                                     >
-                                      <MessageSquare className="w-3 h-3 text-emerald-600 stroke-[2]" />
+                                      <MessageSquare className="w-3 h-3 text-accent stroke-[1.8]" />
                                       <span>Chat</span>
                                     </button>
-
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        setIsAddBookingOpen(true);
-                                      }}
-                                      className="min-h-[34px] bg-accent hover:bg-accent-hover text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer shadow-2xs transition-colors"
-                                      title="Book an appointment for this lead"
+                                      onClick={() => setIsAddBookingOpen(true)}
+                                      className="h-6.5 px-2 text-[11px] font-medium bg-accent hover:bg-accent-hover text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
                                     >
-                                      <Calendar className="w-3.5 h-3.5 stroke-[2]" />
+                                      <Calendar className="w-3 h-3 stroke-[2]" />
                                       <span>Book</span>
                                     </button>
                                   </div>
@@ -11839,8 +11734,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               );
                             })}
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
