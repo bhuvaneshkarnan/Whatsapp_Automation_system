@@ -4230,7 +4230,7 @@ end
             gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
             max_tokens=2048,
             temperature=0.15,  # Low temperature = factual, grounded, low hallucination risk
-            timeout_seconds=2.0,
+            timeout_seconds=3.5,  # Raised from 2.0s — Gemini avg latency is 1.4s, needs headroom
             tenant_id=tenant_id,
             single_line=False,
         )
