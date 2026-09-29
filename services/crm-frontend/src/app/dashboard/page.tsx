@@ -158,12 +158,15 @@ import {
   AlertTriangle,
   ExternalLink,
   Printer,
+  Receipt,
   Lock,
   Code,
   Smartphone,
   Monitor,
   Layers,
 } from 'lucide-react';
+
+const DEFAULT_BILLING_CATEGORIES = ['Naturopathy', 'Ayurveda', 'Medicine', 'Others'];
 
 const COUNTRY_CODES = [
   { code: '+91', country: 'India (+91)' },
@@ -1737,11 +1740,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   
   // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | reviews | settings
   const [customerStats, setCustomerStats] = useState<{total: number, pending: number, hot_leads: number, converted: number} | null>(null);
-  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'reviews' | 'settings' | 'team'>(() => {
+  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'reviews' | 'settings' | 'team' | 'billing'>(() => {
     if (typeof window !== 'undefined') {
       try {
         const hash = window.location.hash.replace('#', '');
-        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'repeat_clients', 'followup', 'marketing', 'reviews', 'settings'];
+        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'repeat_clients', 'followup', 'marketing', 'reviews', 'settings', 'team', 'billing'];
         if (hash && validTabs.includes(hash)) {
           return hash as any;
         }
@@ -2964,6 +2967,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     plan: 'pro',
     monthly_price: 3499,
     review_experience_tags: [] as string[],
+    billing_categories: DEFAULT_BILLING_CATEGORIES,
   });
 
   const availableHealthConcerns = useMemo(() => {
@@ -2974,6 +2978,59 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const set = new Set([...baseList, ...fromCustomers]);
     return Array.from(set).filter(Boolean);
   }, [settingsForm.taxonomy?.requirement_presets, settingsForm.industry, customers]);
+
+  // ── Multi-Category Billing & Ledger State ─────────────────────────────────
+  const billingCategories = useMemo<string[]>(() => {
+    if (settingsForm?.billing_categories && Array.isArray(settingsForm.billing_categories) && settingsForm.billing_categories.length > 0) {
+      return settingsForm.billing_categories;
+    }
+    return DEFAULT_BILLING_CATEGORIES;
+  }, [settingsForm?.billing_categories]);
+
+  const [billingBreakdown, setBillingBreakdown] = useState<Record<string, string>>({});
+  const [activeBillingTab, setActiveBillingTab] = useState<string>('Naturopathy');
+  const [isManagingCategories, setIsManagingCategories] = useState(false);
+  const [customCategoryInputs, setCustomCategoryInputs] = useState<string[]>([]);
+  const [savingCategories, setSavingCategories] = useState(false);
+
+  // Billing view filters & search
+  const [billingSearchQuery, setBillingSearchQuery] = useState('');
+  const [billingDateFilter, setBillingDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month'>('all');
+  const [billingCategoryFilter, setBillingCategoryFilter] = useState<string>('all');
+  const [billingPaymentFilter, setBillingPaymentFilter] = useState<'all' | 'paid' | 'unpaid' | 'pay_at_clinic'>('all');
+
+  useEffect(() => {
+    if (selectedBookingDetail) {
+      const existing = (selectedBookingDetail.metadata?.billing_breakdown || {}) as Record<string, number>;
+      const initBreakdown: Record<string, string> = {};
+      Object.entries(existing).forEach(([k, v]) => {
+        initBreakdown[k] = String(v);
+      });
+      setBillingBreakdown(initBreakdown);
+    } else {
+      setBillingBreakdown({});
+    }
+  }, [selectedBookingDetail?.id]);
+
+  async function handleSaveCustomCategories(newCategories: string[]) {
+    const cleaned = newCategories.map((c) => c.trim()).filter((c) => Boolean(c));
+    const finalCats = cleaned.length > 0 ? Array.from(new Set(cleaned)) : DEFAULT_BILLING_CATEGORIES;
+    setSavingCategories(true);
+    try {
+      await crm.updateSettings({ billing_categories: finalCats });
+      setSettingsForm((prev) => ({ ...prev, billing_categories: finalCats }));
+      setCustomCategoryInputs(finalCats);
+      setIsManagingCategories(false);
+      setActionNotice('Billing categories updated successfully');
+      setTimeout(() => setActionNotice(null), 3000);
+    } catch (err) {
+      console.error('Failed to update billing categories:', err);
+      setActionNotice('Failed to save billing categories. Please try again.');
+      setTimeout(() => setActionNotice(null), 3500);
+    } finally {
+      setSavingCategories(false);
+    }
+  }
 
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
@@ -4805,7 +4862,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     } else if (activeNav === 'inbox') {
       loadConversations();
       loadTeamList();
-    } else if (activeNav === 'bookings') {
+    } else if (activeNav === 'bookings' || activeNav === 'billing') {
       loadBookings();
     } else if (activeNav === 'calendar') {
       loadCalendarData();
@@ -5189,8 +5246,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           }
         }
 
-        // 5. Real-time Bookings directory automatic live sync (when on bookings tab)
-        if (activeNav === 'bookings') {
+        // 5. Real-time Bookings directory automatic live sync (when on bookings or billing tab)
+        if (activeNav === 'bookings' || activeNav === 'billing') {
           try {
             const freshBookings = await crm.getBookings(undefined, 200);
             if (isMounted && Array.isArray(freshBookings)) {
@@ -5252,8 +5309,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     };
 
-    // 2500ms for live Inbox, 5000ms for Bookings / Customers, 8000ms for Calendar, 6000ms for Overview, 20000ms for other sections
-    const pollIntervalMs = activeNav === 'inbox' ? 2500 : (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients' || activeNav === 'bookings' ? 5000 : activeNav === 'calendar' ? 8000 : activeNav === 'overview' ? 6000 : 20000);
+    // 2500ms for live Inbox, 5000ms for Bookings / Customers / Billing, 8000ms for Calendar, 6000ms for Overview, 20000ms for other sections
+    const pollIntervalMs = activeNav === 'inbox' ? 2500 : (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients' || activeNav === 'bookings' || activeNav === 'billing' ? 5000 : activeNav === 'calendar' ? 8000 : activeNav === 'overview' ? 6000 : 20000);
     const interval = setInterval(poll, pollIntervalMs);
 
     // Instant poll on tab focus / visibility restore
@@ -7406,7 +7463,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  async function handleUpdatePrice(bookingId: string, newPrice: number) {
+  async function handleUpdatePrice(bookingId: string, newPrice: number, breakdown?: Record<string, number>) {
     if (isNaN(newPrice) || newPrice < 0) {
       setActionNotice('Please enter a valid non-negative price.');
       setTimeout(() => setActionNotice(null), 3000);
@@ -7414,12 +7471,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     setUpdatingPrice(true);
     try {
-      await crm.updateBookingPrice(bookingId, newPrice);
+      await crm.updateBookingPrice(bookingId, newPrice, breakdown);
       setBookings((prev) =>
-        prev.map((b) => (b.id === bookingId ? { ...b, price: newPrice } : b))
+        prev.map((b) =>
+          b.id === bookingId
+            ? {
+                ...b,
+                price: newPrice,
+                metadata: breakdown
+                  ? { ...(b.metadata || {}), billing_breakdown: breakdown }
+                  : b.metadata,
+              }
+            : b
+        )
       );
       if (selectedBookingDetail && selectedBookingDetail.id === bookingId) {
-        setSelectedBookingDetail({ ...selectedBookingDetail, price: newPrice });
+        setSelectedBookingDetail({
+          ...selectedBookingDetail,
+          price: newPrice,
+          metadata: breakdown
+            ? { ...(selectedBookingDetail.metadata || {}), billing_breakdown: breakdown }
+            : selectedBookingDetail.metadata,
+        });
       }
       setEditingBookingPriceId(null);
       setActionNotice(`Booking fee updated to ${currentCurrencySymbol}${newPrice}`);
@@ -7433,7 +7506,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'settings' | 'team') {
+
+  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'settings' | 'team' | 'billing' | 'reviews') {
     setActiveNav(tab);
     if (typeof window !== 'undefined') {
       try {
@@ -9172,7 +9246,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           >
                             <span>{formatTime12(msg.created_at)}</span>
                             {!isInbound && (
-                              <CheckCheck className="w-3 h-3 stroke-[2] text-emerald-200" />
+                              <CheckCheck className={`w-3 h-3 stroke-[2] ${msg.status === 'read' ? 'text-[#facc15]' : 'text-emerald-200'}`} />
                             )}
                           </div>
                         </div>
@@ -10187,7 +10261,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
           <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
             <span className="text-[13px] font-medium text-text-muted">
-              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'repeat_clients' ? 'Repeat Clients' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : 'Settings'}
+              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'billing' ? 'Billing & Fees' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'repeat_clients' ? 'Repeat Clients' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : 'Settings'}
             </span>
           </div>
 
@@ -10670,6 +10744,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 >
                   <CalendarDays className="w-4 h-4 stroke-[1.5] shrink-0" />
                   <span>{currentTaxonomy.tab_bookings_label || 'Bookings'}</span>
+                </button>
+              )}
+
+              {canManageBookings && (settingsForm.plan !== 'review_only') && (
+                <button
+                  onClick={() => navigateTo('billing')}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'billing'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Receipt className="w-4 h-4 stroke-[1.5] shrink-0" />
+                    <span>Billing & Fees</span>
+                  </div>
                 </button>
               )}
 
@@ -12076,6 +12166,566 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
               </div>
             )}
+
+            {/* ── VIEW 1-B: DEDICATED BILLING & REVENUE VIEW ───────────────────── */}
+            {activeNav === 'billing' && (() => {
+              const filteredBilling = (bookings || []).filter((b) => {
+                if (b.is_occupied_only) return false;
+
+                // Search query
+                if (billingSearchQuery.trim()) {
+                  const q = billingSearchQuery.toLowerCase().trim();
+                  const name = (b.contact_name || b.customer_name || '').toLowerCase();
+                  const phone = (b.contact_phone || '').toLowerCase();
+                  const service = (b.service || '').toLowerCase();
+                  const staff = (b.staff_member || b.doctor || '').toLowerCase();
+                  if (!name.includes(q) && !phone.includes(q) && !service.includes(q) && !staff.includes(q)) {
+                    return false;
+                  }
+                }
+
+                // Date filter
+                if (billingDateFilter !== 'all' && b.start_time) {
+                  const bDate = new Date(b.start_time);
+                  if (isNaN(bDate.getTime())) return false;
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  if (billingDateFilter === 'today') {
+                    if (b.start_time.split('T')[0] !== todayStr) return false;
+                  } else if (billingDateFilter === 'yesterday') {
+                    const yest = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                    if (b.start_time.split('T')[0] !== yest) return false;
+                  } else if (billingDateFilter === 'week') {
+                    const weekAgo = new Date(Date.now() - 7 * 86400000);
+                    if (bDate < weekAgo) return false;
+                  } else if (billingDateFilter === 'month') {
+                    const monthAgo = new Date(Date.now() - 30 * 86400000);
+                    if (bDate < monthAgo) return false;
+                  }
+                }
+
+                // Category filter
+                if (billingCategoryFilter !== 'all') {
+                  const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
+                  if (!bd[billingCategoryFilter] || bd[billingCategoryFilter] <= 0) {
+                    return false;
+                  }
+                }
+
+                // Payment status filter
+                if (billingPaymentFilter !== 'all') {
+                  const ps = (b.payment_status || 'unpaid').toLowerCase();
+                  if (billingPaymentFilter === 'paid' && ps !== 'paid') return false;
+                  if (billingPaymentFilter === 'unpaid' && ps !== 'unpaid' && ps !== 'pending') return false;
+                  if (billingPaymentFilter === 'pay_at_clinic' && b.payment_mode !== 'pay_at_clinic' && ps !== 'pay_at_clinic') return false;
+                }
+
+                return true;
+              });
+
+              // KPI aggregates
+              const totalRevenue = filteredBilling.reduce((sum, b) => sum + (parseFloat(String(b.price || 0)) || 0), 0);
+              const totalPaid = filteredBilling.reduce((sum, b) => {
+                const isPaid = (b.payment_status || '').toLowerCase() === 'paid';
+                return sum + (isPaid ? (parseFloat(String(b.price || 0)) || 0) : 0);
+              }, 0);
+              const totalPending = Math.max(0, totalRevenue - totalPaid);
+              const billedCount = filteredBilling.filter((b) => (b.price || 0) > 0).length;
+
+              // Category totals
+              const categoryTotals: Record<string, { total: number; count: number }> = {};
+              billingCategories.forEach((cat) => {
+                categoryTotals[cat] = { total: 0, count: 0 };
+              });
+              filteredBilling.forEach((b) => {
+                const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
+                Object.entries(bd).forEach(([k, v]) => {
+                  const num = parseFloat(String(v || 0)) || 0;
+                  if (num > 0) {
+                    if (!categoryTotals[k]) categoryTotals[k] = { total: 0, count: 0 };
+                    categoryTotals[k].total += num;
+                    categoryTotals[k].count += 1;
+                  }
+                });
+              });
+
+              const handleExportCSV = () => {
+                const headers = ['Date', 'Time', 'Patient Name', 'Phone', 'Service', 'Doctor / Staff', ...billingCategories, 'Total Fee', 'Payment Status', 'Payment Mode'];
+                const rows = filteredBilling.map((b) => {
+                  const dt = b.start_time ? new Date(b.start_time) : null;
+                  const dateStr = dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString() : '';
+                  const timeStr = dt && !isNaN(dt.getTime()) ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                  const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
+                  const catVals = billingCategories.map((c) => bd[c] !== undefined ? bd[c] : 0);
+                  return [
+                    `"${dateStr}"`,
+                    `"${timeStr}"`,
+                    `"${(b.contact_name || b.customer_name || 'Patient').replace(/"/g, '""')}"`,
+                    `"${b.contact_phone || ''}"`,
+                    `"${(b.service || '').replace(/"/g, '""')}"`,
+                    `"${(b.staff_member || b.doctor || '').replace(/"/g, '""')}"`,
+                    ...catVals,
+                    b.price || 0,
+                    `"${b.payment_status || 'unpaid'}"`,
+                    `"${b.payment_mode || 'pay_at_clinic'}"`,
+                  ].join(',');
+                });
+                const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
+                const link = document.createElement('a');
+                link.setAttribute('href', encodeURI(csvContent));
+                link.setAttribute('download', `billing_ledger_${new Date().toISOString().split('T')[0]}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              };
+
+              return (
+                <div className="flex-1 flex flex-col overflow-hidden space-y-3 bg-surface border border-border shadow-sm rounded-xl p-3 sm:p-5">
+                  {/* Top Bar: Title & Controls */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border">
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-text-primary flex items-center gap-2">
+                        <Receipt className="w-5 h-5 text-accent stroke-[1.8]" />
+                        <span>Billing & Fees Ledger</span>
+                        <span className="text-xs font-normal text-text-muted bg-surface-subtle px-2 py-0.5 rounded-full border border-border">
+                          {filteredBilling.length} {filteredBilling.length === 1 ? 'record' : 'records'}
+                        </span>
+                      </h2>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Track fee receipts, therapy packages, and multi-service breakdown across all client visits.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomCategoryInputs([...billingCategories]);
+                          setIsManagingCategories(!isManagingCategories);
+                        }}
+                        className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                        title="Customize billing category names"
+                      >
+                        <Tag className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                        <span>Manage Categories</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleExportCSV}
+                        disabled={filteredBilling.length === 0}
+                        className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-2xs"
+                        title="Download CSV export"
+                      >
+                        <Download className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span className="hidden sm:inline">Export CSV</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => loadBookings()}
+                        className="p-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer shadow-2xs"
+                        title="Refresh ledger"
+                      >
+                        <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingBookings ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Inline Category Manager on Billing Page */}
+                  {isManagingCategories && (
+                    <div className="p-3 bg-surface-subtle border border-accent/30 rounded-lg space-y-2.5 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Tag className="w-4 h-4 text-accent stroke-[1.8]" />
+                          <h4 className="text-xs font-semibold text-text-primary">Customize Billing Category Names</h4>
+                        </div>
+                        <span className="text-[11px] text-text-muted">Changes apply immediately across all booking cards & breakdown tables</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                        {customCategoryInputs.map((cat, idx) => (
+                          <div key={idx} className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={cat}
+                              onChange={(e) => {
+                                const next = [...customCategoryInputs];
+                                next[idx] = e.target.value;
+                                setCustomCategoryInputs(next);
+                              }}
+                              placeholder={`Category ${idx + 1}`}
+                              className="w-full px-2.5 py-1 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                            />
+                            {customCategoryInputs.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setCustomCategoryInputs(customCategoryInputs.filter((_, i) => i !== idx))}
+                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer"
+                                title="Delete category"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-border">
+                        <button
+                          type="button"
+                          onClick={() => setCustomCategoryInputs([...customCategoryInputs, ''])}
+                          className="text-xs text-accent hover:text-accent-hover font-medium flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Category</span>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsManagingCategories(false)}
+                            className="px-2.5 py-1 text-xs text-text-muted hover:text-text-primary cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveCustomCategories(customCategoryInputs)}
+                            disabled={savingCategories}
+                            className="px-3 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {savingCategories && <RotateCcw className="w-3.5 h-3.5 animate-spin" />}
+                            <span>Save Categories</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="p-3 bg-surface-subtle border border-border rounded-lg">
+                      <p className="text-[11px] font-medium text-text-muted">Total Billed Revenue</p>
+                      <p className="text-base sm:text-lg font-bold font-mono text-text-primary mt-0.5">
+                        {currentCurrencySymbol}{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[10px] text-text-muted mt-1">{billedCount} of {filteredBilling.length} with recorded fees</p>
+                    </div>
+
+                    <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+                      <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Collected / Paid</p>
+                      <p className="text-base sm:text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                        {currentCurrencySymbol}{totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[10px] text-emerald-600/80 mt-1">Confirmed payments</p>
+                    </div>
+
+                    <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+                      <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">Pending / At Clinic</p>
+                      <p className="text-base sm:text-lg font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">
+                        {currentCurrencySymbol}{totalPending.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[10px] text-amber-600/80 mt-1">To be collected</p>
+                    </div>
+
+                    <div className="p-3 bg-surface-subtle border border-border rounded-lg">
+                      <p className="text-[11px] font-medium text-text-muted">Billed Appointments</p>
+                      <p className="text-base sm:text-lg font-bold font-mono text-text-primary mt-0.5">
+                        {billedCount}
+                      </p>
+                      <p className="text-[10px] text-text-muted mt-1">Avg: {currentCurrencySymbol}{billedCount > 0 ? (totalRevenue / billedCount).toFixed(0) : '0'} / visit</p>
+                    </div>
+                  </div>
+
+                  {/* Category Revenue Badges Strip */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                    <span className="text-[11px] font-medium text-text-muted shrink-0 mr-1 flex items-center gap-1">
+                      <Coins className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>By Category:</span>
+                    </span>
+                    {billingCategories.map((cat) => {
+                      const data = categoryTotals[cat] || { total: 0, count: 0 };
+                      const isFilterActive = billingCategoryFilter === cat;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setBillingCategoryFilter(isFilterActive ? 'all' : cat)}
+                          className={`px-2 py-1 rounded-sm text-xs font-mono transition-colors duration-150 shrink-0 cursor-pointer flex items-center gap-1.5 border ${
+                            isFilterActive
+                              ? 'bg-accent text-white border-accent'
+                              : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border'
+                          }`}
+                          title={`Click to filter by ${cat}`}
+                        >
+                          <span className="font-sans font-medium text-[11px]">{cat}:</span>
+                          <span className="font-semibold">{currentCurrencySymbol}{data.total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                          <span className={`text-[10px] px-1 rounded-full ${isFilterActive ? 'bg-white/20' : 'bg-surface-subtle text-text-muted'}`}>
+                            {data.count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Filters Bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 pb-1">
+                    <div className="flex items-center gap-2 flex-1 flex-wrap sm:flex-nowrap">
+                      {/* Search Input */}
+                      <div className="relative flex-1 min-w-[200px]">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                        <input
+                          type="text"
+                          value={billingSearchQuery}
+                          onChange={(e) => setBillingSearchQuery(e.target.value)}
+                          placeholder="Search patient, phone, service, doctor..."
+                          className="w-full pl-8 pr-7 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                        />
+                        {billingSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setBillingSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Date Filter */}
+                      <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border overflow-x-auto no-scrollbar shrink-0">
+                        {(['all', 'today', 'yesterday', 'week', 'month'] as const).map((df) => (
+                          <button
+                            key={df}
+                            type="button"
+                            onClick={() => setBillingDateFilter(df)}
+                            className={`px-2 py-1 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap capitalize ${
+                              billingDateFilter === df
+                                ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
+                                : 'text-text-muted hover:text-text-primary'
+                            }`}
+                          >
+                            {df === 'all' ? 'All Time' : df === 'week' ? '7 Days' : df === 'month' ? '30 Days' : df}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Payment Status Dropdown */}
+                      <select
+                        value={billingPaymentFilter}
+                        onChange={(e) => setBillingPaymentFilter(e.target.value)}
+                        className="px-2 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:border-accent cursor-pointer shrink-0"
+                      >
+                        <option value="all">All Payment Statuses</option>
+                        <option value="paid">Paid Only</option>
+                        <option value="pay_at_clinic">Pay At Clinic</option>
+                        <option value="unpaid">Unpaid / Pending</option>
+                      </select>
+
+                      {(billingSearchQuery || billingDateFilter !== 'all' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBillingSearchQuery('');
+                            setBillingDateFilter('all');
+                            setBillingCategoryFilter('all');
+                            setBillingPaymentFilter('all');
+                          }}
+                          className="text-xs text-accent hover:text-accent-hover font-medium whitespace-nowrap cursor-pointer px-1.5"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Ledger Data Table */}
+                  <div className="flex-1 overflow-auto border border-border rounded-md bg-surface">
+                    {filteredBilling.length === 0 ? (
+                      <div className="py-12 text-center text-text-muted">
+                        <Receipt className="w-8 h-8 mx-auto text-text-muted/40 stroke-[1.2] mb-2" />
+                        <p className="text-sm font-medium text-text-primary">No billing records found</p>
+                        <p className="text-xs text-text-muted mt-1">
+                          {billingSearchQuery || billingDateFilter !== 'all' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all'
+                            ? 'Try clearing active filters to see all appointments.'
+                            : 'Fees entered on attended or completed bookings will show up here.'}
+                        </p>
+                      </div>
+                    ) : (
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-surface-subtle border-b border-border sticky top-0 z-10">
+                          <tr>
+                            <th className="py-2 px-3 font-semibold text-text-primary whitespace-nowrap">Date & Time</th>
+                            <th className="py-2 px-3 font-semibold text-text-primary whitespace-nowrap">Patient</th>
+                            <th className="py-2 px-3 font-semibold text-text-primary whitespace-nowrap">Service & Doctor</th>
+                            {billingCategories.map((cat) => (
+                              <th key={cat} className="py-2 px-2.5 font-semibold text-text-primary text-right whitespace-nowrap">
+                                {cat}
+                              </th>
+                            ))}
+                            <th className="py-2 px-3 font-semibold text-text-primary text-right whitespace-nowrap">Total Fee</th>
+                            <th className="py-2 px-3 font-semibold text-text-primary text-center whitespace-nowrap">Payment</th>
+                            <th className="py-2 px-3 font-semibold text-text-primary text-right whitespace-nowrap">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {filteredBilling.map((b) => {
+                            const dt = b.start_time ? new Date(b.start_time) : null;
+                            const isPaid = (b.payment_status || '').toLowerCase() === 'paid';
+                            const isAtClinic = b.payment_mode === 'pay_at_clinic' || (b.payment_status || '').toLowerCase() === 'pay_at_clinic';
+                            const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
+
+                            return (
+                              <tr
+                                key={b.id}
+                                className="hover:bg-surface-subtle/70 transition-colors duration-100 cursor-pointer"
+                                onClick={() => {
+                                  setSelectedBookingDetail(b);
+                                  setEditPriceValue(String(b.price || 0));
+                                  setIsBookingDetailModalOpen(true);
+                                }}
+                              >
+                                {/* Date & Time */}
+                                <td className="py-2.5 px-3 font-mono whitespace-nowrap">
+                                  <div className="font-medium text-text-primary">
+                                    {dt && !isNaN(dt.getTime())
+                                      ? dt.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
+                                      : '—'}
+                                  </div>
+                                  <div className="text-[10px] text-text-muted">
+                                    {dt && !isNaN(dt.getTime())
+                                      ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                      : ''}
+                                  </div>
+                                </td>
+
+                                {/* Patient */}
+                                <td className="py-2.5 px-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-semibold text-text-primary">
+                                      {b.contact_name || b.customer_name || 'Valued Customer'}
+                                    </span>
+                                    {b.contact_phone && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const phone = (b.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
+                                          const matchConv = conversations.find((c) => (c.phone || '').replace(/[^0-9]/g, '').slice(-10) === phone);
+                                          if (matchConv) {
+                                            selectConversation(matchConv);
+                                          } else {
+                                            navigateTo('inbox');
+                                          }
+                                        }}
+                                        className="text-text-muted hover:text-accent p-0.5 rounded cursor-pointer transition-colors"
+                                        title="Chat on WhatsApp"
+                                      >
+                                        <MessageSquare className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] font-mono text-text-muted">
+                                    {formatDisplayPhone(b.contact_phone || '')}
+                                  </div>
+                                </td>
+
+                                {/* Service & Doctor */}
+                                <td className="py-2.5 px-3">
+                                  <div className="font-medium text-text-primary truncate max-w-[180px]">
+                                    {b.service || 'Consultation'}
+                                  </div>
+                                  <div className="text-[10px] text-text-muted truncate max-w-[180px]">
+                                    {b.staff_member || b.doctor || 'Staff'}
+                                  </div>
+                                </td>
+
+                                {/* Dynamic Category Breakdown Columns */}
+                                {billingCategories.map((cat) => {
+                                  const val = bd[cat];
+                                  const hasVal = val !== undefined && val > 0;
+                                  return (
+                                    <td key={cat} className="py-2.5 px-2.5 text-right font-mono whitespace-nowrap">
+                                      {hasVal ? (
+                                        <span className="font-medium text-text-primary">
+                                          {currentCurrencySymbol}{parseFloat(String(val)).toFixed(0)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-text-muted/40">—</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+
+                                {/* Total Fee */}
+                                <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                                  <span className={(b.price || 0) > 0 ? 'text-text-primary' : 'text-text-muted'}>
+                                    {currentCurrencySymbol}{(b.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </td>
+
+                                {/* Payment Status */}
+                                <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                  <span
+                                    className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                      isPaid
+                                        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                        : isAtClinic
+                                        ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                                        : 'bg-surface-subtle text-text-muted border-border'
+                                    }`}
+                                  >
+                                    {isPaid ? 'Paid' : isAtClinic ? 'Pay at Clinic' : 'Unpaid'}
+                                  </span>
+                                </td>
+
+                                {/* Action */}
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedBookingDetail(b);
+                                      setEditPriceValue(String(b.price || 0));
+                                      setIsBookingDetailModalOpen(true);
+                                    }}
+                                    className="px-2.5 py-1 text-xs font-medium bg-surface hover:bg-surface-subtle text-accent border border-border rounded-sm transition-colors cursor-pointer flex items-center gap-1 ml-auto"
+                                    title="Edit fees & billing breakdown"
+                                  >
+                                    <Pencil className="w-3 h-3 stroke-[1.5]" />
+                                    <span>Edit Fee</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        {/* Table Footer with Totals */}
+                        <tfoot className="bg-surface-subtle border-t-2 border-border font-mono text-xs font-semibold">
+                          <tr>
+                            <td colSpan={3} className="py-2.5 px-3 font-sans text-text-primary">
+                              Total Summary ({filteredBilling.length} visits)
+                            </td>
+                            {billingCategories.map((cat) => {
+                              const catSum = filteredBilling.reduce((sum, b) => {
+                                const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
+                                return sum + (parseFloat(String(bd[cat] || 0)) || 0);
+                              }, 0);
+                              return (
+                                <td key={cat} className="py-2.5 px-2.5 text-right text-text-primary whitespace-nowrap">
+                                  {currentCurrencySymbol}{catSum.toFixed(0)}
+                                </td>
+                              );
+                            })}
+                            <td className="py-2.5 px-3 text-right text-text-primary font-bold whitespace-nowrap">
+                              {currentCurrencySymbol}{totalRevenue.toFixed(2)}
+                            </td>
+                            <td colSpan={2}></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── VIEW 2: CALENDAR VIEW ───────────────────────────────────────── */}
             {activeNav === 'calendar' && (
@@ -14216,7 +14866,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       {!isInbound && (
                                         <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read (seen)' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'failed' ? 'Failed' : 'Sent'}>
                                           {msg.status === 'read' ? (
-                                            <CheckCheck className="w-3.5 h-3.5 stroke-[2.2] text-[#53bdeb] shrink-0" />
+                                            <CheckCheck className="w-3.5 h-3.5 stroke-[2.2] text-[#facc15] shrink-0" />
                                           ) : msg.status === 'delivered' ? (
                                             <CheckCheck className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
                                           ) : msg.status === 'failed' ? (
@@ -17843,7 +18493,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               </div>
                               <div className="flex items-center justify-end gap-1 text-[10px] text-slate-400 font-mono pt-1">
                                 <span>{formatTime12(new Date())}</span>
-                                <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb] stroke-[2.2]" />
+                                <CheckCheck className="w-3.5 h-3.5 text-[#facc15] stroke-[2.2]" />
                               </div>
                             </div>
                           </div>
@@ -23908,52 +24558,209 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 </div>
 
-                {/* Edit Fee / Price Section */}
-                <div className="p-3 bg-surface-subtle rounded-sm border border-border space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-text-primary flex items-center gap-1.5">
-                      <Coins className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Booking fee ({currentCurrencySymbol})</span>
-                    </label>
-                    <span className="text-xs font-mono font-medium text-text-primary tabular-nums">
-                      Current: {currentCurrencySymbol}{selectedBookingDetail.price || 0}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-text-muted font-mono">
-                        {currentCurrencySymbol}
-                      </span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        placeholder="0.00"
-                        value={editPriceValue !== '' && editingBookingPriceId === selectedBookingDetail.id ? editPriceValue : (selectedBookingDetail.price || 0)}
-                        onChange={(e) => {
-                          setEditingBookingPriceId(selectedBookingDetail.id);
-                          setEditPriceValue(e.target.value);
-                        }}
-                        className="w-full pl-7 pr-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono font-medium text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                      />
-                    </div>
-                    <button
-                      onClick={() => {
-                        const val = editingBookingPriceId === selectedBookingDetail.id ? parseFloat(editPriceValue) : selectedBookingDetail.price;
-                        handleUpdatePrice(selectedBookingDetail.id, Number(val) || 0);
-                      }}
-                      disabled={updatingPrice}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                    >
-                      {updatingPrice ? (
-                        <RotateCcw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
-                      ) : (
-                        <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                {/* Multi-Service Billing Breakdown */}
+                {(() => {
+                  const existingBreakdown = (selectedBookingDetail.metadata?.billing_breakdown || {}) as Record<string, number>;
+                  const allDisplayCategories = Array.from(new Set([...billingCategories, ...Object.keys(existingBreakdown)]));
+                  const effectiveTab = allDisplayCategories.includes(activeBillingTab) ? activeBillingTab : (allDisplayCategories[0] || 'Naturopathy');
+
+                  const getTabValue = (cat: string) => {
+                    const stateVal = billingBreakdown[cat];
+                    if (stateVal !== undefined && stateVal !== '') return stateVal;
+                    if (existingBreakdown[cat] !== undefined) return String(existingBreakdown[cat]);
+                    return '';
+                  };
+                  const computedTotal = allDisplayCategories.reduce((sum, cat) => {
+                    const v = getTabValue(cat);
+                    return sum + (parseFloat(v) || 0);
+                  }, 0);
+
+                  return (
+                    <div className="p-3 bg-surface-subtle rounded-sm border border-border space-y-2.5">
+                      {/* Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                            <Receipt className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+                            <span>Billing breakdown ({currentCurrencySymbol})</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomCategoryInputs([...billingCategories]);
+                              setIsManagingCategories(!isManagingCategories);
+                            }}
+                            className="text-[11px] text-accent hover:text-accent-hover font-medium flex items-center gap-1 cursor-pointer transition-colors px-1.5 py-0.5 rounded bg-accent/5 hover:bg-accent/10 border border-accent/20"
+                            title="Rename or customize category names"
+                          >
+                            <Pencil className="w-3 h-3 stroke-[1.5]" />
+                            <span>{isManagingCategories ? 'Close editor' : 'Change names'}</span>
+                          </button>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-text-primary tabular-nums">
+                          Total: {currentCurrencySymbol}{computedTotal > 0 ? computedTotal.toFixed(2) : (selectedBookingDetail.price || 0)}
+                        </span>
+                      </div>
+
+                      {/* Inline Category Names Editor */}
+                      {isManagingCategories && (
+                        <div className="p-2.5 bg-surface border border-accent/30 rounded-md space-y-2 shadow-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-text-primary flex items-center gap-1">
+                              <Tag className="w-3 h-3 text-accent" />
+                              <span>Customize category names for this tenant</span>
+                            </span>
+                            <span className="text-[10px] text-text-muted">Changes apply across all bookings</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {customCategoryInputs.map((cat, idx) => (
+                              <div key={idx} className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={cat}
+                                  onChange={(e) => {
+                                    const next = [...customCategoryInputs];
+                                    next[idx] = e.target.value;
+                                    setCustomCategoryInputs(next);
+                                  }}
+                                  placeholder={`Category ${idx + 1}`}
+                                  className="flex-1 px-2 py-1 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                                />
+                                {customCategoryInputs.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCustomCategoryInputs(customCategoryInputs.filter((_, i) => i !== idx));
+                                    }}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer"
+                                    title="Remove this category"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between pt-1 border-t border-border">
+                            <button
+                              type="button"
+                              onClick={() => setCustomCategoryInputs([...customCategoryInputs, ''])}
+                              className="text-[11px] text-accent hover:text-accent-hover font-medium flex items-center gap-1 cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Add category</span>
+                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setIsManagingCategories(false)}
+                                className="px-2 py-0.5 text-[11px] text-text-muted hover:text-text-primary cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveCustomCategories(customCategoryInputs)}
+                                disabled={savingCategories}
+                                className="px-2.5 py-0.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-[11px] font-medium flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                {savingCategories && <RotateCcw className="w-3 h-3 animate-spin" />}
+                                <span>Save names</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       )}
-                      <span>Update price</span>
-                    </button>
-                  </div>
-                </div>
+
+                      {/* Tab bar */}
+                      <div className="flex gap-0.5 bg-white border border-border rounded-sm p-0.5 overflow-x-auto no-scrollbar">
+                        {allDisplayCategories.map((cat) => {
+                          const v = getTabValue(cat);
+                          const hasValue = (parseFloat(v) || 0) > 0;
+                          return (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => setActiveBillingTab(cat)}
+                              className={`flex-1 min-w-[70px] px-2 py-1 rounded-[3px] text-[10px] font-medium transition-colors duration-150 whitespace-nowrap cursor-pointer ${
+                                effectiveTab === cat
+                                  ? 'bg-accent text-white shadow-2xs'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
+                              }`}
+                            >
+                              <span>{cat}</span>
+                              {hasValue && (
+                                <span className={`ml-1 font-mono text-[9px] ${effectiveTab === cat ? 'opacity-90 font-bold' : 'text-accent font-semibold'}`}>
+                                  {currentCurrencySymbol}{parseFloat(v).toFixed(0)}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Active tab input */}
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-text-muted font-mono">
+                            {currentCurrencySymbol}
+                          </span>
+                          <input
+                            key={effectiveTab}
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="0.00"
+                            value={getTabValue(effectiveTab)}
+                            onChange={(e) => {
+                              setEditingBookingPriceId(selectedBookingDetail.id);
+                              setBillingBreakdown((prev) => ({ ...prev, [effectiveTab]: e.target.value }));
+                            }}
+                            className="w-full pl-7 pr-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono font-medium text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const breakdown: Record<string, number> = {};
+                            allDisplayCategories.forEach((cat) => {
+                              const v = getTabValue(cat);
+                              breakdown[cat] = parseFloat(v) || 0;
+                            });
+                            const total = Object.values(breakdown).reduce((s, n) => s + n, 0);
+                            handleUpdatePrice(selectedBookingDetail.id, total, breakdown);
+                          }}
+                          disabled={updatingPrice}
+                          className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-semibold transition-colors duration-150 cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
+                        >
+                          {updatingPrice ? (
+                            <RotateCcw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5 stroke-[1.8]" />
+                          )}
+                          <span>Save Amount</span>
+                        </button>
+                      </div>
+
+                      {/* Per-category summary row */}
+                      {Object.keys(existingBreakdown).length > 0 && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1.5 border-t border-border">
+                          {allDisplayCategories.map((cat) => {
+                            const saved = existingBreakdown[cat];
+                            if (!saved) return null;
+                            return (
+                              <span key={cat} className="text-[10px] text-text-secondary font-mono bg-surface px-1.5 py-0.5 rounded border border-border">
+                                <span className="font-sans font-medium text-text-muted mr-1">{cat}:</span>
+                                <span className="font-semibold text-text-primary">{currentCurrencySymbol}{saved}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
 
                 {/* Associate Actions: Chat & CRM Profile */}
                 <div className="grid grid-cols-2 gap-2">
@@ -26472,6 +27279,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           >
             <CalendarDays className="w-5 h-5 stroke-[1.5]" />
             <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Bookings</span>
+          </button>
+        )}
+
+        {canManageBookings && (settingsForm.plan !== 'review_only') && (
+          <button
+            type="button"
+            onClick={() => navigateTo('billing')}
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer touch-manipulation shrink-0 ${
+              activeNav === 'billing'
+                ? 'text-accent font-semibold bg-accent/5'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <Receipt className="w-5 h-5 stroke-[1.5]" />
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Billing</span>
           </button>
         )}
 

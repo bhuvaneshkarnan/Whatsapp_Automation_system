@@ -56,6 +56,7 @@ async def list_bookings(
                    b.notes, b.price, b.currency, b.created_at,
                    b.payment_status, b.payment_mode, b.razorpay_payment_link_id,
                    b.razorpay_payment_link_url, b.razorpay_payment_id, b.amount_paid, b.payment_collected_at,
+                   b.metadata,
                    COALESCE(b.source, b.metadata->>'source', 'crm') AS source,
                    COALESCE(c.name, b.metadata->>'customer_name', b.metadata->>'name', 'Valued Customer') as contact_name,
                    COALESCE(c.phone, b.metadata->>'customer_phone', b.metadata->>'phone', '') as contact_phone,
@@ -84,6 +85,8 @@ async def list_bookings(
     for r in rows:
         c_concern = r["customer_health_concern"] or ""
         doc_val = r["staff_member"] or ""
+        raw_meta = r["metadata"]
+        parsed_meta = safe_json_loads(raw_meta) if isinstance(raw_meta, str) else (dict(raw_meta) if isinstance(raw_meta, dict) else {})
         # If user is a restricted sales rep or doctor and booking belongs to a different concern/doctor:
         is_restricted_concern = bool(caller_concerns and not is_admin and (c_concern not in caller_concerns))
         is_restricted_doc = bool(caller_doc and not is_admin and doc_val and (doc_val.lower() != caller_doc.lower()))
@@ -112,6 +115,7 @@ async def list_bookings(
                 "is_occupied_only": True,
                 "health_concern": "Other Department",
                 "source": r.get("source") or "crm",
+                "metadata": {},
             })
         else:
             result.append({
@@ -138,6 +142,7 @@ async def list_bookings(
                 "is_occupied_only": False,
                 "health_concern": c_concern or None,
                 "source": r["source"] or "crm",
+                "metadata": parsed_meta,
             })
     return result
 
@@ -852,27 +857,52 @@ async def update_booking_price(
     tenant_id: str = Depends(get_tenant_id),
     caller: dict = Depends(get_caller_context)
 ):
-    """Update price / fee for an existing booking."""
-    if caller.get("role") not in ("admin", "super_admin", "owner"):
-        raise HTTPException(403, "Access denied: Only administrators or owners can modify booking prices.")
+    """Update price / fee for an existing booking.
+    
+    If billing_breakdown is provided (multi-service billing tabs), the total price
+    is auto-computed as the sum of all category amounts and stored in metadata.
+    Old single-amount entries are preserved until overwritten.
+    """
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    if caller_role and caller_role not in ("admin", "super_admin", "owner", "doctor", "sales", "agent", "staff"):
+        raise HTTPException(403, "Access denied: Unauthorized to modify booking prices.")
 
     async with database.db_pool.acquire() as conn:
         booking = await conn.fetchrow(
-            "SELECT id FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            "SELECT id, metadata FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid",
             booking_id, tenant_id
         )
         if not booking:
             raise HTTPException(404, "Booking not found")
 
-        await conn.execute(
-            "UPDATE bookings SET price = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
-            float(payload.price), booking_id, tenant_id
-        )
+        raw_meta = booking["metadata"]
+        existing_meta = safe_json_loads(raw_meta) if isinstance(raw_meta, str) else (dict(raw_meta) if isinstance(raw_meta, dict) else {})
+
+        # Determine effective price
+        import json as _json
+        if payload.billing_breakdown and isinstance(payload.billing_breakdown, dict):
+            # Multi-service: sum all category amounts as the total price
+            eff_price = float(sum(v for v in payload.billing_breakdown.values() if isinstance(v, (int, float)) and v >= 0))
+            # Merge breakdown into existing metadata (backward-compatible)
+            existing_meta["billing_breakdown"] = {k: float(v) for k, v in payload.billing_breakdown.items()}
+            await conn.execute(
+                "UPDATE bookings SET price = $1, metadata = $2::jsonb, updated_at = now() WHERE id = $3::uuid AND tenant_id = $4::uuid",
+                eff_price, _json.dumps(existing_meta), booking_id, tenant_id
+            )
+        else:
+            # Legacy single-amount update
+            eff_price = float(payload.price)
+            await conn.execute(
+                "UPDATE bookings SET price = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                eff_price, booking_id, tenant_id
+            )
 
     return {
         "status": "updated",
         "id": booking_id,
-        "price": float(payload.price)
+        "price": eff_price,
+        "billing_breakdown": payload.billing_breakdown or None,
+        "metadata": existing_meta
     }
 
 

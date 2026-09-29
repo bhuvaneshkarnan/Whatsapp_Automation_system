@@ -458,6 +458,10 @@ export interface Booking {
   razorpay_payment_id?: string;
   amount_paid?: number;
   payment_collected_at?: string;
+  metadata?: {
+    billing_breakdown?: Record<string, number>;
+    [key: string]: any;
+  };
 }
 
 export interface Customer {
@@ -740,12 +744,12 @@ export const crm = {
       }
     ),
 
-  updateBookingPrice: (bookingId: string, price: number) =>
-    request<{ status: string; id: string; price: number }>(
+  updateBookingPrice: (bookingId: string, price: number, billingBreakdown?: Record<string, number>) =>
+    request<{ status: string; id: string; price: number; billing_breakdown?: Record<string, number> }>(
       `/api/v1/crm/bookings/${bookingId}/price`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ price }),
+        body: JSON.stringify({ price, ...(billingBreakdown ? { billing_breakdown: billingBreakdown } : {}) }),
       }
     ),
 
@@ -1638,6 +1642,7 @@ export interface TenantSettingsResponse {
   closing_time?: string;
   slot_booking_mode?: 'single' | 'multiple';
   max_concurrent_bookings?: number;
+  billing_categories?: string[];
   leave_schedules?: LeaveSchedule[];
 
   industry?: string;

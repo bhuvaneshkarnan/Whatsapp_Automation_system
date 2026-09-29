@@ -336,6 +336,7 @@ async def get_tenant_settings(
         "booking_fee_currency": tenant_settings.get("booking_fee_currency", "INR"),
         "booking_fee_description": tenant_settings.get("booking_fee_description", "Appointment Booking Fee"),
         "service_pricing": tenant_settings.get("service_pricing", {}),
+        "billing_categories": tenant_settings.get("billing_categories") or ["Naturopathy", "Ayurveda", "Medicine", "Others"],
     }
 
 
@@ -701,6 +702,10 @@ async def update_tenant_settings(
         if payload.max_concurrent_bookings is not None: cur_settings["max_concurrent_bookings"] = int(payload.max_concurrent_bookings)
         if payload.leave_schedules is not None:
             cur_settings["leave_schedules"] = payload.leave_schedules
+        if payload.billing_categories is not None:
+            clean_cats = [c.strip() for c in payload.billing_categories if isinstance(c, str) and c.strip()]
+            if clean_cats:
+                cur_settings["billing_categories"] = clean_cats
 
         # Dual-sync all 12 configurable template names into tenants.settings
         if payload.template_booking_confirmation is not None: cur_settings["template_booking_confirmation"] = payload.template_booking_confirmation.strip()

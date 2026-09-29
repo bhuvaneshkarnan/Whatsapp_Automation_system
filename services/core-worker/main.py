@@ -200,9 +200,54 @@ def clean_location_candidate(cand: Optional[str]) -> Optional[str]:
         return None
     return cand.title()
 
+def extract_address(text: Optional[str]) -> Optional[str]:
+    """
+    Extracts complete customer street addresses for home sample collection or delivery.
+    Matches formats like:
+    - 'No 5, Natesan Nagar, Virugambakkam, Chennai 600092'
+    - 'Door 4B, Sai Shanthi Apts, Arcot Road, Virugambakkam'
+    - 'Flat 302, Green Valley Apartments, Porur'
+    - '12 Natesan Street, Valasaravakkam, 600087'
+    - 'my address is Flat 201, Lotus Enclave, Porur, Chennai 600116'
+    """
+    if not text or not isinstance(text, str):
+        return None
+
+    cleaned = text.strip()
+
+    # 1. Explicit address prefix: 'address: ...', 'my address is ...', 'home address: ...'
+    m_pfx = re.search(r'\b(?:my\s+address\s+is|address\s*(?:is|:|=|-)|home\s+address\s*(?:is|:|=|-)|collection\s+address\s*(?:is|:|=|-)|location\s*(?:is|:|=|-))\s*([^\n\r]+(?:\n[^\n\r]+){0,3})', cleaned, re.IGNORECASE)
+    if m_pfx:
+        cand = m_pfx.group(1).strip()
+        if len(cand) >= 10:
+            return cand.strip(' .,!?:;-_()[]{}"\'')
+
+    # 2. Door/Flat/Plot pattern with street/nagar/locality
+    has_number = bool(re.search(r'\b(?:no\.?|door\s*(?:no\.?)?|flat\s*(?:no\.?)?|plot\s*(?:no\.?)?|d\.?no\.?|#)\s*\d+[\w\/\-]*|\b\d{1,4}[A-Za-z]?[\/\-]\d{1,4}\b|\b\d{1,4}\b', cleaned, re.IGNORECASE))
+    has_street_kw = bool(re.search(r'\b(?:street|st\.|road|rd\.|nagar|colony|layout|avenue|ave|salai|apartment|apartments|apts?|enclave|vihar|phase|block|sector|cross|main|lane|gali)\b', cleaned, re.IGNORECASE))
+    has_locality = bool(re.search(r'\b(?:chennai|virugambakkam|porur|annanagar|anna nagar|vadapalani|t nagar|t\.nagar|kk nagar|k\.k\. nagar|velachery|tambaram|guindy|adyar|mylapore|alwarpet|ashok nagar|saidapet|kodambakkam|madipakkam|sholinganallur|omr|ecr|chromepet|pallavaram|medavakkam|perumbakkam|ambattur|avadi|villivakkam|nungambakkam|triplicane|egmore|royapettah|kilpauk|chetpet|thiruvanmiyur|besant nagar|koyambedu|ramapuram|valasaravakkam|nesapakkam|saligramam|kattupakkam|poonamallee|tiruppur|coimbatore|madurai|bengaluru|bangalore|hyderabad|mumbai|delhi|600\d{3}|641\d{3}|625\d{3}|638\d{3}|\d{6})\b', cleaned, re.IGNORECASE))
+
+    if (has_number and (has_street_kw or has_locality)) and len(cleaned) >= 12:
+        # Exclude pure health concern, price inquiry, or general questions
+        if any(w in cleaned.lower() for w in ['suffering', 'sleeping', 'treatment', 'consultation', 'available', 'how much', 'cost', 'price']):
+            return None
+        # Clean up any leading greetings or affirmative words
+        addr = re.sub(r'^(?:yes|sure|ok|okay|hi|hello|vanakkam|please|kindly|here\s+is\s+my\s+address|my\s+address\s+is|address\s+is)[,\s!:]+', '', cleaned, flags=re.IGNORECASE).strip()
+        # Remove trailing phone numbers if customer pasted phone at the end of address
+        addr = re.sub(r'(?:phone|ph|mobile|contact|tel)?\s*[:=\-]?\s*\+?\d{10,12}\s*$', '', addr, flags=re.IGNORECASE).strip()
+        if len(addr) >= 10:
+            return addr.strip(' .,!?:;-_()[]{}"\'')
+
+    return None
+
 def extract_location(text: Optional[str]) -> Optional[str]:
     if not text or not isinstance(text, str):
         return None
+
+    # Check for detailed street address first (e.g. for home collection)
+    addr = extract_address(text)
+    if addr:
+        return addr
         
     cleaned_text = re.sub(r'\b(?:suffering|disturbed|facing|recovering)\s+from\b', '', text, flags=re.IGNORECASE)
     # Ignore visiting/travelling to clinic: e.g. 'come to chennai', 'visit your clinic in chennai'
@@ -2925,7 +2970,20 @@ end
         customer_name_display = confirmed_name if has_real_name else (f"Not confirmed yet (WhatsApp handle: {wa_name})" if wa_name else "Unknown")
         customer_name = confirmed_name or wa_name or "Valued Customer"
 
-        # If age or location are not yet on file, scan recent conversation history
+        # Check current incoming message for address / location / age updates
+        current_addr = extract_address(message_text)
+        if current_addr:
+            customer_location = current_addr
+        elif not customer_location:
+            found_cur_loc = extract_location(message_text)
+            if found_cur_loc:
+                customer_location = found_cur_loc
+
+        current_age = extract_age(message_text)
+        if current_age is not None:
+            customer_age = current_age
+
+        # If age or location are still not on file, scan recent conversation history
         if customer_age is None or not customer_location:
             for h in history:
                 if h.get("role") == "user":
@@ -2938,7 +2996,7 @@ end
                         found_l = extract_location(u_text)
                         if found_l:
                             customer_location = found_l
-            # If we found missing info from history, persist it in background
+            # If we found missing info, persist it in background
             if customer_age is not None or customer_location:
                 asyncio.create_task(
                     self._update_customer_extracted_info(
@@ -3555,6 +3613,14 @@ end
             ])
         )
 
+        is_address_request_pending = bool(
+            last_assistant_msg and any(q in last_assistant_msg for q in [
+                "home address", "your address", "share your address", "complete address",
+                "collection address", "house address", "flat", "door no", "landmark",
+                "share your complete", "send your address"
+            ])
+        )
+
         has_time_or_slot_indicator = bool(
             re.search(
                 r'\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|'
@@ -3587,6 +3653,9 @@ end
             "postpone", "prepone", "move appointment", "move my appointment", "shift my appointment",
             "move to", "reschedule to", "change to", "reschedule my"
         ])
+
+        is_home_visit = False
+        effective_address = None
 
         if is_missed_call_query:
             funnel_stage = "MISSED_CALL_APOLOGY"
@@ -3726,10 +3795,14 @@ end
         elif (
             any(w in inbound_clean for w in [
                 "book", "appointment", "schedule", "demo", "call", "slot", "slots", "available", 
-                "come today", "tomorrow", "calendar", "timing works", "time works"
+                "come today", "tomorrow", "calendar", "timing works", "time works",
+                "home visit", "home collection", "home sample", "sample collection", "home test",
+                "blood test at home"
             ])
             or (is_slot_request_pending and has_time_or_slot_indicator)
-            or (is_ongoing_conversation and has_time_or_slot_indicator and not has_upcoming and not any(w in inbound_clean for w in ["price", "cost", "fee", "where", "location", "address"]))
+            or (is_address_request_pending and (extract_address(message_text) or len(message_text.strip()) >= 8))
+            or (extract_address(message_text) and not any(w in inbound_clean for w in ["price", "cost", "fee"]))
+            or (is_ongoing_conversation and has_time_or_slot_indicator and not has_upcoming and not any(w in inbound_clean for w in ["price", "cost", "fee", "where", "location"]))
         ):
             funnel_stage = "BOOKING_INTENT"
 
@@ -3738,7 +3811,7 @@ end
             if clean_slug == "boldlabs":
                 target_service = "Demo / Consultation"
             elif "abinaya" in clean_slug:
-                target_service = customer_health_concern or "Health Checkup"
+                target_service = customer_health_concern or "TruFit Full Body Checkup"
             elif "aadhiran" in clean_slug:
                 target_service = customer_health_concern or "Consultation & Treatment"
             elif "mindbody" in clean_slug:
@@ -3746,6 +3819,48 @@ end
             else:
                 target_service = customer_health_concern or "Appointment"
 
+            # Check for Home Visit / Home Sample Collection context across recent messages and current message
+            history_text = " ".join([m.get("content", "") for m in (history[-6:] if history else [])]).lower()
+            combined_context = f"{history_text} {inbound_clean}".lower()
+
+            is_home_visit = bool(
+                any(w in combined_context for w in [
+                    "home visit", "home collection", "home sample", "sample at home",
+                    "collect at home", "come to home", "come home", "at my home", "at home",
+                    "at house", "at my house", "veetuku", "veetula", "veetla", "doorstep",
+                    "home test", "blood test at home", "sample collection"
+                ])
+                or any(w in (customer_health_concern or "").lower() for w in ["home visit", "home collection", "sample collection"])
+            )
+            # If customer specifically chose lab/clinic visit, override home visit
+            if any(w in inbound_clean for w in ["lab visit", "clinic visit", "come to clinic", "come to lab", "visit the lab", "visit clinic", "direct visit", "in person"]):
+                is_home_visit = False
+
+            # Extract complete address from current message, customer_location, or history
+            extracted_current_addr = extract_address(message_text)
+            effective_address = extracted_current_addr or (customer_location if (customer_location and extract_address(customer_location)) else None)
+            if not effective_address and history:
+                for h in reversed(history):
+                    if h.get("role") == "user":
+                        u_addr = extract_address(h.get("content") or "")
+                        if u_addr:
+                            effective_address = u_addr
+                            break
+
+            # If address was found, ensure customer_location is updated and persisted
+            if effective_address and effective_address != customer_location:
+                customer_location = effective_address
+                asyncio.create_task(
+                    self._update_customer_extracted_info(
+                        tenant_id=tenant_id,
+                        phone=contact_phone,
+                        age=customer_age,
+                        location=customer_location,
+                        contact_id=contact_id_val,
+                    )
+                )
+
+            # Check if an exact time of day is requested in current message or recent history
             has_specific_time_of_day = bool(
                 re.search(
                     r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2}|(?:at|by|around)\s*\d{1,2}(?::\d{2})?)\b',
@@ -3753,25 +3868,114 @@ end
                     re.I
                 )
             )
+            if not has_specific_time_of_day and history:
+                for h in reversed(history[-4:]):
+                    if h.get("role") == "user":
+                        u_t = (h.get("content") or "").strip()
+                        m_time = re.search(r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2})\b', u_t, re.I)
+                        if m_time:
+                            has_specific_time_of_day = True
+                            break
 
-            if has_specific_time_of_day:
-                stage_directive = (
-                    f"The customer is stating a specific preferred time: '{message_text}'.\n"
-                    "CRITICAL APPOINTMENT CONFIRMATION DIRECTIVE:\n"
-                    "1. ABSOLUTELY NEVER repeat your previous greeting or intro! Do not re-ask what time they prefer.\n"
-                    f"2. Current live context: Today is {now.strftime('%A, %d %b %Y')} and current time is {now.strftime('%I:%M %p')}. Business operating hours are: {op_hours_display}.\n"
-                    f"   - If customer requested 'today' or an upcoming time today within operating hours: confirm for TODAY ({today_date_str}) at that time!\n"
-                    f"   - If that time has already passed today or today is closed/requested for tomorrow: confirm for TOMORROW ({tomorrow_date_str}) at that time!\n"
-                    f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on a new line at the very end:\n"
-                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]"
-                )
+            if is_home_visit:
+                # Home Visit / Home Sample Collection flow
+                service_with_home = target_service if "home" in target_service.lower() else f"{target_service} - Home Collection"
+
+                if effective_address and has_specific_time_of_day:
+                    # BOTH ADDRESS AND TIME PROVIDED: Confirm home collection!
+                    target_slot_date_iso = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+                    if "today" in combined_context:
+                        target_slot_date_iso = now.strftime("%Y-%m-%d")
+                    elif "day after tomorrow" in combined_context:
+                        target_slot_date_iso = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+                    else:
+                        days_list = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                        for idx, day_n in enumerate(days_list):
+                            if day_n in combined_context:
+                                c_d = now.weekday()
+                                ahead = (idx - c_d) % 7
+                                if ahead == 0 and "next" in combined_context:
+                                    ahead = 7
+                                target_slot_date_iso = (now + datetime.timedelta(days=ahead)).strftime("%Y-%m-%d")
+                                break
+
+                    target_slot_time_iso = "08:00"
+                    tm_find = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', combined_context, re.I)
+                    if not tm_find:
+                        tm_find = re.search(r'\b(\d{1,2}:\d{2})\b', combined_context)
+                    if tm_find:
+                        raw_t = tm_find.group(1).strip().upper()
+                        try:
+                            if "AM" in raw_t or "PM" in raw_t:
+                                pt = datetime.datetime.strptime(raw_t.replace(" ", ""), "%I:%M%p" if ":" in raw_t else "%I%p")
+                                target_slot_time_iso = pt.strftime("%H:%M")
+                            elif ":" in raw_t:
+                                p_parts = raw_t.split(":")
+                                target_slot_time_iso = f"{int(p_parts[0]):02d}:{int(p_parts[1]):02d}"
+                        except Exception:
+                            target_slot_time_iso = "08:00"
+
+                    stage_directive = (
+                        f"The customer is booking a HOME SAMPLE COLLECTION for '{service_with_home}'.\n"
+                        f"Customer Home Address: '{effective_address}'\n"
+                        f"Collection Date: {target_slot_date_iso}\n"
+                        f"Collection Time: {target_slot_time_iso}\n"
+                        f"CRITICAL HOME SAMPLE COLLECTION CONFIRMATION DIRECTIVE:\n"
+                        f"1. Warmly confirm the home sample collection for {service_with_home} at their address '{effective_address}'.\n"
+                        f"2. Current live context: Today is {now.strftime('%A, %d %b %Y')} and current time is {now.strftime('%I:%M %p')}. Lab operating hours: {op_hours_display}.\n"
+                        f"   - Confirm for date {target_slot_date_iso} at morning time {target_slot_time_iso}.\n"
+                        f"3. MANDATORY FASTING INSTRUCTION: Remind the customer to ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n"
+                        f"4. Reassure them that our phlebotomist / sample collection executive will arrive at their doorstep with a sealed, sanitized collection kit.\n"
+                        f"5. MANDATORY SYSTEM ACTION TAG: You MUST append this EXACT line on its own line at the very end of your response:\n"
+                        f"[ACTION:CREATE_BOOKING: {{\"service\": \"{service_with_home}\", \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"location\": \"{effective_address}\", \"notes\": \"Home Sample Collection at {effective_address}\"}}]"
+                    )
+                elif effective_address and not has_specific_time_of_day:
+                    # HAS ADDRESS, BUT NO TIME
+                    stage_directive = (
+                        f"The customer has provided their home address: '{effective_address}', but has NOT specified an exact morning collection time.\n"
+                        f"1. Warmly acknowledge and thank them for sharing their address ({effective_address}).\n"
+                        f"2. Ask what morning time suits them best for home sample collection (e.g. between 7:00 AM and 11:00 AM).\n"
+                        f"3. Remind them of 8 to 12 hours of fasting (water allowed) for accurate test results.\n"
+                        f"4. CRITICAL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until an exact time has been specified by the customer!"
+                    )
+                elif not effective_address and has_specific_time_of_day:
+                    # HAS TIME, BUT NO ADDRESS
+                    stage_directive = (
+                        f"The customer wants home sample collection and specified a time: '{message_text}', but has NOT provided their complete home address.\n"
+                        f"1. Warmly acknowledge the requested day and time for home sample collection.\n"
+                        f"2. MANDATORY: Explicitly ask them to share their complete home address (Flat/Door No., Building, Street/Nagar, Area, and Landmark) so our technician can arrive at their doorstep.\n"
+                        f"3. Remind them of 8 to 12 hours of overnight fasting prior to morning sample collection.\n"
+                        f"4. CRITICAL PROTOCOL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until the customer provides their complete home address!"
+                    )
+                else:
+                    # NEITHER ADDRESS NOR TIME PROVIDED (e.g. "Can I get home collection?")
+                    stage_directive = (
+                        f"The customer is asking about home sample collection / home visit for '{target_service}'.\n"
+                        f"1. Warmly confirm that we provide home sample collection across Chennai at their doorstep.\n"
+                        f"2. MANDATORY: Ask them to share their complete home address (Door/Flat No., Street, Area, Landmark) and their preferred morning time (7:00 AM to 11:00 AM).\n"
+                        f"3. Mention 8 to 12 hours fasting requirement (only water permitted).\n"
+                        f"4. CRITICAL PROTOCOL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag yet!"
+                    )
             else:
-                stage_directive = (
-                    f"The customer wants to schedule or book an appointment for '{message_text}', but has NOT provided an exact hour/time.\n"
-                    f"1. Warmly acknowledge the requested day (e.g. tomorrow or today).\n"
-                    f"2. Ask what time suits them best within our operating hours ({op_hours_display}).\n"
-                    f"3. CRITICAL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until an exact time has been specified and agreed by the customer!"
-                )
+                # Regular in-clinic / lab visit flow
+                if has_specific_time_of_day:
+                    stage_directive = (
+                        f"The customer is stating a specific preferred time: '{message_text}'.\n"
+                        "CRITICAL APPOINTMENT CONFIRMATION DIRECTIVE:\n"
+                        "1. ABSOLUTELY NEVER repeat your previous greeting or intro! Do not re-ask what time they prefer.\n"
+                        f"2. Current live context: Today is {now.strftime('%A, %d %b %Y')} and current time is {now.strftime('%I:%M %p')}. Business operating hours are: {op_hours_display}.\n"
+                        f"   - If customer requested 'today' or an upcoming time today within operating hours: confirm for TODAY ({today_date_str}) at that time!\n"
+                        f"   - If that time has already passed today or today is closed/requested for tomorrow: confirm for TOMORROW ({tomorrow_date_str}) at that time!\n"
+                        f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on a new line at the very end:\n"
+                        f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]"
+                    )
+                else:
+                    stage_directive = (
+                        f"The customer wants to schedule or book an appointment for '{message_text}', but has NOT provided an exact hour/time.\n"
+                        f"1. Warmly acknowledge the requested day (e.g. tomorrow or today).\n"
+                        f"2. Ask what time suits them best within our operating hours ({op_hours_display}).\n"
+                        f"3. CRITICAL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until an exact time has been specified and agreed by the customer!"
+                    )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
             stage_directive = (
@@ -3787,7 +3991,7 @@ end
                 "Anchor the value/treatment in Sentence 2, and ask 1 diagnostic qualification question to understand their specific requirement or condition (e.g. what issue they want treatment for or how long they have had it). "
                 "Do NOT rush to hard close or tag as hot yet; qualify their requirement first."
             )
-        elif any(w in inbound_clean for w in [
+        elif not extract_address(message_text) and any(w in inbound_clean for w in [
             "where", "location", "address", "landmark", "directions", "how to reach",
             "enga irukku", "enga irukinga", "enga irukkinga", "evlo thooram", "route"
         ]):
@@ -4442,6 +4646,103 @@ end
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT):\s*.+?\]', '', response_text, flags=re.DOTALL | re.I).strip()
 
+            # 4b. Booking Action Recovery Safety Net:
+            # If LLM generated a booking confirmation response but forgot or omitted the [ACTION:CREATE_BOOKING] tag
+            if not booking_action and not cancel_action and not reschedule_action and not inbound_appointment_inquiry:
+                resp_low = (response_text or "").lower()
+                is_confirmed_in_text = any(
+                    phrase in resp_low for phrase in [
+                        "have successfully booked",
+                        "has been successfully booked",
+                        "have confirmed your home sample",
+                        "have confirmed your booking",
+                        "have confirmed your appointment",
+                        "appointment has been confirmed",
+                        "booking has been confirmed",
+                        "scheduled your home sample",
+                        "scheduled your appointment",
+                        "scheduled your demo",
+                        "successfully booked your",
+                        "booked your",
+                    ]
+                )
+                if is_confirmed_in_text:
+                    logger.info("reconstructing_missing_booking_action", tenant_id=tenant_id, resp_snippet=resp_low[:80])
+                    # 1. Date resolution
+                    target_b_date = today_date_str
+                    if "tomorrow" in resp_low or "tomorrow" in inbound_clean or (history and any("tomorrow" in (h.get("content") or "").lower() for h in history[-3:])):
+                        target_b_date = tomorrow_date_str
+                    else:
+                        days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                        for idx, day in enumerate(days):
+                            if day in resp_low or day in inbound_clean:
+                                c_day = now.weekday()
+                                d_ahead = (idx - c_day) % 7
+                                if d_ahead == 0 and ("next" in resp_low or "next" in inbound_clean):
+                                    d_ahead = 7
+                                target_b_date = (now + datetime.timedelta(days=d_ahead)).strftime("%Y-%m-%d")
+                                break
+
+                    # 2. Time resolution
+                    target_b_time = "08:00" if is_home_visit else "10:00"
+                    tm_resp = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', resp_low, re.I)
+                    if not tm_resp:
+                        tm_resp = re.search(r'\b(\d{1,2}:\d{2})\b', resp_low)
+                    if not tm_resp:
+                        tm_resp = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', inbound_clean, re.I)
+                    if not tm_resp and history:
+                        for h in reversed(history[-4:]):
+                            tm_resp = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', (h.get("content") or ""), re.I)
+                            if tm_resp:
+                                break
+
+                    if tm_resp:
+                        raw_t = tm_resp.group(1).strip().upper()
+                        try:
+                            if "AM" in raw_t or "PM" in raw_t:
+                                pt = datetime.datetime.strptime(raw_t.replace(" ", ""), "%I:%M%p" if ":" in raw_t else "%I%p")
+                                target_b_time = pt.strftime("%H:%M")
+                            elif ":" in raw_t:
+                                parts = raw_t.split(":")
+                                target_b_time = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+                        except Exception:
+                            pass
+
+                    # 3. Service resolution
+                    clean_slug = (tenant_slug or "").strip().lower()
+                    if clean_slug == "boldlabs":
+                        svc_name = "Demo / Consultation"
+                    elif "abinaya" in clean_slug:
+                        base_svc = customer_health_concern or "TruFit Full Body Checkup"
+                        svc_name = f"{base_svc} - Home Collection" if is_home_visit else base_svc
+                    elif is_home_visit:
+                        base_svc = "Appointment"
+                        try:
+                            base_svc = target_service
+                        except Exception:
+                            pass
+                        svc_name = f"{base_svc} - Home Collection" if "home" not in base_svc.lower() else base_svc
+                    else:
+                        base_svc = "Appointment"
+                        try:
+                            base_svc = target_service
+                        except Exception:
+                            pass
+                        svc_name = base_svc
+
+                    # 4. Location resolution
+                    recov_loc = effective_address or customer_location or extract_address(response_text) or ""
+
+                    booking_action = {
+                        "service": svc_name,
+                        "date": target_b_date,
+                        "time": target_b_time,
+                        "name": confirmed_name or customer_name_display or "Customer",
+                        "location": recov_loc,
+                        "notes": f"Home Sample Collection at {recov_loc}" if is_home_visit and recov_loc else "Booked via WhatsApp AI Assistant"
+                    }
+                    logger.info("reconstructed_booking_action_success", booking_action=booking_action)
+
             # 3b. Duplicate Booking Prevention Safety Net:
             # If customer already has an active upcoming booking and did NOT explicitly request an additional session:
             if booking_action and upcoming_active_bookings:
@@ -4689,8 +4990,9 @@ end
                         if resp_words[:8] == prev_words[:8]:
                             is_duplicate_response = True
                         else:
-                            overlap = len(set(resp_words) & set(prev_words))
-                            if overlap / max(len(set(resp_words)), 1) > 0.70:
+                            import difflib
+                            seq_ratio = difflib.SequenceMatcher(None, resp_clean, prev_clean).ratio()
+                            if seq_ratio > 0.85:
                                 is_duplicate_response = True
 
                     if is_duplicate_response:
@@ -4699,7 +5001,7 @@ end
                         if has_time_or_slot_indicator:
                             slot_target_date = today_date_str
                             time_match = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b', inbound_clean, re.I)
-                            stated_time = time_match.group(1).upper() if time_match else "05:30 PM"
+                            stated_time = time_match.group(1).upper() if time_match else "09:00 AM"
                             if ":" not in stated_time and ("AM" in stated_time or "PM" in stated_time):
                                 stated_time = re.sub(r'(\d+)\s*(AM|PM)', r'\1:00 \2', stated_time)
 
@@ -4709,14 +5011,53 @@ end
                             else:
                                 date_friendly = "today"
 
-                            response_text = f"Got it! I have scheduled your demo for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
-                            if not booking_action:
-                                booking_action = {
-                                    "service": "Clinic WhatsApp AI Demo",
-                                    "date": slot_target_date,
-                                    "time": stated_time,
-                                    "name": confirmed_name or customer_name_display or "Customer"
-                                }
+                            # Determine service appropriate for this tenant
+                            clean_slug = (tenant_slug or "").strip().lower()
+                            if clean_slug == "boldlabs":
+                                dynamic_service = "Demo / Consultation"
+                            elif "abinaya" in clean_slug:
+                                dynamic_service = customer_health_concern or "TruFit Full Body Checkup"
+                            elif "aadhiran" in clean_slug:
+                                dynamic_service = customer_health_concern or "Consultation & Treatment"
+                            elif "mindbody" in clean_slug:
+                                dynamic_service = "Consultation"
+                            else:
+                                dynamic_service = customer_health_concern or "Appointment"
+
+                            if is_home_visit:
+                                if effective_address:
+                                    svc_name = dynamic_service if "home" in dynamic_service.lower() else f"{dynamic_service} - Home Collection"
+                                    response_text = (
+                                        f"Great! We have confirmed your home sample collection for {svc_name} on {date_friendly} at {stated_time} "
+                                        f"at your address: {effective_address}. Please ensure 8 to 12 hours of overnight fasting (only plain water is permitted)."
+                                    )
+                                    booking_action = {
+                                        "service": svc_name,
+                                        "date": slot_target_date,
+                                        "time": stated_time,
+                                        "name": confirmed_name or customer_name_display or "Customer",
+                                        "location": effective_address,
+                                        "notes": f"Home Sample Collection at {effective_address}"
+                                    }
+                                else:
+                                    response_text = (
+                                        f"Noted for {date_friendly} at {stated_time}! "
+                                        "Could you please share your complete home address (Door/Flat No., Street/Nagar, Area, Landmark) "
+                                        "so our technician can reach you? Also, kindly maintain 8 to 12 hours of overnight fasting."
+                                    )
+                                    booking_action = None
+                            else:
+                                if clean_slug == "boldlabs":
+                                    response_text = f"Got it! I have scheduled your demo for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
+                                else:
+                                    response_text = f"Got it! We have scheduled your appointment for {dynamic_service} on {date_friendly} at {stated_time}."
+                                if not booking_action:
+                                    booking_action = {
+                                        "service": dynamic_service,
+                                        "date": slot_target_date,
+                                        "time": stated_time,
+                                        "name": confirmed_name or customer_name_display or "Customer"
+                                    }
                         else:
                             # Strip the repeated intro and keep subsequent sentences
                             sentences = re.split(r'(?<=[.!?])\s+', response_text)
@@ -4927,6 +5268,8 @@ end
                 )
             )
         elif booking_action:
+            if not booking_action.get("location") and customer_location:
+                booking_action["location"] = customer_location
             asyncio.create_task(
                 self._fire_and_log(
                     self._execute_ai_booking(
@@ -5218,6 +5561,24 @@ end
             notes = booking_data.get("notes") or "Booked via WhatsApp AI Assistant"
             name = booking_data.get("name") or customer_name or "Valued Customer"
             customer_email = sanitize_and_fix_email(booking_data.get("email"))
+            booking_loc = (
+                booking_data.get("location") or
+                booking_data.get("address") or
+                ""
+            ).strip()
+            if not booking_loc:
+                try:
+                    cust_loc = await self.db_pool.fetchval(
+                        "SELECT location FROM customers WHERE tenant_id = $1::uuid AND (phone = $2 OR phone LIKE $3) LIMIT 1",
+                        tenant_id, contact_phone, f"%{contact_phone[-10:]}%"
+                    )
+                    if cust_loc:
+                        booking_loc = cust_loc.strip()
+                except Exception as loc_err:
+                    logger.debug("cust_location_lookup_failed", error=str(loc_err))
+
+            if booking_loc and notes == "Booked via WhatsApp AI Assistant":
+                notes = f"Home Sample Collection at {booking_loc}"
 
             # Parse start and end time using flexible 12-hr / 24-hr parser
             st_dt = parse_flexible_datetime(date_str, time_str, tz)
@@ -5294,6 +5655,7 @@ end
                         contact_id=contact_id,
                         name=name if name not in ["Valued Customer", "Client", "Customer"] else None,
                         health_concern=service_name if service_name else None,
+                        location=booking_loc if booking_loc else None,
                     )
                 )
 
@@ -5411,9 +5773,9 @@ end
             if existing_contact_booking:
                 booking_id = str(existing_contact_booking["id"])
                 await self.db_pool.execute(
-                    """UPDATE bookings SET service = $1, start_time = $2, end_time = $3, notes = $4, price = $5, payment_mode = $6, payment_status = $7, updated_at = NOW()
-                       WHERE id = $8::uuid AND tenant_id = $9::uuid""",
-                    service_name, st_dt, et_dt, notes, eff_price, eff_mode, initial_payment_status, booking_id, tenant_id
+                    """UPDATE bookings SET service = $1, start_time = $2, end_time = $3, notes = $4, price = $5, payment_mode = $6, payment_status = $7, location = $8, updated_at = NOW()
+                       WHERE id = $9::uuid AND tenant_id = $10::uuid""",
+                    service_name, st_dt, et_dt, notes, eff_price, eff_mode, initial_payment_status, booking_loc, booking_id, tenant_id
                 )
                 logger.info("ai_booking_updated_existing", booking_id=booking_id, service=service_name, start_time=str(st_dt))
             else:
@@ -5426,11 +5788,20 @@ end
                     "source": "whatsapp_ai"
                 })
                 await self.db_pool.execute(
-                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, metadata, payment_status, payment_mode)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)""",
-                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, initial_booking_status, notes, eff_price, fee_curr, booking_meta, initial_payment_status, eff_mode
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, metadata, payment_status, payment_mode, location)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15)""",
+                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, initial_booking_status, notes, eff_price, fee_curr, booking_meta, initial_payment_status, eff_mode, booking_loc
                 )
                 logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt))
+
+            if booking_loc:
+                try:
+                    await self.db_pool.execute(
+                        "UPDATE customers SET location = $1, updated_at = NOW() WHERE tenant_id = $2::uuid AND (phone = $3 OR phone LIKE $4)",
+                        booking_loc, tenant_id, contact_phone, f"%{contact_phone[-10:]}%"
+                    )
+                except Exception as e_cloc:
+                    logger.warning("save_customer_location_direct_failed", error=str(e_cloc))
 
             # If online payment requested, generate dynamic payment link using tenant's Razorpay credentials
             payment_link_res = None
@@ -5634,37 +6005,69 @@ end
                     except Exception as txt_err:
                         logger.error("confirmation_text_fallback_send_failed", error=str(txt_err))
 
-                # 1b. Automatically send Business Address & Live Location if configured
-                full_location = (creds.get("full_location_text") or "").strip()
-                if not full_location:
-                    tenant_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-                    if tenant_st:
-                        if isinstance(tenant_st, str):
-                            try: tenant_st = json.loads(tenant_st)
-                            except: tenant_st = {}
-                        full_location = (tenant_st.get("full_location_text") or "").strip()
+                # 1b. Automatically send Business Address or Home Collection Confirmation
+                is_home_booking = bool("home" in service_name.lower() or "home" in (notes or "").lower() or ("collection" in service_name.lower() and booking_loc))
 
-                if full_location:
-                    loc_msg = f"*Location & Directions:*\n{full_location}"
+                if is_home_booking:
+                    home_conf_addr = booking_loc or "Your registered address"
+                    home_msg = (
+                        f"🏡 *Home Sample Collection Details:*\n\n"
+                        f"• *Collection Address:* {home_conf_addr}\n"
+                        f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                        f"• *Fasting Note:* Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n\n"
+                        f"Our technician / phlebotomist will arrive with a sealed, sanitized collection kit."
+                    )
                     await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
                     try:
-                        loc_wa_id = await send_text(
+                        home_wa_id = await send_text(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
                             to=contact_phone,
-                            body=loc_msg,
+                            body=home_msg,
                         )
                         # Record in messages table
-                        loc_msg_id = str(uuid.uuid4())
+                        home_msg_id = str(uuid.uuid4())
                         await self.db_pool.execute(
                             """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
-                            loc_msg_id, conv_id, tenant_id, loc_msg, loc_wa_id
+                            home_msg_id, conv_id, tenant_id, home_msg, home_wa_id
                         )
                         await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                        logger.info("location_directions_sent_to_customer", to=contact_phone)
+                        logger.info("home_collection_details_sent_to_customer", to=contact_phone)
                     except Exception as e:
-                        logger.warning("location_directions_send_failed", error=str(e))
+                        logger.warning("home_collection_details_send_failed", error=str(e))
+                else:
+                    # Regular in-clinic visit: send Business Address & Live Location if configured
+                    full_location = (creds.get("full_location_text") or "").strip()
+                    if not full_location:
+                        tenant_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                        if tenant_st:
+                            if isinstance(tenant_st, str):
+                                try: tenant_st = json.loads(tenant_st)
+                                except: tenant_st = {}
+                            full_location = (tenant_st.get("full_location_text") or "").strip()
+
+                    if full_location:
+                        loc_msg = f"*Location & Directions:*\n{full_location}"
+                        await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
+                        try:
+                            loc_wa_id = await send_text(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=contact_phone,
+                                body=loc_msg,
+                            )
+                            # Record in messages table
+                            loc_msg_id = str(uuid.uuid4())
+                            await self.db_pool.execute(
+                                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                                loc_msg_id, conv_id, tenant_id, loc_msg, loc_wa_id
+                            )
+                            await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                            logger.info("location_directions_sent_to_customer", to=contact_phone)
+                        except Exception as e:
+                            logger.warning("location_directions_send_failed", error=str(e))
 
                 # 2. Send Admin Notification WhatsApp Alert to Admin Number
                 admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
@@ -5687,7 +6090,8 @@ end
                         f"• *Phone:* {contact_phone}\n"
                         f"• *Service:* {service_name}\n"
                         f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                        f"• *Email:* {customer_email or 'Not provided'}\n\n"
+                        + (f"• *Address:* {booking_loc}\n" if booking_loc else "")
+                        + f"• *Email:* {customer_email or 'Not provided'}\n\n"
                         f"✅ Confirmed by WhatsApp AI Assistant & logged in CRM."
                     )
                     admin_template = (
@@ -5748,6 +6152,7 @@ end
                         
                         event_body = {
                             "summary": f"{service_name} - {name} ({contact_phone})",
+                            "location": booking_loc or full_location or "",
                             "description": (
                                 f"WhatsApp Booking Automated By AI\n\n"
                                 f"• Client Name: {name}\n"
@@ -5755,7 +6160,8 @@ end
                                 f"• Client Email: {customer_email or 'N/A'}\n"
                                 f"• Service: {service_name}\n"
                                 f"• Scheduled Time: {st_dt.strftime('%d %B %Y at %I:%M %p')}\n"
-                                f"• Notes: {notes}"
+                                + (f"• Collection Address: {booking_loc}\n" if booking_loc else "")
+                                + f"• Notes: {notes}"
                             ),
                             "start": {"dateTime": st_dt.isoformat()},
                             "end": {"dateTime": et_dt.isoformat()},
@@ -8525,6 +8931,10 @@ end
                     # If the customer has sent only 1 message total (i.e. brand-new inquiry),
                     # skip Touch 1 — they may simply not have had time to see and reply yet.
                     # Only suppress Touch 1; Touch 2 (20h) still fires normally.
+                    last_msg_at = row["last_message_at"]
+                    sec_since_last = (datetime.datetime.now(timezone.utc) - last_msg_at.astimezone(timezone.utc)).total_seconds() if last_msg_at else 7200
+                    is_touch_2 = (sec_since_last >= 19.5 * 3600)
+
                     inbound_count = sum(1 for m in history if m.get("role") == "user")
                     if inbound_count <= 1 and not is_touch_2:
                         logger.info(

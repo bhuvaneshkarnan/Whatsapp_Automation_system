@@ -124,6 +124,7 @@ class BookingPaymentLinkResponse(BaseModel):
 
 class BookingPricePayload(BaseModel):
     price: float
+    billing_breakdown: Optional[Dict[str, float]] = None  # e.g. {"Naturopathy": 800, "Ayurveda": 1200}
 
 class BookingStatusPayload(BaseModel):
     status: str
@@ -255,6 +256,7 @@ class TenantSettingsUpdate(BaseModel):
     booking_fee_currency: Optional[str] = None
     booking_fee_description: Optional[str] = None
     service_pricing: Optional[Dict[str, float]] = None  # e.g. {"Consultation": 500.0, "Physiotherapy": 1200.0}
+    billing_categories: Optional[List[str]] = None  # e.g. ["Naturopathy", "Ayurveda", "Medicine", "Others"]
 
     model_config = {"extra": "allow"}
 
