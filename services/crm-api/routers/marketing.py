@@ -1184,6 +1184,9 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
     elif ind in ("restaurant", "dining"):
         service_noun = "table reservation"
         service_example = "Dining Experience"
+    elif ind in ("diagnostic_lab", "lab", "diagnostics", "pathology"):
+        service_noun = "health checkup"
+        service_example = "TruFit Full Body Checkup"
     elif ind in ("custom", "other"):
         service_noun = "scheduled booking"
         service_example = "Requested Service"

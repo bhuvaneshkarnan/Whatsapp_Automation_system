@@ -261,6 +261,25 @@ async def create_booking(
         eff_mode = eff_mode.strip().lower()
 
         eff_price = float(payload.price or 0.0)
+        if eff_price <= 0:
+            m_p = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', payload.service, re.I)
+            if m_p:
+                try:
+                    eff_price = float(m_p.group(1).replace(',', ''))
+                except Exception:
+                    pass
+        if eff_price <= 0 and s_data and isinstance(s_data, dict):
+            presets = (s_data.get("crm_dropdowns", {}).get("services_list", []) or []) + (s_data.get("taxonomy", {}).get("requirement_presets", []) or [])
+            for item in presets:
+                item_str = str(item)
+                if payload.service.lower() in item_str.lower() or item_str.lower() in payload.service.lower():
+                    m_item = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', item_str, re.I)
+                    if m_item:
+                        try:
+                            eff_price = float(m_item.group(1).replace(',', ''))
+                            break
+                        except Exception:
+                            pass
         if eff_price <= 0 and default_fee > 0:
             eff_price = default_fee
 
@@ -344,23 +363,30 @@ async def create_booking(
             if not existing_cust:
                 new_cust_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, followup_date, followup_time, created_at, updated_at)
-                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, $6, CURRENT_DATE + 7, '10:00 AM', now(), now())
-                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', preferred_doctor = COALESCE(customers.preferred_doctor, EXCLUDED.preferred_doctor), updated_at = now()""",
-                    new_cust_id, tenant_id, clean_phone, clean_name, payload.service.strip() or "General Consultation", staff
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, deal_value, followup_date, followup_time, created_at, updated_at)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, $6, $7, CURRENT_DATE + 7, '10:00 AM', now(), now())
+                       ON CONFLICT (tenant_id, phone) DO UPDATE
+                       SET status = 'converted',
+                           converted = true,
+                           lead_probability = 'hot',
+                           deal_value = CASE WHEN EXCLUDED.deal_value > 0 THEN EXCLUDED.deal_value ELSE customers.deal_value END,
+                           preferred_doctor = COALESCE(customers.preferred_doctor, EXCLUDED.preferred_doctor),
+                           updated_at = now()""",
+                    new_cust_id, tenant_id, clean_phone, clean_name, payload.service.strip() or "General Consultation", staff, eff_price
                 )
             else:
-                # Update status to converted, name if empty, and link preferred_doctor if assigned
+                # Update status to converted, name if empty, deal_value, and link preferred_doctor if assigned
                 await conn.execute(
                     """UPDATE customers 
                        SET name = COALESCE(NULLIF(name, ''), $1), 
                            status = 'converted', 
                            converted = true, 
                            lead_probability = 'hot', 
-                           preferred_doctor = COALESCE(preferred_doctor, $2),
+                           deal_value = CASE WHEN $2 > 0 THEN $2 ELSE deal_value END,
+                           preferred_doctor = COALESCE(preferred_doctor, $3),
                            updated_at = now() 
-                       WHERE id = $3::uuid AND tenant_id = $4::uuid""",
-                    clean_name, staff, str(existing_cust["id"]), tenant_id
+                       WHERE id = $4::uuid AND tenant_id = $5::uuid""",
+                    clean_name, eff_price, staff, str(existing_cust["id"]), tenant_id
                 )
         except Exception as e_cust_link:
             logger.warning("booking_customer_auto_link_warn", error=str(e_cust_link))

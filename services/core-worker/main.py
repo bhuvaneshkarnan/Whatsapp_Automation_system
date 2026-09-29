@@ -17,7 +17,7 @@ import datetime
 from datetime import timezone
 import html
 import hashlib
-from typing import Optional, Any
+from typing import Optional, Any, Tuple, List, Dict
 
 import asyncpg
 import redis.asyncio as aioredis
@@ -294,6 +294,137 @@ def extract_location(text: Optional[str]) -> Optional[str]:
             return city.title()
 
     return None
+
+
+ABINAYAA_PACKAGES = [
+    {
+        "tier": "advance",
+        "name": "TruFit Advance – 99 (₹4499)",
+        "price": 4499.0,
+        "keywords": ["advance", "advance 99", "advance-99", "4499", "lifestyle plus", "120 parameters"]
+    },
+    {
+        "tier": "lifestyle",
+        "name": "TruFit Lifestyle – 89 (₹3499)",
+        "price": 3499.0,
+        "keywords": ["lifestyle", "lifestyle 89", "lifestyle-89", "3499", "115 parameters"]
+    },
+    {
+        "tier": "gold",
+        "name": "TruFit Gold – 79 (₹2499)",
+        "price": 2499.0,
+        "keywords": ["gold", "gold 79", "gold-79", "2499", "100 parameters"]
+    },
+    {
+        "tier": "silver",
+        "name": "TruFit Silver – 69 (₹1299)",
+        "price": 1299.0,
+        "keywords": ["silver", "silver 69", "silver-69", "1299", "85 parameters"]
+    },
+    {
+        "tier": "basic",
+        "name": "TruFit Basic – 59 (₹999)",
+        "price": 999.0,
+        "keywords": ["basic", "basic 59", "basic-59", "999", "59", "80 parameters"]
+    },
+]
+
+def resolve_package_and_fee(
+    service_hint: Optional[str] = None,
+    context_text: Optional[str] = None,
+    tenant_slug: str = "",
+    tenant_settings: Optional[dict] = None,
+    services_text: str = "",
+    raw_price: Any = None,
+) -> Tuple[str, float]:
+    """
+    Deterministically resolves the standard service/package name and fee amount.
+    Supports Abinayaa diagnostic lab packages, general presets from tenant settings, and services_text.
+    """
+    eff_price = 0.0
+    if raw_price is not None:
+        try:
+            p = float(raw_price)
+            if p > 0:
+                eff_price = p
+        except Exception:
+            pass
+
+    hint_str = (service_hint or "").strip()
+    ctx_str = (context_text or "").strip()
+    search_text = f"{hint_str} {ctx_str}".lower()
+    clean_slug = (tenant_slug or "").strip().lower()
+
+    resolved_service = hint_str or "Consultation"
+
+    is_abinayaa = "abinaya" in clean_slug or "trufit" in search_text
+
+    # 1. Check Abinayaa Catalog if relevant
+    if is_abinayaa:
+        matched_pkg = None
+        for pkg in ABINAYAA_PACKAGES:
+            if any(kw in search_text for kw in pkg["keywords"]):
+                matched_pkg = pkg
+                break
+
+        if matched_pkg:
+            resolved_service = matched_pkg["name"]
+            if eff_price <= 0:
+                eff_price = matched_pkg["price"]
+        elif any(w in search_text for w in ["trufit", "full body", "checkup", "package", "health checkup"]):
+            resolved_service = "TruFit Basic – 59 (₹999)"
+            if eff_price <= 0:
+                eff_price = 999.0
+
+    # 2. Check for price in service string if not resolved yet
+    if eff_price <= 0:
+        m_p = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', hint_str, re.IGNORECASE)
+        if not m_p:
+            m_p = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', ctx_str, re.IGNORECASE)
+        if m_p:
+            try:
+                eff_price = float(m_p.group(1).replace(',', ''))
+            except Exception:
+                pass
+
+    # 3. Check tenant settings presets
+    if eff_price <= 0 and tenant_settings and isinstance(tenant_settings, dict):
+        crm_drops = tenant_settings.get("crm_dropdowns", {}) or {}
+        taxonomy = tenant_settings.get("taxonomy", {}) or {}
+        presets = (crm_drops.get("services_list") or []) + (taxonomy.get("requirement_presets") or [])
+        for item in presets:
+            item_str = str(item)
+            if hint_str and (hint_str.lower() in item_str.lower() or item_str.lower() in hint_str.lower()):
+                m_item = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', item_str, re.IGNORECASE)
+                if m_item:
+                    try:
+                        eff_price = float(m_item.group(1).replace(',', ''))
+                        resolved_service = item_str
+                        break
+                    except Exception:
+                        pass
+
+    # 4. Check services_text from ai_config
+    if eff_price <= 0 and services_text:
+        for line in services_text.splitlines():
+            line_str = line.strip()
+            if hint_str and (hint_str.lower() in line_str.lower() or any(w in line_str.lower() for w in hint_str.lower().split() if len(w) > 3)):
+                m_line = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', line_str, re.IGNORECASE)
+                if m_line:
+                    try:
+                        eff_price = float(m_line.group(1).replace(',', ''))
+                        break
+                    except Exception:
+                        pass
+
+    # 5. Fallback to tenant default booking fee
+    if eff_price <= 0 and tenant_settings and isinstance(tenant_settings, dict):
+        try:
+            eff_price = float(tenant_settings.get("booking_fee_amount") or 0.0)
+        except Exception:
+            eff_price = 0.0
+
+    return (resolved_service, eff_price)
 
 
 _AUTOMATED_BOT_PATTERNS = [
@@ -3808,21 +3939,30 @@ end
 
             # Determine dynamic service name appropriate for this tenant
             clean_slug = (tenant_slug or "").strip().lower()
+            history_text = " ".join([m.get("content", "") for m in (history[-6:] if history else [])]).lower()
+            combined_context = f"{history_text} {inbound_clean}".lower()
+
+            resolved_pkg_name, resolved_pkg_fee = resolve_package_and_fee(
+                service_hint=customer_health_concern,
+                context_text=combined_context,
+                tenant_slug=clean_slug,
+                tenant_settings=tenant_st_row,
+                services_text=services_text,
+            )
+
             if clean_slug == "boldlabs":
                 target_service = "Demo / Consultation"
+                resolved_pkg_fee = 0.0
             elif "abinaya" in clean_slug:
-                target_service = customer_health_concern or "TruFit Full Body Checkup"
+                target_service = resolved_pkg_name
             elif "aadhiran" in clean_slug:
                 target_service = customer_health_concern or "Consultation & Treatment"
             elif "mindbody" in clean_slug:
                 target_service = "Consultation"
             else:
-                target_service = customer_health_concern or "Appointment"
+                target_service = resolved_pkg_name or customer_health_concern or "Appointment"
 
             # Check for Home Visit / Home Sample Collection context across recent messages and current message
-            history_text = " ".join([m.get("content", "") for m in (history[-6:] if history else [])]).lower()
-            combined_context = f"{history_text} {inbound_clean}".lower()
-
             is_home_visit = bool(
                 any(w in combined_context for w in [
                     "home visit", "home collection", "home sample", "sample at home",
@@ -3937,27 +4077,32 @@ end
                         except Exception:
                             target_slot_time_iso = "08:00"
 
+                    fee_mention = f"• Package Fee: ₹{resolved_pkg_fee:g} (Payable at sample collection)\n" if resolved_pkg_fee > 0 else ""
                     stage_directive = (
                         f"The customer is booking a HOME SAMPLE COLLECTION for '{service_with_home}'.\n"
                         f"Customer Home Address: '{effective_address}'\n"
                         f"Collection Date: {target_slot_date_iso}\n"
                         f"Collection Time: {target_slot_time_iso}\n"
-                        f"CRITICAL HOME SAMPLE COLLECTION CONFIRMATION DIRECTIVE:\n"
+                        + (f"Package Fee / Deal Amount: ₹{resolved_pkg_fee:g}\n" if resolved_pkg_fee > 0 else "")
+                        + f"CRITICAL HOME SAMPLE COLLECTION CONFIRMATION DIRECTIVE:\n"
                         f"1. Warmly confirm the home sample collection for {service_with_home} at their address '{effective_address}'.\n"
                         f"2. Current live context: Today is {now.strftime('%A, %d %b %Y')} and current time is {now.strftime('%I:%M %p')}. Lab operating hours: {op_hours_display}.\n"
                         f"   - Confirm for date {target_slot_date_iso} at morning time {target_slot_time_iso}.\n"
-                        f"3. MANDATORY FASTING INSTRUCTION: Remind the customer to ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n"
-                        f"4. Reassure them that our phlebotomist / sample collection executive will arrive at their doorstep with a sealed, sanitized collection kit.\n"
-                        f"5. MANDATORY SYSTEM ACTION TAG: You MUST append this EXACT line on its own line at the very end of your response:\n"
-                        f"[ACTION:CREATE_BOOKING: {{\"service\": \"{service_with_home}\", \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"location\": \"{effective_address}\", \"notes\": \"Home Sample Collection at {effective_address}\"}}]"
+                        + (f"3. State the package fee: ₹{resolved_pkg_fee:g}.\n" if resolved_pkg_fee > 0 else "")
+                        + f"4. MANDATORY FASTING INSTRUCTION: Remind the customer to ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n"
+                        f"5. Reassure them that our phlebotomist / sample collection executive will arrive at their doorstep with a sealed, sanitized collection kit.\n"
+                        f"6. MANDATORY SYSTEM ACTION TAG: You MUST append this EXACT line on its own line at the very end of your response:\n"
+                        f"[ACTION:CREATE_BOOKING: {{\"service\": \"{service_with_home}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"location\": \"{effective_address}\", \"notes\": \"Home Sample Collection at {effective_address}\"}}]"
                     )
                 elif effective_address and not has_specific_time_of_day:
                     # HAS ADDRESS, BUT NO TIME
+                    fee_line = f"• Package Fee: ₹{resolved_pkg_fee:g}\n" if resolved_pkg_fee > 0 else ""
                     stage_directive = (
                         f"The customer has provided their home address: '{effective_address}', but has NOT specified an exact morning collection time.\n"
                         f"1. Warmly acknowledge and thank them for sharing their address ({effective_address}).\n"
                         f"2. Ask what morning time suits them best for home sample collection (e.g. between 7:00 AM and 11:00 AM).\n"
-                        f"3. Remind them of 8 to 12 hours of fasting (water allowed) for accurate test results.\n"
+                        + fee_line
+                        + f"3. Remind them of 8 to 12 hours of fasting (water allowed) for accurate test results.\n"
                         f"4. CRITICAL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until an exact time has been specified by the customer!"
                     )
                 elif not effective_address and has_specific_time_of_day:
@@ -3980,6 +4125,8 @@ end
                     )
             else:
                 # Regular in-clinic / lab visit flow
+                fasting_inst = "• FASTING INSTRUCTION: Remind the customer to ensure 8 to 12 hours of overnight fasting prior to test (plain water permitted).\n" if ("abinaya" in clean_slug or "checkup" in target_service.lower() or "trufit" in target_service.lower()) else ""
+                fee_mention = f"• Fee: ₹{resolved_pkg_fee:g}\n" if resolved_pkg_fee > 0 else ""
                 if has_specific_time_of_day:
                     stage_directive = (
                         f"The customer is stating a specific preferred time: '{message_text}'.\n"
@@ -3988,15 +4135,20 @@ end
                         f"2. Current live context: Today is {now.strftime('%A, %d %b %Y')} and current time is {now.strftime('%I:%M %p')}. Business operating hours are: {op_hours_display}.\n"
                         f"   - If customer requested 'today' or an upcoming time today within operating hours: confirm for TODAY ({today_date_str}) at that time!\n"
                         f"   - If that time has already passed today or today is closed/requested for tomorrow: confirm for TOMORROW ({tomorrow_date_str}) at that time!\n"
-                        f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on a new line at the very end:\n"
-                        f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]"
+                        f"3. Warmly confirm their appointment for {target_service}.\n"
+                        + fee_mention
+                        + fasting_inst
+                        + f"4. MANDATORY ACTION TAG: You MUST append the booking action tag on a new line at the very end:\n"
+                        f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]"
                     )
                 else:
                     stage_directive = (
                         f"The customer wants to schedule or book an appointment for '{message_text}', but has NOT provided an exact hour/time.\n"
                         f"1. Warmly acknowledge the requested day (e.g. tomorrow or today).\n"
                         f"2. Ask what time suits them best within our operating hours ({op_hours_display}).\n"
-                        f"3. CRITICAL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until an exact time has been specified and agreed by the customer!"
+                        + fee_mention
+                        + fasting_inst
+                        + f"3. CRITICAL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until an exact time has been specified and agreed by the customer!"
                     )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
@@ -4173,7 +4325,7 @@ end
         action_tag_directives = (
             "### ACTION TAG PROTOCOLS (Executed by system when appointments or contact details are confirmed):\n"
             f"- BOOKING CONFIRMATION: Once customer confirms Date, Time, Name, and Email, append at end:\n"
-            f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\", \"payment_mode\": \"online\" | \"pay_at_clinic\"}}]\n"
+            f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"price\": <numeric amount e.g. 2499 or 0>, \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\", \"payment_mode\": \"online\" | \"pay_at_clinic\"}}]\n"
             f"- RESCHEDULE CONFIRMATION: When customer reschedules to a new Date & Time, append at end:\n"
             f"  [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}}]\n"
             "- CANCELLATION: When explicitly asking to cancel, append: [ACTION:CANCEL_BOOKING]\n"
@@ -4723,33 +4875,33 @@ end
                         except Exception:
                             pass
 
-                    # 3. Service resolution
+                    # 3. Service and Fee resolution
                     clean_slug = (tenant_slug or "").strip().lower()
+                    recov_svc, recov_fee = resolve_package_and_fee(
+                        service_hint=customer_health_concern or response_text,
+                        context_text=f"{inbound_clean} {response_text}",
+                        tenant_slug=clean_slug,
+                        tenant_settings=tenant_st_row,
+                        services_text=services_text,
+                    )
                     if clean_slug == "boldlabs":
                         svc_name = "Demo / Consultation"
+                        recov_fee = 0.0
                     elif "abinaya" in clean_slug:
-                        base_svc = customer_health_concern or "TruFit Full Body Checkup"
-                        svc_name = f"{base_svc} - Home Collection" if is_home_visit else base_svc
+                        base_svc = recov_svc
+                        svc_name = f"{base_svc} - Home Collection" if is_home_visit and "home" not in base_svc.lower() else base_svc
                     elif is_home_visit:
-                        base_svc = "Appointment"
-                        try:
-                            base_svc = target_service
-                        except Exception:
-                            pass
+                        base_svc = recov_svc or "Appointment"
                         svc_name = f"{base_svc} - Home Collection" if "home" not in base_svc.lower() else base_svc
                     else:
-                        base_svc = "Appointment"
-                        try:
-                            base_svc = target_service
-                        except Exception:
-                            pass
-                        svc_name = base_svc
+                        svc_name = recov_svc or "Appointment"
 
                     # 4. Location resolution
                     recov_loc = effective_address or customer_location or extract_address(response_text) or ""
 
                     booking_action = {
                         "service": svc_name,
+                        "price": recov_fee,
                         "date": target_b_date,
                         "time": target_b_time,
                         "name": confirmed_name or customer_name_display or "Customer",
@@ -5028,16 +5180,24 @@ end
 
                             # Determine service appropriate for this tenant
                             clean_slug = (tenant_slug or "").strip().lower()
+                            dyn_svc, dyn_fee = resolve_package_and_fee(
+                                service_hint=customer_health_concern,
+                                context_text=f"{inbound_clean} {message_text}",
+                                tenant_slug=clean_slug,
+                                tenant_settings=tenant_st_row,
+                                services_text=services_text,
+                            )
                             if clean_slug == "boldlabs":
                                 dynamic_service = "Demo / Consultation"
+                                dyn_fee = 0.0
                             elif "abinaya" in clean_slug:
-                                dynamic_service = customer_health_concern or "TruFit Full Body Checkup"
+                                dynamic_service = dyn_svc
                             elif "aadhiran" in clean_slug:
                                 dynamic_service = customer_health_concern or "Consultation & Treatment"
                             elif "mindbody" in clean_slug:
                                 dynamic_service = "Consultation"
                             else:
-                                dynamic_service = customer_health_concern or "Appointment"
+                                dynamic_service = dyn_svc or customer_health_concern or "Appointment"
 
                             if is_home_visit:
                                 if effective_address:
@@ -5048,6 +5208,7 @@ end
                                     )
                                     booking_action = {
                                         "service": svc_name,
+                                        "price": dyn_fee,
                                         "date": slot_target_date,
                                         "time": stated_time,
                                         "name": confirmed_name or customer_name_display or "Customer",
@@ -5069,6 +5230,7 @@ end
                                 if not booking_action:
                                     booking_action = {
                                         "service": dynamic_service,
+                                        "price": dyn_fee,
                                         "date": slot_target_date,
                                         "time": stated_time,
                                         "name": confirmed_name or customer_name_display or "Customer"
@@ -5331,8 +5493,9 @@ end
         preferred_doctor=None,
         lead_probability=None,
         preferred_language=None,
+        deal_value=None,
     ):
-        """Auto-update customer extracted details (name, health_concern, doctor, age, location, lead_probability, preferred_language) into Customers and Contacts."""
+        """Auto-update customer extracted details (name, health_concern, doctor, age, location, lead_probability, preferred_language, deal_value) into Customers and Contacts."""
         if not phone and not contact_id:
             return
         try:
@@ -5437,13 +5600,22 @@ end
                     updates.append(f"lead_probability = ${p_idx}")
                     params.append(str(lead_probability).lower())
                     p_idx += 1
+                if deal_value is not None:
+                    try:
+                        dv = float(deal_value)
+                        if dv > 0:
+                            updates.append(f"deal_value = ${p_idx}")
+                            params.append(dv)
+                            p_idx += 1
+                    except Exception:
+                        pass
                 if updates:
                     updates.append("last_messaged_at = NOW()")
                     updates.append("updated_at = NOW()")
                     sql = f"UPDATE customers SET {', '.join(updates)} WHERE id = ${p_idx}::uuid AND tenant_id = ${p_idx + 1}::uuid"
                     params.extend([cust_id, tenant_id])
                     await pool.execute(sql, *params)
-                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location, name=name, health_concern=health_concern, preferred_doctor=preferred_doctor, lead_probability=lead_probability, preferred_language=preferred_language)
+                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location, name=name, health_concern=health_concern, preferred_doctor=preferred_doctor, lead_probability=lead_probability, preferred_language=preferred_language, deal_value=deal_value)
             else:
                 # Customer not found in customers table yet; upsert new row so it immediately appears on Customer tab
                 contact_name = None
@@ -5462,10 +5634,17 @@ end
                 customer_name = (name if name and name not in ["Valued Customer", "Client", "Customer"] else None) or contact_name or "Customer"
                 init_prob = str(lead_probability).lower() if (lead_probability and str(lead_probability).lower() in ("hot", "warm", "cold")) else "warm"
 
+                deal_val_num = 0.0
+                if deal_value is not None:
+                    try:
+                        deal_val_num = float(deal_value)
+                    except Exception:
+                        pass
+
                 await pool.execute(
                     """
-                    INSERT INTO customers (tenant_id, phone, name, preferred_doctor, status, health_concern, lead_probability, age, location, preferred_language, last_messaged_at, created_at, updated_at)
-                    VALUES ($1::uuid, $2, $3, $4, 'new', $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
+                    INSERT INTO customers (tenant_id, phone, name, preferred_doctor, status, health_concern, lead_probability, age, location, preferred_language, deal_value, last_messaged_at, created_at, updated_at)
+                    VALUES ($1::uuid, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $10, NOW(), NOW(), NOW())
                     ON CONFLICT (tenant_id, phone) DO UPDATE
                     SET updated_at = NOW(),
                         last_messaged_at = NOW(),
@@ -5475,7 +5654,8 @@ end
                         preferred_language = COALESCE(EXCLUDED.preferred_language, customers.preferred_language),
                         lead_probability = CASE WHEN EXCLUDED.lead_probability IN ('hot', 'warm', 'cold') THEN EXCLUDED.lead_probability ELSE customers.lead_probability END,
                         age = COALESCE(EXCLUDED.age, customers.age),
-                        location = COALESCE(EXCLUDED.location, customers.location)
+                        location = COALESCE(EXCLUDED.location, customers.location),
+                        deal_value = CASE WHEN EXCLUDED.deal_value > 0 THEN EXCLUDED.deal_value ELSE customers.deal_value END
                     """,
                     tenant_id, clean_digits or phone, customer_name,
                     preferred_doctor.strip() if preferred_doctor else None,
@@ -5484,8 +5664,9 @@ end
                     int(age) if age is not None else None,
                     str(location).strip() if location else None,
                     str(preferred_language).strip() if preferred_language else None,
+                    deal_val_num,
                 )
-                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name, health_concern=health_concern, lead_probability=init_prob, preferred_language=preferred_language)
+                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name, health_concern=health_concern, lead_probability=init_prob, preferred_language=preferred_language, deal_value=deal_val_num)
 
             if lead_probability and str(lead_probability).lower() == "hot":
                 try:
@@ -5599,6 +5780,40 @@ end
             if booking_loc and notes == "Booked via WhatsApp AI Assistant":
                 notes = f"Home Sample Collection at {booking_loc}"
 
+            # Auto-resolve package and fee upfront
+            booking_pay_policy = (tenant_st_row.get("booking_payment_policy") or "pay_at_clinic").strip().lower() if isinstance(tenant_st_row, dict) else "pay_at_clinic"
+            default_fee = float(tenant_st_row.get("booking_fee_amount") or 0.0) if isinstance(tenant_st_row, dict) else 0.0
+            fee_curr = (tenant_st_row.get("booking_fee_currency") or "INR").strip().upper() if isinstance(tenant_st_row, dict) else "INR"
+            fee_desc = (tenant_st_row.get("booking_fee_description") or f"Appointment Booking: {service_name}").strip() if isinstance(tenant_st_row, dict) else f"Appointment Booking: {service_name}"
+
+            raw_mode = booking_data.get("payment_mode")
+            if raw_mode:
+                eff_mode = str(raw_mode).strip().lower()
+            elif booking_pay_policy == "mandatory":
+                eff_mode = "online"
+            else:
+                eff_mode = "pay_at_clinic"
+
+            eff_price = float(booking_data.get("price") or 0.0)
+            resolved_b_svc, resolved_b_fee = resolve_package_and_fee(
+                service_hint=service_name,
+                context_text=f"{notes} {service_name}",
+                tenant_slug=tenant_slug,
+                tenant_settings=tenant_st_row,
+                services_text="",
+                raw_price=eff_price,
+            )
+            if eff_price <= 0:
+                eff_price = resolved_b_fee
+            if eff_price <= 0 and default_fee > 0:
+                eff_price = default_fee
+
+            if "abinaya" in (tenant_slug or "").lower() and resolved_b_svc:
+                if ("home" in service_name.lower() or "collection" in service_name.lower()) and "home collection" not in resolved_b_svc.lower():
+                    service_name = f"{resolved_b_svc} - Home Collection"
+                else:
+                    service_name = resolved_b_svc
+
             # Parse start and end time using flexible 12-hr / 24-hr parser
             st_dt = parse_flexible_datetime(date_str, time_str, tz)
 
@@ -5677,6 +5892,8 @@ end
                         name=name if name not in ["Valued Customer", "Client", "Customer"] else None,
                         health_concern=service_name if service_name else None,
                         location=booking_loc if booking_loc else None,
+                        deal_value=eff_price if eff_price > 0 else None,
+                        lead_probability="hot",
                     )
                 )
 
@@ -5769,20 +5986,6 @@ end
                      AND start_time <= $4""",
                 tenant_id, contact_id, window_start, window_end
             )
-            booking_pay_policy = (tenant_st_row.get("booking_payment_policy") or "pay_at_clinic").strip().lower() if isinstance(tenant_st_row, dict) else "pay_at_clinic"
-            default_fee = float(tenant_st_row.get("booking_fee_amount") or 0.0) if isinstance(tenant_st_row, dict) else 0.0
-            fee_curr = (tenant_st_row.get("booking_fee_currency") or "INR").strip().upper() if isinstance(tenant_st_row, dict) else "INR"
-            fee_desc = (tenant_st_row.get("booking_fee_description") or f"Appointment Booking: {service_name}").strip() if isinstance(tenant_st_row, dict) else f"Appointment Booking: {service_name}"
-
-            raw_mode = booking_data.get("payment_mode")
-            if raw_mode:
-                eff_mode = str(raw_mode).strip().lower()
-            elif booking_pay_policy == "mandatory":
-                eff_mode = "online"
-            else:
-                eff_mode = "pay_at_clinic"
-
-            eff_price = float(booking_data.get("price") or default_fee or 0.0)
 
             if eff_mode == "online":
                 initial_booking_status = "pending" if booking_pay_policy == "mandatory" else "confirmed"
@@ -5798,7 +6001,7 @@ end
                        WHERE id = $9::uuid AND tenant_id = $10::uuid""",
                     service_name, st_dt, et_dt, notes, eff_price, eff_mode, initial_payment_status, booking_loc, booking_id, tenant_id
                 )
-                logger.info("ai_booking_updated_existing", booking_id=booking_id, service=service_name, start_time=str(st_dt))
+                logger.info("ai_booking_updated_existing", booking_id=booking_id, service=service_name, start_time=str(st_dt), price=eff_price)
             else:
                 # Insert booking record in DB with full metadata for resilient CRM queries
                 booking_id = str(uuid.uuid4())
@@ -5813,7 +6016,19 @@ end
                        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15)""",
                     booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, initial_booking_status, notes, eff_price, fee_curr, booking_meta, initial_payment_status, eff_mode, booking_loc
                 )
-                logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt))
+                logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt), price=eff_price)
+
+            if eff_price > 0:
+                try:
+                    await self.db_pool.execute(
+                        """UPDATE customers
+                           SET deal_value = $1, status = 'converted', converted = true, lead_probability = 'hot', updated_at = NOW()
+                           WHERE tenant_id = $2::uuid AND (phone = $3 OR phone LIKE $4 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $5)""",
+                        eff_price, tenant_id, contact_phone, f"%{contact_phone[-10:]}%", contact_phone[-10:] if len(contact_phone) >= 10 else contact_phone
+                    )
+                    logger.info("ai_booking_customer_deal_value_saved", phone=contact_phone, deal_value=eff_price)
+                except Exception as e_cdeal:
+                    logger.warning("save_customer_deal_value_direct_failed", error=str(e_cdeal))
 
             if booking_loc:
                 try:
@@ -6045,8 +6260,11 @@ end
 
                 if is_home_booking:
                     home_conf_addr = booking_loc or "Your registered address"
+                    fee_line_home = f"• *Package Fee:* ₹{eff_price:g} (Payable at sample collection)\n" if eff_price > 0 else ""
                     home_msg = (
                         f"🏡 *Home Sample Collection Details:*\n\n"
+                        f"• *Package / Test:* {service_name}\n"
+                        f"{fee_line_home}"
                         f"• *Collection Address:* {home_conf_addr}\n"
                         f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
                         f"• *Fasting Note:* Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n\n"
@@ -6073,27 +6291,48 @@ end
                         logger.warning("home_collection_details_send_failed", error=str(e))
                 else:
                     # Regular in-clinic visit: send Business Address & Live Location if configured
+                    fee_line = f"• *Package Fee:* ₹{eff_price:g} (Payable at lab)\n" if eff_price > 0 else ""
+                    fasting_line = (
+                        "• *Fasting Note:* Please ensure 8 to 12 hours of overnight fasting prior to test (only plain water is permitted).\n"
+                        if ("abinaya" in (tenant_slug or "").lower() or "checkup" in service_name.lower() or "trufit" in service_name.lower())
+                        else ""
+                    )
                     if full_location:
-                        loc_msg = f"*Location & Directions:*\n{full_location}"
-                        await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
-                        try:
-                            loc_wa_id = await send_text(
-                                phone_number_id=creds["phone_number_id"],
-                                access_token=creds["access_token"],
-                                to=contact_phone,
-                                body=loc_msg,
-                            )
-                            # Record in messages table
-                            loc_msg_id = str(uuid.uuid4())
-                            await self.db_pool.execute(
-                                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
-                                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
-                                loc_msg_id, conv_id, tenant_id, loc_msg, loc_wa_id
-                            )
-                            await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                            logger.info("location_directions_sent_to_customer", to=contact_phone)
-                        except Exception as e:
-                            logger.warning("location_directions_send_failed", error=str(e))
+                        loc_msg = (
+                            f"📍 *Lab Visit Details & Directions:*\n\n"
+                            f"• *Package / Test:* {service_name}\n"
+                            f"{fee_line}"
+                            f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                            f"{fasting_line}"
+                            f"• *Location:*\n{full_location}"
+                        )
+                    else:
+                        loc_msg = (
+                            f"📍 *Lab Visit Details:*\n\n"
+                            f"• *Package / Test:* {service_name}\n"
+                            f"{fee_line}"
+                            f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                            f"{fasting_line}"
+                        )
+                    await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
+                    try:
+                        loc_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=loc_msg,
+                        )
+                        # Record in messages table
+                        loc_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            loc_msg_id, conv_id, tenant_id, loc_msg, loc_wa_id
+                        )
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                        logger.info("location_directions_sent_to_customer", to=contact_phone)
+                    except Exception as e:
+                        logger.warning("location_directions_send_failed", error=str(e))
 
                 # 2. Send Admin Notification WhatsApp Alert to Admin Number
                 admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
@@ -6115,7 +6354,8 @@ end
                         f"• *Customer:* {name}\n"
                         f"• *Phone:* {contact_phone}\n"
                         f"• *Service:* {service_name}\n"
-                        f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                        + (f"• *Fee / Amount:* ₹{eff_price:g}\n" if eff_price > 0 else "")
+                        + f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
                         + (f"• *Address:* {booking_loc}\n" if booking_loc else "")
                         + f"• *Email:* {customer_email or 'Not provided'}\n\n"
                         f"✅ Confirmed by WhatsApp AI Assistant & logged in CRM."
@@ -6185,7 +6425,8 @@ end
                                 f"• Client Phone: {contact_phone}\n"
                                 f"• Client Email: {customer_email or 'N/A'}\n"
                                 f"• Service: {service_name}\n"
-                                f"• Scheduled Time: {st_dt.strftime('%d %B %Y at %I:%M %p')}\n"
+                                + (f"• Fee: ₹{eff_price:g}\n" if eff_price > 0 else "")
+                                + f"• Scheduled Time: {st_dt.strftime('%d %B %Y at %I:%M %p')}\n"
                                 + (f"• Collection Address: {booking_loc}\n" if booking_loc else "")
                                 + f"• Notes: {notes}"
                             ),
@@ -6417,6 +6658,17 @@ end
             if booking_action and isinstance(booking_action, dict) and booking_action.get("price"):
                 try: deal_val = float(booking_action["price"])
                 except Exception: pass
+            if not deal_val or deal_val <= 0:
+                svc_cand = (booking_action.get("service") if isinstance(booking_action, dict) else None) or extracted_concern or message_text
+                try:
+                    t_slug = await self.db_pool.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
+                except Exception:
+                    t_slug = ""
+                _, deal_val = resolve_package_and_fee(
+                    service_hint=svc_cand,
+                    context_text=full_text,
+                    tenant_slug=t_slug or "",
+                )
             if deal_val and deal_val > 0:
                 updates.append(f"deal_value = ${idx}")
                 dynamic_params.append(deal_val)
@@ -8726,9 +8978,12 @@ end
                     f"Hi {name}! This is a friendly reminder that your appointment is "
                     f"scheduled for *{start_str}*. We look forward to seeing you!"
                 )
+            svc_low = (service or "").lower()
+            is_lab_checkup = any(w in svc_low for w in ["checkup", "trufit", "blood", "sample", "fasting", "sugar", "lipid", "collection"])
+            fasting_note = "\n\n• *Fasting Note:* Please ensure 8 to 12 hours of overnight fasting before sample collection / test (only plain water is permitted)." if is_lab_checkup else ""
             return (
                 f"Hi {name}! This is a friendly reminder that you have a *{service}* appointment "
-                f"scheduled for *{start_str}*. We look forward to seeing you!"
+                f"scheduled for *{start_str}*.{fasting_note}\n\nWe look forward to seeing you!"
             )
         elif job["job_type"] == "review_request":
             if is_mbr:
