@@ -7686,6 +7686,26 @@ end
 
     async def _process_scheduled_jobs(self):
         """Find due scheduled jobs and send WhatsApp messages using approved Meta utility templates."""
+
+        # ── Auto-complete confirmed bookings whose appointment time has already passed ──
+        # This enables review_request and post_treatment_followup jobs to fire correctly.
+        # Without this, bookings stay 'confirmed' forever and review jobs are never triggered.
+        try:
+            completed_count = await self.db_pool.fetchval(
+                """WITH updated AS (
+                       UPDATE bookings
+                       SET status = 'completed', updated_at = now()
+                       WHERE status IN ('confirmed', 'rescheduled')
+                         AND end_time < now()
+                       RETURNING id
+                   )
+                   SELECT COUNT(*) FROM updated"""
+            )
+            if completed_count and completed_count > 0:
+                logger.info("auto_completed_past_bookings", count=completed_count)
+        except Exception as _ac_err:
+            logger.warning("auto_complete_bookings_failed", error=str(_ac_err))
+
         due_jobs = await self.db_pool.fetch(
             """SELECT sj.id, sj.tenant_id, sj.job_type, sj.booking_id,
                       b.contact_id, b.service, b.start_time, b.end_time, b.notes, b.reminder_sent_at,
@@ -7738,7 +7758,28 @@ end
                                 )
                                 continue
 
-                    # Check 2: If this is within 4 hours of appointment start (i.e. 2-hour reminder), acquire 2h lock
+                    # Check 0: If appointment has already PASSED — cancel the reminder, don't send it late
+                    start_val_chk = job.get("start_time")
+                    if start_val_chk:
+                        if isinstance(start_val_chk, datetime.datetime):
+                            now_utc_chk = datetime.datetime.now(datetime.timezone.utc)
+                            start_utc_chk = start_val_chk if start_val_chk.tzinfo else start_val_chk.replace(tzinfo=datetime.timezone.utc)
+                            if start_utc_chk < now_utc_chk:
+                                # Appointment has already started/passed — cancel this reminder, it's too late
+                                logger.info(
+                                    "scheduled_reminder_cancelled_appointment_already_passed",
+                                    booking_id=booking_id,
+                                    job_type=job_type,
+                                    start_time=str(start_utc_chk),
+                                )
+                                await self.db_pool.execute(
+                                    "UPDATE scheduled_jobs SET status = 'cancelled', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                                    job["id"], job["tenant_id"]
+                                )
+                                continue
+
+                    # Check 1: If reminder was already sent within the last 4 hours (e.g. by fallback loop or 2h job)
+
                     start_val = job["start_time"]
                     if isinstance(start_val, datetime.datetime):
                         now_utc = datetime.datetime.now(datetime.timezone.utc)
