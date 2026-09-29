@@ -2862,6 +2862,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Feature 4: Staff Assignment Dropdown State
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [showChatMoreMenu, setShowChatMoreMenu] = useState(false);
   const [assignSearchQuery, setAssignSearchQuery] = useState('');
   const [importantConvIds, setImportantConvIds] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
@@ -6932,6 +6933,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const updatedConv = { ...conv, unread_count: 0 };
     setSelectedConv(updatedConv);
     activeConvIdRef.current = conv.id;
+    setShowChatMoreMenu(false);
+    setShowAssignDropdown(false);
 
     // Reset scrolled flag so layout effect guarantees scroll to bottom for this conversation
     convScrolledToBottomRef.current[conv.id] = false;
@@ -14334,31 +14337,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </span>
                                 )}
                               </div>
-
-                              {/* Line 3: Ultra-Clean Minimal Context (Phone Number + Staff + Concern) */}
-                              {Boolean((conv.contact_name && conv.contact_phone) || staffName || concern) && (
-                                <div className="flex items-center gap-1.5 pt-0.5 text-[10px] text-text-muted leading-none truncate">
-                                  {conv.contact_name && conv.contact_phone && (
-                                    <span className="font-mono text-text-muted/80 shrink-0">
-                                      {conv.contact_phone}
-                                    </span>
-                                  )}
-                                  {conv.contact_name && conv.contact_phone && (staffName || concern) && (
-                                    <span className="opacity-30">•</span>
-                                  )}
-                                  {staffName && (
-                                    <span className="text-text-secondary font-medium truncate max-w-[85px]" title={`Assigned: ${staffName}`}>
-                                      {staffName.split(' ')[0]}
-                                    </span>
-                                  )}
-                                  {staffName && concern && <span className="opacity-30">•</span>}
-                                  {concern && (
-                                    <span className="truncate max-w-[110px] opacity-75" title={concern}>
-                                      {concern}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
                             </div>
                           </div>
                         );
@@ -14371,507 +14349,72 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <div className={`${selectedConv ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-surface h-full min-w-0 overflow-hidden`}>
                   {selectedConv ? (
                     <>
-                      {/* Chat Header (Responsive) */}
-                      <div className="h-14 px-3 sm:px-4 border-b border-border flex items-center justify-between bg-surface shrink-0 z-10">
-                        <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedConv(null);
-                              activeConvIdRef.current = null;
-                            }}
-                            className="p-1.5 -ml-1 text-text-secondary hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer shrink-0"
-                            title="Close chat / Back to list"
-                          >
-                            <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.8]" />
-                          </button>
-                          <div className="w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                            {selectedConv.contact_name ? selectedConv.contact_name[0].toUpperCase() : 'C'}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <h4 className="font-semibold text-xs sm:text-sm text-text-primary truncate">
-                                {selectedConv.contact_name || formatDisplayPhone(selectedConv.contact_phone || selectedConv.name || selectedConv.phone)}
-                              </h4>
-                              {(() => {
-                                const cleanP = (selectedConv?.contact_phone || selectedConv?.phone || '').replace(/[^0-9]/g, '');
-                                if (!cleanP) return null;
-                                const inCrm = Array.isArray(customers) && customers.some((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP);
-                                return inCrm ? (
-                                  <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                                    CRM
-                                  </span>
-                                ) : null;
-                              })()}
-                            </div>
-                            <div className="flex items-center gap-1.5 text-[10px] text-text-muted font-mono truncate">
-                              {(() => {
-                                const phoneNum = selectedConv.contact_phone || selectedConv.phone;
-                                if (!phoneNum) return <span>No phone</span>;
-                                return (
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                      {/* Unified Single-Row Chat Header */}
+                      {(() => {
+                        const cleanPhone = (selectedConv.contact_phone || selectedConv.phone || '').replace(/[^0-9]/g, '');
+                        const matchedCust = cleanPhone && Array.isArray(customers) ? customers.find((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone) : null;
+                        const isRepeat = selectedConv.client_type === 'repeat' || (selectedConv.completed_bookings_count ?? 0) > 0 || (matchedCust?.completed_bookings_count ?? 0) > 0;
+                        const visitCount = selectedConv.completed_bookings_count ?? matchedCust?.completed_bookings_count ?? 0;
+                        const lastService = selectedConv.last_visit_service || matchedCust?.last_visit_service;
+                        const phoneNum = selectedConv.contact_phone || selectedConv.phone;
+                        const initial = selectedConv.contact_name
+                          ? selectedConv.contact_name.trim()[0].toUpperCase()
+                          : (phoneNum ? phoneNum.replace(/\D/g, '').slice(-1) : 'C');
+
+                        return (
+                          <div className="h-14 px-3 sm:px-4 border-b border-border flex items-center justify-between bg-surface shrink-0 z-10">
+                            {/* Left: Avatar, Name, Status Tag, Phone & 1-Click Call */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedConv(null);
+                                  activeConvIdRef.current = null;
+                                }}
+                                className="md:hidden p-1.5 -ml-1 text-text-secondary hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer shrink-0"
+                                title="Back to chat list"
+                              >
+                                <ArrowLeft className="w-5 h-5 stroke-[1.8]" />
+                              </button>
+                              <div className="w-9 h-9 rounded-full bg-accent text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                {initial}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-bold text-xs sm:text-sm text-text-primary truncate">
+                                    {selectedConv.contact_name || (phoneNum ? formatDisplayPhone(phoneNum) : 'Customer')}
+                                  </h4>
+                                  {isRepeat ? (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 shrink-0 inline-flex items-center gap-1">
+                                      <UserCheck className="w-3 h-3 stroke-[2]" />
+                                      <span>Repeat{visitCount > 0 ? ` (${visitCount})` : ''}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 inline-flex items-center gap-1">
+                                      <UserPlus className="w-3 h-3 stroke-[2]" />
+                                      <span>New Lead</span>
+                                    </span>
+                                  )}
+                                </div>
+                                {phoneNum && (
+                                  <div className="flex items-center gap-2 text-[11px] text-text-muted font-mono leading-tight mt-0.5">
+                                    <span>{formatDisplayPhone(phoneNum)}</span>
                                     <a
                                       href={`tel:${formatDialablePhone(phoneNum)}`}
-                                      className="text-text-primary hover:text-accent font-semibold hover:underline cursor-pointer"
-                                      title={`Click to call ${formatDisplayPhone(phoneNum)}`}
-                                    >
-                                      {formatDisplayPhone(phoneNum)}
-                                    </a>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const clean = formatDisplayPhone(phoneNum).trim();
-                                        if (typeof window !== 'undefined' && navigator.clipboard && window.isSecureContext) {
-                                          navigator.clipboard.writeText(clean);
-                                        } else {
-                                          try {
-                                            const textArea = document.createElement('textarea');
-                                            textArea.value = clean;
-                                            textArea.style.position = 'fixed';
-                                            textArea.style.left = '-999999px';
-                                            document.body.appendChild(textArea);
-                                            textArea.focus();
-                                            textArea.select();
-                                            document.execCommand('copy');
-                                            textArea.remove();
-                                          } catch {}
-                                        }
-                                        setChatHeaderPhoneCopied(true);
-                                        setTimeout(() => setChatHeaderPhoneCopied(false), 1800);
-                                      }}
-                                      className="p-0.5 text-text-muted hover:text-text-primary rounded hover:bg-surface-subtle transition-colors cursor-pointer shrink-0"
-                                      title={chatHeaderPhoneCopied ? 'Copied to clipboard!' : 'Copy phone number'}
-                                    >
-                                      {chatHeaderPhoneCopied ? (
-                                        <span className="inline-flex items-center gap-0.5 text-[8.5px] font-sans font-bold text-emerald-600 dark:text-emerald-400">
-                                          <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                                          <span>Copied</span>
-                                        </span>
-                                      ) : (
-                                        <Copy className="w-2.5 h-2.5 hover:text-accent transition-colors" />
-                                      )}
-                                    </button>
-                                    <a
-                                      href={`tel:${formatDialablePhone(phoneNum)}`}
-                                      className="ml-0.5 px-1.5 py-0.2 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[9px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-0.5 cursor-pointer shadow-2xs font-sans"
-                                      title={`Click to call ${formatDisplayPhone(phoneNum)}`}
+                                      className="px-1.5 py-0.2 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[10px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-1 cursor-pointer font-sans"
+                                      title={`Call ${formatDisplayPhone(phoneNum)}`}
                                     >
                                       <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
                                       <span>Call</span>
                                     </a>
                                   </div>
-                                );
-                              })()}
-                              {(() => {
-                                const lastActive = selectedConv.last_message_at || (messages && messages.length > 0 ? messages[messages.length - 1]?.created_at : null);
-                                if (!lastActive) return null;
-                                return (
-                                  <>
-                                    <span className="text-text-muted/60">•</span>
-                                    <span
-                                      className="text-text-secondary font-medium tracking-tight truncate"
-                                      title={formatFullDateTimeDetailed(lastActive)}
-                                    >
-                                      Last contacted: {formatWhatsAppHeaderDate(lastActive)}
-                                    </span>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Right Action Icons (Compact & Responsive) */}
-                        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                          {/* Cross-tab CRM profile button */}
-                          {(() => {
-                            const cleanP = selectedConv?.contact_phone ? selectedConv.contact_phone.replace(/[^0-9]/g, '') : '';
-                            const existingCust = cleanP && Array.isArray(customers) ? customers.find((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP) : null;
-                            if (existingCust) {
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => openCustomerProfileByPhone(selectedConv.contact_phone || '', selectedConv.contact_name || undefined)}
-                                  className="px-2 py-1 rounded-sm text-xs font-medium border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1 transition-colors cursor-pointer"
-                                  title="View customer profile and bookings"
-                                >
-                                  <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span className="hidden sm:inline">Manage</span>
-                                </button>
-                              );
-                            } else {
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => openCustomerProfileByPhone(selectedConv.contact_phone || '', selectedConv.contact_name || undefined)}
-                                  className="px-2 py-1 rounded-sm text-xs font-medium border border-accent bg-accent/10 text-accent hover:bg-accent hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
-                                  title="Add this contact to CRM"
-                                >
-                                  <UserPlus className="w-3.5 h-3.5 shrink-0" />
-                                  <span className="hidden sm:inline">+ CRM</span>
-                                </button>
-                              );
-                            }
-                          })()}
-
-                          {/* Staff & Doctor Assignment Dropdown */}
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowAssignDropdown((prev) => {
-                                  const next = !prev;
-                                  if (!prev) {
-                                    setAssignSearchQuery('');
-                                  }
-                                  return next;
-                                });
-                              }}
-                              className={`px-2 py-1 rounded-sm text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs ${
-                                (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
-                                  ? 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70'
-                                  : 'border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary'
-                              }`}
-                              title={
-                                (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
-                                  ? `${presetRoleSingular}: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}`
-                                  : `Assign ${presetRoleSingular.toLowerCase()}`
-                              }
-                            >
-                              {(selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor) ? (
-                                <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                              ) : (
-                                <User className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                              )}
-                              <span className="hidden sm:inline max-w-[100px] truncate text-[11px] font-medium">
-                                {selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || 'Unassigned'}
-                              </span>
-                              <ChevronDown className="w-3 h-3 text-text-muted shrink-0" />
-                            </button>
-                            {showAssignDropdown && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={() => setShowAssignDropdown(false)}
-                                />
-                                <div className="absolute right-0 mt-1 w-60 bg-surface border border-border rounded-md shadow-xl z-50 py-1 text-xs divide-y divide-border/40">
-                                  {/* Header */}
-                                  <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
-                                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
-                                      Assign {presetRoleSingular}
-                                    </span>
-                                  </div>
-
-                                  {/* Quick search input */}
-                                  {categorizedStaffOptions.predefinedDoctors.length > 4 && (
-                                    <div className="p-1.5 bg-surface">
-                                      <div className="relative">
-                                        <Search className="w-3 h-3 text-text-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                        <input
-                                          type="text"
-                                          value={assignSearchQuery}
-                                          onChange={(e) => setAssignSearchQuery(e.target.value)}
-                                          placeholder={`Search ${presetRoleSingular.toLowerCase()}...`}
-                                          className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                                          onClick={(e) => e.stopPropagation()}
-                                          autoFocus
-                                        />
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Scrollable list */}
-                                  <div className="max-h-64 overflow-y-auto py-1 divide-y divide-border/20">
-                                    {/* Unassigned Option */}
-                                    {(!assignSearchQuery || 'unassigned'.includes(assignSearchQuery.toLowerCase())) && (() => {
-                                      const isUnassigned = !selectedConv.preferred_doctor && !selectedCustomer?.preferred_doctor;
-                                      return (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAssignChatStaff({ type: 'unassign' })}
-                                          className={`w-full text-left px-2.5 py-1.5 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                                            isUnassigned ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
-                                          }`}
-                                        >
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                                            <span className="truncate text-[11px]">Unassigned</span>
-                                          </div>
-                                          {isUnassigned && <Check className="w-3 h-3 text-accent shrink-0" />}
-                                        </button>
-                                      );
-                                    })()}
-
-                                    {/* Team Accounts (Created Staff) */}
-                                    {(() => {
-                                      const q = assignSearchQuery.trim().toLowerCase();
-                                      const list = (teamList || []).filter(
-                                        (m) =>
-                                          m.is_active !== false &&
-                                          (!q ||
-                                            (m.display_name || '').toLowerCase().includes(q) ||
-                                            (m.email || '').toLowerCase().includes(q) ||
-                                            (m.role || '').toLowerCase().includes(q))
-                                      );
-                                      if (list.length === 0) return null;
-                                      const currentAssignedId = selectedConv.assigned_to;
-                                      return (
-                                        <div className="py-1">
-                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            Created Staff & Team ({list.length})
-                                          </div>
-                                          {list.map((member) => {
-                                            const staffName = member.display_name || member.email;
-                                            const isActive = currentAssignedId === member.id;
-                                            return (
-                                              <button
-                                                key={member.id}
-                                                type="button"
-                                                onClick={() => handleAssignChatStaff({ type: 'team', id: member.id, name: staffName })}
-                                                className={`w-full text-left px-2.5 py-1.5 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                                                }`}
-                                              >
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                  <User className="w-3.5 h-3.5 text-accent shrink-0" />
-                                                  <div className="flex flex-col min-w-0 truncate">
-                                                    <span className="truncate text-[11px] font-medium">{staffName}</span>
-                                                    <span className="truncate text-[9.5px] text-text-muted">{member.email}</span>
-                                                  </div>
-                                                </div>
-                                                <div className="flex items-center gap-1 shrink-0 ml-1">
-                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-accent/10 text-accent font-medium capitalize">
-                                                    {member.role}
-                                                  </span>
-                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                                                </div>
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* Presets */}
-                                    {(() => {
-                                      const q = assignSearchQuery.trim().toLowerCase();
-                                      const list = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
-                                      if (list.length === 0) return null;
-                                      const currentDoc = (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || '').trim().toLowerCase();
-                                      return (
-                                        <div className="py-1">
-                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            {presetRolePlural.toUpperCase()} & PRESETS
-                                          </div>
-                                          {list.map((preset) => {
-                                            const isActive = currentDoc === preset.value.toLowerCase();
-                                            return (
-                                              <button
-                                                key={preset.value}
-                                                type="button"
-                                                onClick={() => handleAssignChatStaff({ type: 'preset', name: preset.value })}
-                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                                                }`}
-                                              >
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                  <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                                  <span className="truncate text-[11px]">{preset.value}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 shrink-0 ml-1">
-                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 font-medium">Preset</span>
-                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                                                </div>
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* Empty state */}
-                                    {assignSearchQuery &&
-                                      !categorizedStaffOptions.predefinedDoctors.some((p) => p.value.toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) &&
-                                      !(teamList || []).some((m) => (m.display_name || m.email || '').toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) && (
-                                        <div className="py-4 text-center text-text-muted text-[11px]">
-                                          No staff or {presetRolePlural.toLowerCase()} found matching &ldquo;{assignSearchQuery}&rdquo;
-                                        </div>
-                                    )}
-                                  </div>
-
-                                  {/* Footer */}
-                                  <div className="px-2.5 py-1.5 bg-surface-subtle/30 flex items-center justify-between text-[10px]">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setShowAssignDropdown(false);
-                                        setDoctorEditModalOpen(true);
-                                      }}
-                                      className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Users className="w-3 h-3" /> Manage {presetRoleSingular} Presets
-                                    </button>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-
-                          {/* AI Toggle Button */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (selectedConv.ai_enabled) {
-                                setConfirmSingleAiModal({
-                                  isOpen: true,
-                                  convId: selectedConv.id,
-                                  name: selectedConv.contact_name || selectedConv.contact_phone || 'this customer',
-                                });
-                              } else {
-                                handleToggleAi(selectedConv.id, false);
-                              }
-                            }}
-                            disabled={togglingAi}
-                            className={`px-2 py-1 rounded-sm text-xs font-medium border flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 ${
-                              selectedConv.ai_enabled
-                                ? 'bg-status-success-bg text-status-success border-status-success-border'
-                                : 'bg-status-warning-bg text-status-warning border-status-warning-border'
-                            }`}
-                            title={selectedConv.ai_enabled ? 'AI is ON (Click to pause)' : 'AI is OFF (Click to resume)'}
-                          >
-                            <Bot className="w-3.5 h-3.5 stroke-[1.5] shrink-0" />
-                            <span className="text-[11px] font-semibold">{selectedConv.ai_enabled ? 'AI' : 'Human'}</span>
-                          </button>
-
-                          {/* Star Important */}
-                          <button
-                            type="button"
-                            onClick={() => toggleImportant(selectedConv.id)}
-                            className={`p-1.5 rounded-sm border transition-colors cursor-pointer ${
-                              importantConvIds.includes(selectedConv.id)
-                                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle border-border'
-                            }`}
-                            title={importantConvIds.includes(selectedConv.id) ? 'Remove Important' : 'Mark Important'}
-                          >
-                            <Star className={`w-3.5 h-3.5 stroke-[1.5] ${importantConvIds.includes(selectedConv.id) ? 'fill-amber-500 text-amber-500' : 'text-text-muted'}`} />
-                          </button>
-
-                          {/* Delete Chat */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDeleteChatModal({
-                                isOpen: true,
-                                convId: selectedConv.id,
-                                name: selectedConv.contact_name || selectedConv.contact_phone || 'this customer',
-                              })
-                            }
-                            className="p-1.5 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors cursor-pointer"
-                            title="Delete chat"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                          </button>
-
-                          {/* Close / Exit Chat */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedConv(null);
-                              activeConvIdRef.current = null;
-                            }}
-                            className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer"
-                            title="Close chat (Esc)"
-                          >
-                            <X className="w-3.5 h-3.5 stroke-[1.8]" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* ── Active Chat Customer Intelligence Banner ── */}
-                      {(() => {
-                        const cleanPhone = (selectedConv.contact_phone || '').replace(/[^0-9]/g, '');
-                        const matchedCust = customers.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
-                        const isRepeat = selectedConv.client_type === 'repeat' || (selectedConv.completed_bookings_count ?? 0) > 0 || (matchedCust?.completed_bookings_count ?? 0) > 0;
-                        const visitCount = selectedConv.completed_bookings_count ?? matchedCust?.completed_bookings_count ?? 0;
-                        const lastDate = selectedConv.last_visit_date || matchedCust?.last_visit_date || matchedCust?.last_visited;
-                        const lastService = selectedConv.last_visit_service || matchedCust?.last_visit_service;
-                        const lastDoctor = selectedConv.last_visit_doctor || matchedCust?.last_visit_doctor || selectedConv.preferred_doctor || matchedCust?.preferred_doctor;
-                        const retentionStatus = matchedCust?.retention_status;
-                        const daysSince = matchedCust?.days_since_last_visit;
-
-                        return (
-                          <div className={`px-3.5 py-2 border-b flex flex-wrap items-center justify-between gap-2 text-xs transition-colors shrink-0 ${
-                            isRepeat
-                              ? 'bg-amber-50/70 border-amber-200/80 text-amber-950'
-                              : 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
-                          }`}>
-                            {/* Left: Intelligence Status & Details */}
-                            <div className="flex items-center gap-2 flex-wrap min-w-0">
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {isRepeat ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                    <UserCheck className="w-3 h-3 text-amber-700 stroke-[2]" />
-                                    <span>Repeat Client</span>
-                                    {visitCount > 0 && <span className="font-mono">({visitCount} sessions)</span>}
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
-                                    <UserPlus className="w-3 h-3 text-emerald-700 stroke-[2]" />
-                                    <span>New Lead</span>
-                                  </span>
                                 )}
                               </div>
-
-                              {isRepeat ? (
-                                <div className="flex items-center gap-1.5 text-[11px] text-amber-900/90 font-medium">
-                                  {lastDate && (
-                                    <span>Last visited: <strong className="font-semibold">{new Date(lastDate).toLocaleDateString()}</strong>{daysSince != null ? ` (${daysSince}d ago)` : ''}</span>
-                                  )}
-                                  {lastService && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="truncate max-w-[130px] font-medium" title={lastService}>{lastService}</span>
-                                    </>
-                                  )}
-                                  {lastDoctor && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="text-amber-800 font-medium">Dr. {lastDoctor}</span>
-                                    </>
-                                  )}
-                                  {retentionStatus === 'active' && (
-                                    <span className="px-1.5 py-0.2 rounded-xs bg-emerald-100 text-emerald-800 text-[10px] font-semibold border border-emerald-200">Active Regular</span>
-                                  )}
-                                  {retentionStatus === 'due' && (
-                                    <span className="px-1.5 py-0.2 rounded-xs bg-amber-200 text-amber-900 text-[10px] font-semibold border border-amber-300">Due for Checkup</span>
-                                  )}
-                                  {retentionStatus === 'lapsed' && (
-                                    <span className="px-1.5 py-0.2 rounded-xs bg-rose-100 text-rose-800 text-[10px] font-semibold border border-rose-200">Lapsed (&gt;60d)</span>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1.5 text-[11px] text-emerald-900/90 font-medium">
-                                  <span>First-time inquiry</span>
-                                  {matchedCust?.lead_probability && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="capitalize font-semibold">{matchedCust.lead_probability} Lead</span>
-                                    </>
-                                  )}
-                                  {matchedCust?.health_concern && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="truncate max-w-[140px]">{matchedCust.health_concern}</span>
-                                    </>
-                                  )}
-                                </div>
-                              )}
                             </div>
 
-                            {/* Right: Instant 1-Click Action Buttons */}
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Right: Only Essential Actions (+ Book Appointment, AI Toggle, Profile, and More (...)) */}
+                            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                              {/* 1. Book Appointment Button (Zero Lead Leakage) */}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -14891,13 +14434,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   });
                                   setIsAddBookingOpen(true);
                                 }}
-                                className="px-2 py-1 rounded-sm text-[11px] font-medium bg-white/90 hover:bg-white text-text-primary border border-border shadow-2xs hover:border-accent flex items-center gap-1 transition-colors cursor-pointer"
-                                title="Schedule next session for this client"
+                                className="h-8 px-2.5 sm:px-3 rounded-md text-xs font-semibold bg-accent text-white hover:bg-accent/90 flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                                title="Schedule an appointment for this customer"
                               >
-                                <CalendarClock className="w-3 h-3 text-accent stroke-[1.8]" />
-                                <span>Book Session</span>
+                                <CalendarClock className="w-3.5 h-3.5 stroke-[2]" />
+                                <span className="hidden sm:inline">+ Book Appointment</span>
+                                <span className="sm:hidden">+ Book</span>
                               </button>
 
+                              {/* 2. AI Active / Paused Toggle */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (selectedConv.ai_enabled) {
+                                    setConfirmSingleAiModal({
+                                      isOpen: true,
+                                      convId: selectedConv.id,
+                                      name: selectedConv.contact_name || selectedConv.contact_phone || 'this customer',
+                                    });
+                                  } else {
+                                    handleToggleAi(selectedConv.id, false);
+                                  }
+                                }}
+                                disabled={togglingAi}
+                                className={`h-8 px-2.5 rounded-md text-xs font-semibold border flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
+                                  selectedConv.ai_enabled
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                }`}
+                                title={selectedConv.ai_enabled ? 'AI assistant is active (Click to take over)' : 'Human mode (Click to resume AI)'}
+                              >
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${selectedConv.ai_enabled ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                                <span className="hidden sm:inline">{selectedConv.ai_enabled ? 'AI Active' : 'AI Paused'}</span>
+                                <span className="sm:hidden">{selectedConv.ai_enabled ? 'AI' : 'Off'}</span>
+                              </button>
+
+                              {/* 3. Profile Button */}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -14908,12 +14480,252 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     openCustomerProfileByPhone(selectedConv.contact_phone, selectedConv.contact_name);
                                   }
                                 }}
-                                className="px-2 py-1 rounded-sm text-[11px] font-medium bg-white/90 hover:bg-white text-text-primary border border-border shadow-2xs hover:border-accent flex items-center gap-1 transition-colors cursor-pointer"
-                                title="View complete customer history, past bookings and notes"
+                                className="h-8 px-2.5 rounded-md text-xs font-medium bg-surface hover:bg-surface-subtle text-text-primary border border-border shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                                title="View full customer profile, notes and history"
                               >
-                                <FileText className="w-3 h-3 text-text-muted stroke-[1.8]" />
-                                <span>Profile & History</span>
+                                <FileText className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
+                                <span className="hidden sm:inline">Profile</span>
                               </button>
+
+                              {/* 4. More Options (...) Menu */}
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowChatMoreMenu((prev) => !prev)}
+                                  className="h-8 w-8 rounded-md border border-border hover:bg-surface-subtle text-text-secondary hover:text-text-primary flex items-center justify-center transition-colors cursor-pointer"
+                                  title="More options"
+                                >
+                                  <MoreHorizontal className="w-4 h-4 stroke-[1.8]" />
+                                </button>
+
+                                {showChatMoreMenu && (
+                                  <>
+                                    <div
+                                      className="fixed inset-0 z-40"
+                                      onClick={() => setShowChatMoreMenu(false)}
+                                    />
+                                    <div className="absolute right-0 mt-1 w-56 bg-surface border border-border rounded-md shadow-xl z-50 py-1 text-xs divide-y divide-border/40">
+                                      {/* Assign Staff */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setShowChatMoreMenu(false);
+                                          setShowAssignDropdown(true);
+                                        }}
+                                        className="w-full text-left px-3 py-2 flex items-center justify-between text-xs hover:bg-surface-subtle text-text-primary transition-colors cursor-pointer"
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <User className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                                          <div className="truncate">
+                                            <span className="text-text-muted">Staff: </span>
+                                            <span className="font-semibold text-text-primary">{selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || 'Unassigned'}</span>
+                                          </div>
+                                        </div>
+                                        <ChevronDown className="w-3 h-3 text-text-muted shrink-0 ml-1" />
+                                      </button>
+
+                                      {/* Star / Unstar */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          toggleImportant(selectedConv.id);
+                                          setShowChatMoreMenu(false);
+                                        }}
+                                        className="w-full text-left px-3 py-2 flex items-center gap-2 text-xs hover:bg-surface-subtle text-text-primary transition-colors cursor-pointer"
+                                      >
+                                        <Star className={`w-3.5 h-3.5 stroke-[1.5] ${importantConvIds.includes(selectedConv.id) ? 'fill-amber-500 text-amber-500' : 'text-text-muted'}`} />
+                                        <span>{importantConvIds.includes(selectedConv.id) ? 'Remove Star (Important)' : 'Mark as Starred (Important)'}</span>
+                                      </button>
+
+                                      {/* Delete Chat */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setShowChatMoreMenu(false);
+                                          setDeleteChatModal({
+                                            isOpen: true,
+                                            convId: selectedConv.id,
+                                            name: selectedConv.contact_name || selectedConv.contact_phone || 'this customer',
+                                          });
+                                        }}
+                                        className="w-full text-left px-3 py-2 flex items-center gap-2 text-xs text-status-error hover:bg-status-error-bg transition-colors cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 stroke-[1.5] shrink-0" />
+                                        <span>Delete Conversation</span>
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+
+                                {/* Staff & Doctor Assignment Dropdown */}
+                                {showAssignDropdown && (
+                                  <>
+                                    <div
+                                      className="fixed inset-0 z-40"
+                                      onClick={() => setShowAssignDropdown(false)}
+                                    />
+                                    <div className="absolute right-0 mt-1 w-60 bg-surface border border-border rounded-md shadow-xl z-50 py-1 text-xs divide-y divide-border/40">
+                                      {/* Header */}
+                                      <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
+                                        <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                                          Assign {presetRoleSingular}
+                                        </span>
+                                      </div>
+
+                                      {/* Quick search input */}
+                                      {categorizedStaffOptions.predefinedDoctors.length > 4 && (
+                                        <div className="p-1.5 bg-surface">
+                                          <div className="relative">
+                                            <Search className="w-3 h-3 text-text-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                            <input
+                                              type="text"
+                                              value={assignSearchQuery}
+                                              onChange={(e) => setAssignSearchQuery(e.target.value)}
+                                              placeholder={`Search ${presetRoleSingular.toLowerCase()}...`}
+                                              className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+                                              onClick={(e) => e.stopPropagation()}
+                                              autoFocus
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Scrollable list */}
+                                      <div className="max-h-64 overflow-y-auto py-1 divide-y divide-border/20">
+                                        {/* Unassigned Option */}
+                                        {(!assignSearchQuery || 'unassigned'.includes(assignSearchQuery.toLowerCase())) && (() => {
+                                          const isUnassigned = !selectedConv.preferred_doctor && !selectedCustomer?.preferred_doctor;
+                                          return (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAssignChatStaff({ type: 'unassign' })}
+                                              className={`w-full text-left px-2.5 py-1.5 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                isUnassigned ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-1.5 min-w-0">
+                                                <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                                                <span className="truncate text-[11px]">Unassigned</span>
+                                              </div>
+                                              {isUnassigned && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                            </button>
+                                          );
+                                        })()}
+
+                                        {/* Team Accounts (Created Staff) */}
+                                        {(() => {
+                                          const q = assignSearchQuery.trim().toLowerCase();
+                                          const list = (teamList || []).filter(
+                                            (m) =>
+                                              m.is_active !== false &&
+                                              (!q ||
+                                                (m.display_name || '').toLowerCase().includes(q) ||
+                                                (m.email || '').toLowerCase().includes(q) ||
+                                                (m.role || '').toLowerCase().includes(q))
+                                          );
+                                          if (list.length === 0) return null;
+                                          const currentAssignedId = selectedConv.assigned_to;
+                                          return (
+                                            <div className="py-1">
+                                              <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                                Created Staff & Team ({list.length})
+                                              </div>
+                                              {list.map((member) => {
+                                                const staffName = member.display_name || member.email;
+                                                const isActive = currentAssignedId === member.id;
+                                                return (
+                                                  <button
+                                                    key={member.id}
+                                                    type="button"
+                                                    onClick={() => handleAssignChatStaff({ type: 'team', id: member.id, name: staffName })}
+                                                    className={`w-full text-left px-2.5 py-1.5 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                      isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                                                    }`}
+                                                  >
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                      <User className="w-3.5 h-3.5 text-accent shrink-0" />
+                                                      <div className="flex flex-col min-w-0 truncate">
+                                                        <span className="truncate text-[11px] font-medium">{staffName}</span>
+                                                        <span className="truncate text-[9.5px] text-text-muted">{member.email}</span>
+                                                      </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0 ml-1">
+                                                      <span className="text-[9px] px-1 py-0.2 rounded bg-accent/10 text-accent font-medium capitalize">
+                                                        {member.role}
+                                                      </span>
+                                                      {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                                    </div>
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        })()}
+
+                                        {/* Presets */}
+                                        {(() => {
+                                          const q = assignSearchQuery.trim().toLowerCase();
+                                          const list = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
+                                          if (list.length === 0) return null;
+                                          const currentDoc = (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || '').trim().toLowerCase();
+                                          return (
+                                            <div className="py-1">
+                                              <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                                {presetRolePlural.toUpperCase()} & PRESETS
+                                              </div>
+                                              {list.map((preset) => {
+                                                const isActive = currentDoc === preset.value.toLowerCase();
+                                                return (
+                                                  <button
+                                                    key={preset.value}
+                                                    type="button"
+                                                    onClick={() => handleAssignChatStaff({ type: 'preset', name: preset.value })}
+                                                    className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                      isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                                                    }`}
+                                                  >
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                      <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                                      <span className="truncate text-[11px]">{preset.value}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0 ml-1">
+                                                      <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 font-medium">Preset</span>
+                                                      {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                                    </div>
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        })()}
+
+                                        {/* Empty state */}
+                                        {assignSearchQuery &&
+                                          !categorizedStaffOptions.predefinedDoctors.some((p) => p.value.toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) &&
+                                          !(teamList || []).some((m) => (m.display_name || m.email || '').toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) && (
+                                            <div className="py-4 text-center text-text-muted text-[11px]">
+                                              No staff or {presetRolePlural.toLowerCase()} found matching &ldquo;{assignSearchQuery}&rdquo;
+                                            </div>
+                                        )}
+                                      </div>
+
+                                      {/* Footer */}
+                                      <div className="px-2.5 py-1.5 bg-surface-subtle/30 flex items-center justify-between text-[10px]">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setShowAssignDropdown(false);
+                                            setDoctorEditModalOpen(true);
+                                          }}
+                                          className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <Users className="w-3 h-3" /> Manage {presetRoleSingular} Presets
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
