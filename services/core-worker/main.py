@@ -3884,25 +3884,47 @@ end
                 if effective_address and has_specific_time_of_day:
                     # BOTH ADDRESS AND TIME PROVIDED: Confirm home collection!
                     target_slot_date_iso = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-                    if "today" in combined_context:
-                        target_slot_date_iso = now.strftime("%Y-%m-%d")
-                    elif "day after tomorrow" in combined_context:
-                        target_slot_date_iso = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
-                    else:
-                        days_list = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-                        for idx, day_n in enumerate(days_list):
-                            if day_n in combined_context:
-                                c_d = now.weekday()
-                                ahead = (idx - c_d) % 7
-                                if ahead == 0 and "next" in combined_context:
-                                    ahead = 7
-                                target_slot_date_iso = (now + datetime.timedelta(days=ahead)).strftime("%Y-%m-%d")
+                    user_texts = [inbound_clean]
+                    if history:
+                        user_texts.extend([(h.get("content") or "").lower() for h in reversed(history) if h.get("role") == "user"])
+
+                    found_date = False
+                    for u_txt in user_texts:
+                        if "tomorrow" in u_txt:
+                            target_slot_date_iso = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+                            found_date = True
+                            break
+                        elif "day after tomorrow" in u_txt:
+                            target_slot_date_iso = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+                            found_date = True
+                            break
+                        elif "today" in u_txt:
+                            target_slot_date_iso = now.strftime("%Y-%m-%d")
+                            found_date = True
+                            break
+                        else:
+                            days_list = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                            for idx, day_n in enumerate(days_list):
+                                if day_n in u_txt:
+                                    c_d = now.weekday()
+                                    ahead = (idx - c_d) % 7
+                                    if ahead == 0 and "next" in u_txt:
+                                        ahead = 7
+                                    target_slot_date_iso = (now + datetime.timedelta(days=ahead)).strftime("%Y-%m-%d")
+                                    found_date = True
+                                    break
+                            if found_date:
                                 break
 
                     target_slot_time_iso = "08:00"
-                    tm_find = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', combined_context, re.I)
-                    if not tm_find:
-                        tm_find = re.search(r'\b(\d{1,2}:\d{2})\b', combined_context)
+                    tm_find = None
+                    for u_txt in user_texts:
+                        tm_find = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', u_txt, re.I)
+                        if not tm_find:
+                            tm_find = re.search(r'\b(\d{1,2}:\d{2})\b', u_txt)
+                        if tm_find:
+                            break
+
                     if tm_find:
                         raw_t = tm_find.group(1).strip().upper()
                         try:
@@ -4650,52 +4672,45 @@ end
             # If LLM generated a booking confirmation response but forgot or omitted the [ACTION:CREATE_BOOKING] tag
             if not booking_action and not cancel_action and not reschedule_action and not inbound_appointment_inquiry:
                 resp_low = (response_text or "").lower()
-                is_confirmed_in_text = any(
-                    phrase in resp_low for phrase in [
-                        "have successfully booked",
-                        "has been successfully booked",
-                        "have confirmed your home sample",
-                        "have confirmed your booking",
-                        "have confirmed your appointment",
-                        "appointment has been confirmed",
-                        "booking has been confirmed",
-                        "scheduled your home sample",
-                        "scheduled your appointment",
-                        "scheduled your demo",
-                        "successfully booked your",
-                        "booked your",
-                    ]
+                is_confirmed_in_text = bool(
+                    re.search(
+                        r'\b(?:is\s+(?:now\s+)?confirmed|has\s+been\s+confirmed|have\s+confirmed|'
+                        r'confirmed\s+for|is\s+(?:now\s+)?scheduled|has\s+been\s+scheduled|'
+                        r'have\s+scheduled|scheduled\s+for|is\s+(?:now\s+)?booked|has\s+been\s+booked|'
+                        r'have\s+booked|booked\s+for|successfully\s+booked|booking\s+is\s+confirmed|'
+                        r'appointment\s+is\s+confirmed|successfully\s+scheduled)\b',
+                        resp_low
+                    )
+                    or (is_home_visit and effective_address and any(w in resp_low for w in ["confirmed", "scheduled", "booked"]))
                 )
                 if is_confirmed_in_text:
                     logger.info("reconstructing_missing_booking_action", tenant_id=tenant_id, resp_snippet=resp_low[:80])
                     # 1. Date resolution
-                    target_b_date = today_date_str
-                    if "tomorrow" in resp_low or "tomorrow" in inbound_clean or (history and any("tomorrow" in (h.get("content") or "").lower() for h in history[-3:])):
-                        target_b_date = tomorrow_date_str
-                    else:
-                        days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-                        for idx, day in enumerate(days):
-                            if day in resp_low or day in inbound_clean:
-                                c_day = now.weekday()
-                                d_ahead = (idx - c_day) % 7
-                                if d_ahead == 0 and ("next" in resp_low or "next" in inbound_clean):
-                                    d_ahead = 7
-                                target_b_date = (now + datetime.timedelta(days=d_ahead)).strftime("%Y-%m-%d")
-                                break
+                    try:
+                        target_b_date = target_slot_date_iso
+                    except NameError:
+                        target_b_date = today_date_str
+                        if "tomorrow" in resp_low or "tomorrow" in inbound_clean or (history and any("tomorrow" in (h.get("content") or "").lower() for h in history[-3:])):
+                            target_b_date = tomorrow_date_str
+                        else:
+                            days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                            for idx, day in enumerate(days):
+                                if day in resp_low or day in inbound_clean:
+                                    c_day = now.weekday()
+                                    d_ahead = (idx - c_day) % 7
+                                    if d_ahead == 0 and ("next" in resp_low or "next" in inbound_clean):
+                                        d_ahead = 7
+                                    target_b_date = (now + datetime.timedelta(days=d_ahead)).strftime("%Y-%m-%d")
+                                    break
 
                     # 2. Time resolution
-                    target_b_time = "08:00" if is_home_visit else "10:00"
-                    tm_resp = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', resp_low, re.I)
-                    if not tm_resp:
-                        tm_resp = re.search(r'\b(\d{1,2}:\d{2})\b', resp_low)
-                    if not tm_resp:
-                        tm_resp = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', inbound_clean, re.I)
-                    if not tm_resp and history:
-                        for h in reversed(history[-4:]):
-                            tm_resp = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', (h.get("content") or ""), re.I)
-                            if tm_resp:
-                                break
+                    try:
+                        target_b_time = target_slot_time_iso
+                    except NameError:
+                        target_b_time = "08:00" if is_home_visit else "10:00"
 
+                    # If model explicitly stated a confirmed time in response text, respect model's stated time
+                    tm_resp = re.search(r'\b(?:at|time\s*[:=\-]?\s*)?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', resp_low, re.I)
                     if tm_resp:
                         raw_t = tm_resp.group(1).strip().upper()
                         try:
@@ -5577,6 +5592,10 @@ end
                 except Exception as loc_err:
                     logger.debug("cust_location_lookup_failed", error=str(loc_err))
 
+            full_location = (creds.get("full_location_text") or "").strip() if creds else ""
+            if not full_location and tenant_st_row and isinstance(tenant_st_row, dict):
+                full_location = (tenant_st_row.get("full_location_text") or tenant_st_row.get("location") or "").strip()
+
             if booking_loc and notes == "Booked via WhatsApp AI Assistant":
                 notes = f"Home Sample Collection at {booking_loc}"
 
@@ -5608,6 +5627,8 @@ end
 
             duration_mins = max(10, min(duration_mins, 240))
             et_dt = st_dt + datetime.timedelta(minutes=duration_mins)
+            formatted_date = st_dt.strftime("%d-%m-%Y")
+            formatted_time = st_dt.strftime("%I:%M %p")
 
             # Get contact_id
             contact_id = await self.db_pool.fetchval(
@@ -6006,6 +6027,20 @@ end
                         logger.error("confirmation_text_fallback_send_failed", error=str(txt_err))
 
                 # 1b. Automatically send Business Address or Home Collection Confirmation
+                full_location = (creds.get("full_location_text") or "").strip() if creds else ""
+                if not full_location and tenant_st_row:
+                    full_location = (tenant_st_row.get("full_location_text") or tenant_st_row.get("location") or "").strip()
+                if not full_location:
+                    try:
+                        tenant_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                        if tenant_st:
+                            if isinstance(tenant_st, str):
+                                try: tenant_st = json.loads(tenant_st)
+                                except: tenant_st = {}
+                            full_location = (tenant_st.get("full_location_text") or tenant_st.get("location") or "").strip()
+                    except Exception:
+                        pass
+
                 is_home_booking = bool("home" in service_name.lower() or "home" in (notes or "").lower() or ("collection" in service_name.lower() and booking_loc))
 
                 if is_home_booking:
@@ -6038,15 +6073,6 @@ end
                         logger.warning("home_collection_details_send_failed", error=str(e))
                 else:
                     # Regular in-clinic visit: send Business Address & Live Location if configured
-                    full_location = (creds.get("full_location_text") or "").strip()
-                    if not full_location:
-                        tenant_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-                        if tenant_st:
-                            if isinstance(tenant_st, str):
-                                try: tenant_st = json.loads(tenant_st)
-                                except: tenant_st = {}
-                            full_location = (tenant_st.get("full_location_text") or "").strip()
-
                     if full_location:
                         loc_msg = f"*Location & Directions:*\n{full_location}"
                         await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
