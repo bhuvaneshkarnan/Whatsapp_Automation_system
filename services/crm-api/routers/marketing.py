@@ -1452,6 +1452,33 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
                     }
                 }
             ]
+        },
+        "missed_call_followup": {
+            "name": "missed_call_followup",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Missed Call Auto Follow-up",
+            "description": "Automatically sent via MacroDroid/iOS Shortcuts when a call is missed — prompts the caller to reconnect via WhatsApp",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": "Hi {{1}}, we noticed we missed your call just now. Sorry we couldn't pick up! Please reply here and we'll get back to you right away — no need to call again.",
+                    "example": {
+                        "body_text": [
+                            ["there"]
+                        ]
+                    }
+                },
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {
+                            "type": "QUICK_REPLY",
+                            "text": "I need help"
+                        }
+                    ]
+                }
+            ]
         }
     }
 
@@ -1851,7 +1878,7 @@ async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
                         "error": str(ex)
                     })
 
-    # Save all 12 template names into both tenant settings and tenant credentials
+    # Save all template names into both tenant settings and tenant credentials
     all_templates_map = {
         "template_booking_confirmation": "booking_confirmationn",
         "template_booking_reschedule_confirmation": "booking_reschedule_confirmation",
@@ -1867,6 +1894,7 @@ async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
         "template_admin_appointment_reminder": "admin_appointment_reminder",
         "template_client_followup_checkin": "client_followup_checkin",
         "template_utility_general_update": "utility_general_update",
+        "template_missed_call": "missed_call_followup",
     }
     for k, v in all_templates_map.items():
         t_settings[k] = v
