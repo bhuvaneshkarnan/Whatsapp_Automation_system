@@ -695,13 +695,16 @@ function FollowupSchedulerPopover({
   );
 }
 
-const STAGES: { id: Customer['status']; label: string; bg: string; text: string; border: string; dot: string }[] = [
-  { id: 'new', label: 'New Inquiry', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
-  { id: 'contacted', label: 'Contacted / In Progress', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', dot: 'bg-indigo-500' },
-  { id: 'follow-up', label: 'Follow-up Due', bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200', dot: 'bg-amber-500' },
-  { id: 'converted', label: 'Booked / Converted', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
-  { id: 'lost', label: 'Lost / Inactive', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', dot: 'bg-rose-400' },
-];
+// STAGES is computed dynamically inside the component from crmDropdowns.pipeline_columns
+// See: const stages = useMemo(...)  inside ModernCustomerView
+const STAGE_STYLES: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  'new':       { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    dot: 'bg-blue-500' },
+  'contacted': { bg: 'bg-indigo-50',  text: 'text-indigo-700',  border: 'border-indigo-200',  dot: 'bg-indigo-500' },
+  'follow-up': { bg: 'bg-amber-50',   text: 'text-amber-800',   border: 'border-amber-200',   dot: 'bg-amber-500' },
+  'converted': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+  'lost':      { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    dot: 'bg-rose-400' },
+};
+
 
 interface ModernCustomerViewProps {
   initialViewMode?: 'table' | 'kanban' | 'tasks' | 'notes';
@@ -844,7 +847,28 @@ export function ModernCustomerView({
     ];
   }, [crmDropdowns]);
 
+  // Pipeline stages — derived from crmDropdowns.pipeline_columns (set in Manage CRM → Pipeline Columns tab)
+  const stages = useMemo(() => {
+    const defaults = [
+      { id: 'new',       label: 'New Inquiry',             visible: true },
+      { id: 'contacted', label: 'Contacted / In Progress', visible: true },
+      { id: 'follow-up', label: 'Follow-up Due',           visible: true },
+      { id: 'converted', label: 'Booked / Converted',      visible: true },
+      { id: 'lost',      label: 'Lost / Inactive',         visible: true },
+    ];
+    const src = (crmDropdowns?.pipeline_columns && crmDropdowns.pipeline_columns.length > 0)
+      ? crmDropdowns.pipeline_columns
+      : defaults;
+    return src.map((c) => ({
+      id: c.id as Customer['status'],
+      label: c.label,
+      visible: c.visible !== false,
+      ...(STAGE_STYLES[c.id] || STAGE_STYLES['new']),
+    }));
+  }, [crmDropdowns]);
+
   const nextActions = useMemo(() => {
+
     if (Array.isArray(crmDropdowns?.next_actions) && crmDropdowns.next_actions.length > 0) {
       return crmDropdowns.next_actions;
     }
@@ -1892,7 +1916,7 @@ export function ModernCustomerView({
                   ) : (
                     filteredCustomers.map((cust) => {
                       const isSelected = selectedCustomer?.id === cust.id;
-                      const stageObj = STAGES.find((s) => s.id === cust.status) || STAGES[0];
+                      const stageObj = stages.find((s) => s.id === cust.status) || stages[0];
                       const lastAct = getLastActivityInfo(cust);
                       const initials = (cust.name || cust.wa_profile_name || 'C')
                         .split(' ')
@@ -2074,59 +2098,31 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 3. Status Dropdown - Connected to Manage CRM Dropdown Options */}
+                          {/* 3. Status (Pipeline Stage) — uses labels from Manage CRM → Pipeline Columns */}
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             {(() => {
-                              const currentVal = cust.call_status || (
-                                cust.status === 'converted' || cust.converted ? 'Converted' :
-                                cust.status === 'contacted' ? 'Contacted / In Progress' :
-                                cust.status === 'follow-up' ? 'Follow-up Due' :
-                                cust.status === 'lost' ? 'Lost / Inactive' :
-                                (outcomeStatuses[0] || 'New')
-                              );
-                              const badgeStyle = getOutcomeStatusStyle(currentVal);
+                              const stageStyle = STAGE_STYLES[cust.status] || STAGE_STYLES['new'];
                               return (
                                 <select
-                                  value={currentVal}
+                                  value={cust.status || 'new'}
                                   onChange={(e) => {
-                                    const val = e.target.value;
-                                    const vLower = val.toLowerCase();
-                                    let mappedStatus = 'follow-up';
-                                    if (vLower.includes('new') || vLower === 'new inquiry') {
-                                      mappedStatus = 'new';
-                                    } else if (vLower.includes('convert') || vLower.includes('won') || vLower.includes('confirm') || vLower.includes('booked')) {
-                                      mappedStatus = 'converted';
-                                    } else if (vLower.includes('lost') || vLower.includes('wrong') || vLower.includes('blue flag') || vLower.includes('not interest')) {
-                                      mappedStatus = 'lost';
-                                    }
+                                    const newStatus = e.target.value;
                                     handleQuickUpdate(cust.id, {
-                                      call_status: val,
-                                      status: mappedStatus as any,
-                                      converted: mappedStatus === 'converted',
+                                      status: newStatus as Customer['status'],
+                                      converted: newStatus === 'converted',
                                     });
                                   }}
                                   disabled={updatingId === cust.id}
-                                  className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[155px] truncate ${badgeStyle.bg} ${badgeStyle.text} ${badgeStyle.border}`}
+                                  className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[175px] truncate ${stageStyle.bg} ${stageStyle.text} ${stageStyle.border}`}
                                 >
-                                  {outcomeStatuses.length > 0 ? (
-                                    <>
-                                      {cust.call_status && !outcomeStatuses.includes(cust.call_status) && (
-                                        <option value={cust.call_status}>
-                                          {cust.call_status}
-                                        </option>
-                                      )}
-                                      {outcomeStatuses.map((st) => (
-                                        <option key={st} value={st}>
-                                          {st}
-                                        </option>
-                                      ))}
-                                    </>
-                                  ) : (
-                                    STAGES.map((st) => (
-                                      <option key={st.id} value={st.id}>
-                                        {st.label}
-                                      </option>
-                                    ))
+                                  {stages.map((st) => (
+                                    <option key={st.id} value={st.id}>
+                                      {st.label}
+                                    </option>
+                                  ))}
+                                  {/* If customer has a status that's been hidden, still show it so they can reassign */}
+                                  {cust.status && !stages.find((s) => s.id === cust.status) && (
+                                    <option value={cust.status}>{cust.status} (hidden)</option>
                                   )}
                                 </select>
                               );
