@@ -2479,7 +2479,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // ── CRM Dropdown Options Manager Modal ──────────────────────────────────────
   const [dropdownOptionsModalOpen, setDropdownOptionsModalOpen] = useState(false);
-  const [dropdownActiveTab, setDropdownActiveTab] = useState<'outcome_statuses' | 'next_actions' | 'services_list' | 'pipeline_columns'>('outcome_statuses');
+  const [dropdownActiveTab, setDropdownActiveTab] = useState<'next_actions' | 'services_list' | 'pipeline_columns'>('next_actions');
   const [editingDropdowns, setEditingDropdowns] = useState<CrmDropdownOptions>({
     outcome_statuses: [],
     next_actions: [],
@@ -5776,7 +5776,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   };
 
-  function openDropdownOptionsModal(tab: 'outcome_statuses' | 'next_actions' | 'services_list' | 'pipeline_columns' = 'outcome_statuses') {
+  function openDropdownOptionsModal(tab: 'next_actions' | 'services_list' | 'pipeline_columns' = 'next_actions') {
     crm.getCrmDropdownOptions().then((res) => {
       if (res && res.outcome_statuses) {
         setCrmDropdowns(res);
@@ -5785,7 +5785,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           next_actions: [...(res.next_actions || [])],
           services_list: [...(res.services_list || [])],
           concerns_list: [...(res.concerns_list || [])],
-          pipeline_columns: (res.pipeline_columns || []).map((c) => ({ ...c })),
+          pipeline_columns: (res.pipeline_columns && res.pipeline_columns.length > 0)
+            ? res.pipeline_columns.map((c) => ({ ...c }))
+            : [
+                { id: 'new',       label: 'New Inquiry',             visible: true },
+                { id: 'contacted', label: 'Contacted / In Progress', visible: true },
+                { id: 'follow-up', label: 'Follow-up Due',           visible: true },
+                { id: 'converted', label: 'Booked / Converted',      visible: true },
+                { id: 'lost',      label: 'Lost / Inactive',         visible: true },
+              ],
         });
       }
     }).catch(() => {});
@@ -5794,7 +5802,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       next_actions: [...(crmDropdowns.next_actions || [])],
       services_list: [...(crmDropdowns.services_list || [])],
       concerns_list: [...(crmDropdowns.concerns_list || [])],
-      pipeline_columns: (crmDropdowns.pipeline_columns || []).map((c) => ({ ...c })),
+      pipeline_columns: (crmDropdowns.pipeline_columns && crmDropdowns.pipeline_columns.length > 0)
+        ? crmDropdowns.pipeline_columns.map((c) => ({ ...c }))
+        : [
+            { id: 'new',       label: 'New Inquiry',             visible: true },
+            { id: 'contacted', label: 'Contacted / In Progress', visible: true },
+            { id: 'follow-up', label: 'Follow-up Due',           visible: true },
+            { id: 'converted', label: 'Booked / Converted',      visible: true },
+            { id: 'lost',      label: 'Lost / Inactive',         visible: true },
+          ],
     });
     setDropdownActiveTab(tab);
     setNewDropdownItemInput('');
@@ -15978,7 +15994,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="px-3 sm:px-5 pt-3 border-b border-border bg-surface shrink-0">
                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pb-2">
                       {[
-                        { id: 'outcome_statuses' as const, label: 'Outcome Statuses', count: editingDropdowns.outcome_statuses?.length || 0 },
                         { id: 'next_actions' as const, label: 'Next Actions', count: editingDropdowns.next_actions?.length || 0 },
                         { id: 'services_list' as const, label: 'Services', count: editingDropdowns.services_list?.length || 0 },
                         { id: 'pipeline_columns' as const, label: 'Pipeline Columns', count: (editingDropdowns.pipeline_columns || []).filter((c) => c.visible).length },
@@ -16140,7 +16155,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <div>
                           <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
                             Add New {
-                              dropdownActiveTab === 'outcome_statuses' ? 'Outcome Status' :
                               dropdownActiveTab === 'next_actions' ? 'Next Action' : 'Service'
                             }
                           </label>
@@ -16156,7 +16170,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 }
                               }}
                               placeholder={`Type a new ${
-                                dropdownActiveTab === 'outcome_statuses' ? 'outcome status (e.g. Needs Follow-up)' :
                                 dropdownActiveTab === 'next_actions' ? 'next action (e.g. Schedule Call)' :
                                 'service (e.g. Physiotherapy)'
                               }...`}
