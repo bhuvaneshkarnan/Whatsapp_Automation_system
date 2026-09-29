@@ -11823,17 +11823,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {/* Divider */}
                   <div className="h-5 w-px bg-border shrink-0" />
 
-                  {/* Calendar schedule button */}
-                  <button
-                    type="button"
-                    onClick={() => navigateTo('calendar')}
-                    className="h-7 px-2.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary font-medium text-xs rounded-md transition-colors border border-border cursor-pointer shadow-2xs flex items-center gap-1.5 shrink-0 whitespace-nowrap"
-                    title="Switch to Calendar Schedule view"
-                  >
-                    <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
-                    <span>{currentTaxonomy.tab_calendar_label || 'Calendar Schedule'}</span>
-                  </button>
-
                   {/* Refresh */}
                   <button
                     type="button"
