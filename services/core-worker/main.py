@@ -356,11 +356,48 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
     return now + datetime.timedelta(hours=2)
 
 
+def parse_action_payload(payload_str: str) -> dict:
+    """
+    Robust action payload parser. Handles:
+    1. Valid JSON: {"service": "Demo", "date": "2026-09-30", "time": "17:30"}
+    2. Key-Value pairs: date="2026-09-30", time="05:30 PM", service="Demo"
+    3. Python literal eval fallback
+    """
+    if not payload_str or not isinstance(payload_str, str):
+        return {}
+    s = payload_str.strip()
+    # 1. Try balanced JSON extraction if braces present
+    brace_start = s.find("{")
+    brace_end = s.rfind("}")
+    if brace_start != -1 and brace_end > brace_start:
+        cand = s[brace_start:brace_end + 1]
+        try:
+            return json.loads(cand)
+        except Exception:
+            try:
+                import ast
+                val = ast.literal_eval(cand)
+                if isinstance(val, dict):
+                    return val
+            except Exception:
+                pass
+    # 2. Key-Value regex extraction: key="val" or key='val' or key=val
+    kv_matches = re.findall(r'(\w+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s,\]]+))', s)
+    if kv_matches:
+        out = {}
+        for k, v1, v2, v3 in kv_matches:
+            val = v1 if v1 != '' else (v2 if v2 != '' else v3)
+            out[k] = val
+        return out
+    return {}
+
+
 GLOBAL_DEFAULT_STRICT_RULES = (
     "- ACCURATE CUSTOMER QUERY COMPREHENSION (FIRST PRIORITY):\n"
     "  * Always read and genuinely understand what the customer is saying in the context of the conversation before replying.\n"
-    "  * When the customer gives a short reply (e.g. '3 pm', 'tomorrow', 'hydrafacial', 'yes', 'T Nagar', 'give me a demo'): Connect their reply directly to the previous messages. They are answering your previous question or continuing the ongoing topic. NEVER evaluate short answers in isolation and NEVER reset the conversation context.\n"
+    "  * When the customer gives a short reply (e.g. '3 pm', 'tomorrow', 'hydrafacial', 'yes', 'T Nagar', 'give me a demo', 'today evening'): Connect their reply directly to the previous messages. They are answering your previous question or continuing the ongoing topic. NEVER evaluate short answers in isolation and NEVER reset the conversation context.\n"
     "  * DEMO & BOOKING REQUESTS: When a customer asks for a demo, call, or appointment (e.g. 'give me a demo'), enthusiastically accept, explain what they will see in 1 crisp sentence, and ask what day and convenient time works best for them within operating hours (or for tomorrow if messaging late at night).\n"
+    "  * TIME / SLOT PROVIDED: When the customer provides a time or day (e.g. 'today evening', '5:30 pm', 'tomorrow at 3'), understand they are selecting their slot! Immediately confirm that exact time with warmth and append [ACTION:CREATE_BOOKING: ...] with date and time. NEVER re-pitch or re-ask what time works!\n"
     "- TEMPORAL REASONING & DATE/TIME RESOLUTION (ZERO AMBIGUITY):\n"
     "  * Live Timestamp Awareness: Check the current time provided at the top of the prompt.\n"
     "  * If customer mentions a time without a date (e.g. '3 pm', 'at 11', '5:30 PM'):\n"
@@ -2611,6 +2648,7 @@ end
 
         cleaned = text.strip()
         cleaned = re.sub(r'\r\n', '\n', cleaned)
+        cleaned = re.sub(r'\[ACTION:[^\]]+\]', '', cleaned, flags=re.I).strip()
 
         # Only split if an explicit [BUBBLE] tag is used
         if "[BUBBLE]" in cleaned:
@@ -2708,10 +2746,10 @@ end
 
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         greeting_flow_rule = (
-            "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS OR RE-INTRODUCTIONS): This is an ongoing conversation. "
+            "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS, INTROS, OR RE-PITCHING): This is an ongoing conversation. "
             "ABSOLUTELY DO NOT start your reply with 'Hi', 'Hello', 'Hey', or 'Hi [Customer Name]'! "
-            "ABSOLUTELY DO NOT re-introduce yourself with 'I am [Name] from [Business]', and DO NOT ask generic opener questions like 'How can I help you today?'. "
-            "Real people on WhatsApp never re-introduce themselves repeatedly mid-chat. Dive straight into continuing the conversation from where it left off."
+            "ABSOLUTELY DO NOT re-introduce yourself with 'I am [Name] from [Business]', 'Thanks for reaching out', and NEVER repeat your business pitch or demo explanation if already delivered earlier! "
+            "Real people on WhatsApp never re-introduce themselves repeatedly mid-chat. Dive straight into answering what they just typed and advance the conversation forward."
             if is_ongoing_conversation else
             "- OPENING GREETING: Warmly greet the customer in your opening message."
         )
@@ -3473,12 +3511,34 @@ end
             "neenga ai ya", "neenga bot ah", "ai ya neenga", "are you computer"
         ])
 
-        # Check if previous assistant message asked for cancellation confirmation
+        # Check if previous assistant message asked for cancellation or slot/timing confirmation
         last_assistant_msg = ""
         for msg in reversed(history or []):
             if msg.get("role") in ("assistant", "model"):
                 last_assistant_msg = (msg.get("content") or "").lower()
                 break
+
+        is_slot_request_pending = bool(
+            last_assistant_msg and any(q in last_assistant_msg for q in [
+                "what day and time", "what time works best", "what convenient time", "what time suits",
+                "what time would you", "which time", "prefer morning or evening", "prefer morning",
+                "prefer evening", "which slot", "what date and time", "time works best for you",
+                "time would you prefer", "when would you like", "day and time suits", "what time can we",
+                "what time works for you", "what time is good", "free for a quick call", "free for a call",
+                "when are you free", "what time works", "what day works", "what day and convenient time",
+                "works best for you to see this", "works best for you"
+            ])
+        )
+
+        has_time_or_slot_indicator = bool(
+            re.search(
+                r'\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|'
+                r'morning|afternoon|evening|night|noon|am|pm|o\'clock|oclock|'
+                r'\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b',
+                inbound_clean,
+                re.I
+            )
+        )
 
         is_cancel_confirmation = bool(
             any(q in last_assistant_msg for q in ["confirm if you want to cancel", "want to cancel", "confirm cancellation", "cancel your", "cancelling your", "canceling your"])
@@ -3638,14 +3698,33 @@ end
                 "The customer already has an active upcoming appointment. "
                 "Warmly reference it. If they ask for slots or another appointment, clarify if they want to reschedule the existing one or book an additional separate one."
             )
-        elif any(w in inbound_clean for w in ["book", "appointment", "schedule", "demo", "call", "slot", "slots", "available", "come today", "tomorrow", "calendar"]):
+        elif (
+            any(w in inbound_clean for w in [
+                "book", "appointment", "schedule", "demo", "call", "slot", "slots", "available", 
+                "come today", "tomorrow", "calendar", "timing works", "time works"
+            ])
+            or (is_slot_request_pending and has_time_or_slot_indicator)
+            or (is_ongoing_conversation and has_time_or_slot_indicator and not has_upcoming and not any(w in inbound_clean for w in ["price", "cost", "fee", "where", "location", "address"]))
+        ):
             funnel_stage = "BOOKING_INTENT"
-            stage_directive = (
-                "The customer wants to schedule or check availability for an appointment, demo, or call. "
-                "1. If the customer has NOT stated a time: Warmly accept their request (e.g. for a demo, describe what they will see in 1 line), and ask what day and convenient time suits them best within operating hours (check verified open slots above; if a date has a scheduled closure or leave, do NOT propose that date). "
-                f"2. If the customer HAS stated a time (e.g. '3 pm', 'at 4', 'today at 5', 'tomorrow at 2'): If the requested time is still upcoming today within operating hours ({op_hours_display}) and available, book for TODAY ({today_date_str})! If that time has already passed today or today is closed/full, check if tomorrow is open. If tomorrow is closed for scheduled leave, offer the next open business day. If open, confirm for tomorrow with warmth, and MANDATORY append [ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]. "
-                "NEVER offer a rigid pair of arbitrary times. NEVER claim today is fully booked if outside operating hours. NEVER reject customer's time."
-            )
+            if is_slot_request_pending or (is_ongoing_conversation and has_time_or_slot_indicator):
+                stage_directive = (
+                    f"The customer is responding with their preferred day/time for the appointment/demo: '{message_text}'.\n"
+                    "CRITICAL ANTI-LOOP & IMMEDIATE CONFIRMATION DIRECTIVE:\n"
+                    "1. ABSOLUTELY NEVER repeat your previous greeting, business intro, or demo pitch! DO NOT say 'Thanks for reaching out' or re-ask 'What day and time works best for you?'.\n"
+                    f"2. Current live context: Today is {now.strftime('%A, %d %b %Y')} and current time is {now.strftime('%I:%M %p')}. Business operating hours are: {op_hours_display}.\n"
+                    f"   - If the customer requested 'today', 'today evening', or an upcoming time today within operating hours: warmly confirm it for TODAY ({today_date_str}) at their specified time (e.g. 5:30 PM)!\n"
+                    f"   - If their requested time has already passed today or operating hours for today have closed: politely explain that today's hours have passed and warmly confirm for TOMORROW ({tomorrow_date_str}) at that requested time!\n"
+                    f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on a new line at the very end:\n"
+                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]"
+                )
+            else:
+                stage_directive = (
+                    "The customer wants to schedule or check availability for an appointment, demo, or call. "
+                    "1. If the customer has NOT stated a time: Warmly accept their request (e.g. for a demo, describe what they will see in 1 line), and ask what day and convenient time suits them best within operating hours (check verified open slots above; if a date has a scheduled closure or leave, do NOT propose that date). "
+                    f"2. If the customer HAS stated a time (e.g. '3 pm', 'at 4', 'today at 5', 'tomorrow at 2'): If the requested time is still upcoming today within operating hours ({op_hours_display}) and available, book for TODAY ({today_date_str})! If that time has already passed today or today is closed/full, check if tomorrow is open. If tomorrow is closed for scheduled leave, offer the next open business day. If open, confirm for tomorrow with warmth, and MANDATORY append [ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]. "
+                    "NEVER offer a rigid pair of arbitrary times. NEVER claim today is fully booked if outside operating hours. NEVER reject customer's time."
+                )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
             stage_directive = (
@@ -4263,34 +4342,20 @@ end
             response_text = re.sub(r'\[ACTION:CANCEL(?:_BOOKING|_APPOINTMENT)?(?::\s*\{.*?\})?\]', '', response_text, flags=re.I).strip()
 
             # 3. Intercept [ACTION:RESCHEDULE_BOOKING: ...] or [ACTION:RESCHEDULE: ...] or [ACTION:RESCHEDULE_APPOINTMENT: ...]
-            # Use balanced-brace extractor to handle nested JSON structures
-            _resched_match = re.search(r'\[ACTION:RESCHEDULE(?:_BOOKING|_APPOINTMENT)?:\s*', response_text, re.I)
+            _resched_match = re.search(r'\[ACTION:RESCHEDULE(?:_BOOKING|_APPOINTMENT)?:\s*(.+?)\]', response_text, re.DOTALL | re.I)
             if _resched_match:
-                _resched_idx = _resched_match.start()
-                _brace_start = response_text.find("{", _resched_idx)
-                if _brace_start != -1:
-                    _depth, _pos, _brace_end = 0, _brace_start, -1
-                    for _ci, _ch in enumerate(response_text[_brace_start:]):
-                        if _ch == "{": _depth += 1
-                        elif _ch == "}":
-                            _depth -= 1
-                            if _depth == 0: _brace_end = _brace_start + _ci; break
-                    if _brace_end != -1:
-                        _json_str = response_text[_brace_start:_brace_end + 1]
-                        try:
-                            reschedule_action = json.loads(_json_str)
-                        except Exception as _e:
-                            logger.warning("reschedule_action_json_parse_failed", error=str(_e), raw=_json_str[:200])
-                        # Strip the full [ACTION:...] tag from response
-                        _tag_end = response_text.find("]", _brace_end)
-                        if _tag_end != -1:
-                            response_text = (response_text[:_resched_idx] + response_text[_tag_end + 1:]).strip()
+                try:
+                    reschedule_action = parse_action_payload(_resched_match.group(1))
+                except Exception as _e:
+                    logger.warning("reschedule_action_parse_failed", error=str(_e))
+                # Strip action tag from message sent to WhatsApp customer
+                response_text = re.sub(r'\[ACTION:RESCHEDULE(?:_BOOKING|_APPOINTMENT)?:\s*.+?\]', '', response_text, flags=re.DOTALL | re.I).strip()
 
             # Intercept [ACTION:CUSTOMER_INFO: ...] tag
-            m_cust = re.search(r'\[ACTION:CUSTOMER_INFO:\s*(\{.*?\})\]', response_text, re.DOTALL)
+            m_cust = re.search(r'\[ACTION:CUSTOMER_INFO:\s*(.+?)\]', response_text, re.DOTALL | re.I)
             if m_cust:
                 try:
-                    c_info = json.loads(m_cust.group(1))
+                    c_info = parse_action_payload(m_cust.group(1))
                     c_age = c_info.get("age")
                     c_loc = c_info.get("location")
                     c_name = c_info.get("name")
@@ -4313,17 +4378,17 @@ end
                         )
                 except Exception as ex:
                     logger.warning("customer_info_parse_failed", error=str(ex))
-                response_text = re.sub(r'\[ACTION:CUSTOMER_INFO:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+                response_text = re.sub(r'\[ACTION:CUSTOMER_INFO:\s*.+?\]', '', response_text, flags=re.DOTALL | re.I).strip()
 
             # 4. Intercept [ACTION:CREATE_BOOKING: ...] or [ACTION:BOOK_APPOINTMENT: ...] tags
-            m_booking = re.search(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT):\s*(\{.*?\})\]', response_text, re.DOTALL | re.I)
+            m_booking = re.search(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT):\s*(.+?)\]', response_text, re.DOTALL | re.I)
             if m_booking:
                 try:
-                    booking_action = json.loads(m_booking.group(1))
+                    booking_action = parse_action_payload(m_booking.group(1))
                 except Exception as e:
-                    logger.warning("booking_action_json_parse_failed", error=str(e))
+                    logger.warning("booking_action_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
-                response_text = re.sub(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT):\s*\{.*?\}\]', '', response_text, flags=re.DOTALL | re.I).strip()
+                response_text = re.sub(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT):\s*.+?\]', '', response_text, flags=re.DOTALL | re.I).strip()
 
             # 3b. Duplicate Booking Prevention Safety Net:
             # If customer already has an active upcoming booking and did NOT explicitly request an additional session:
@@ -4558,6 +4623,58 @@ end
 
             if is_ongoing_conversation:
                 response_text = strip_repetitive_greetings(response_text)
+
+                # Anti-Repetition Loop Interceptor:
+                # Detect if the model echoed its previous message to the customer
+                if last_assistant_msg:
+                    resp_clean = re.sub(r'[^\w\s]', '', (response_text or "").lower()).strip()
+                    prev_clean = re.sub(r'[^\w\s]', '', last_assistant_msg).strip()
+                    resp_words = resp_clean.split()
+                    prev_words = prev_clean.split()
+
+                    is_duplicate_response = False
+                    if len(resp_words) >= 8 and len(prev_words) >= 8:
+                        if resp_words[:8] == prev_words[:8]:
+                            is_duplicate_response = True
+                        else:
+                            overlap = len(set(resp_words) & set(prev_words))
+                            if overlap / max(len(set(resp_words)), 1) > 0.70:
+                                is_duplicate_response = True
+
+                    if is_duplicate_response:
+                        logger.warning("repetitive_ai_response_intercepted", tenant_id=tenant_id, conv_id=conv_id, snippet=response_text[:80])
+                        # If customer provided a time or slot, resolve and confirm instead of looping!
+                        if has_time_or_slot_indicator:
+                            slot_target_date = today_date_str
+                            time_match = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b', inbound_clean, re.I)
+                            stated_time = time_match.group(1).upper() if time_match else "05:30 PM"
+                            if ":" not in stated_time and ("AM" in stated_time or "PM" in stated_time):
+                                stated_time = re.sub(r'(\d+)\s*(AM|PM)', r'\1:00 \2', stated_time)
+
+                            if "tomorrow" in inbound_clean:
+                                slot_target_date = tomorrow_date_str
+                                date_friendly = "tomorrow"
+                            else:
+                                date_friendly = "today"
+
+                            response_text = f"Got it! I have scheduled your demo for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
+                            if not booking_action:
+                                booking_action = {
+                                    "service": "Clinic WhatsApp AI Demo",
+                                    "date": slot_target_date,
+                                    "time": stated_time,
+                                    "name": confirmed_name or customer_name_display or "Customer"
+                                }
+                        else:
+                            # Strip the repeated intro and keep subsequent sentences
+                            sentences = re.split(r'(?<=[.!?])\s+', response_text)
+                            if len(sentences) > 1:
+                                response_text = " ".join(sentences[1:]).strip()
+                            if not response_text or len(response_text) < 10:
+                                response_text = "Sure! Could you please let me know what day and time works best for you?"
+
+            # Universal safety net: Strip ANY leftover action or bracket tags so they never reach WhatsApp
+            response_text = re.sub(r'\[ACTION:[^\]]+\]', '', response_text, flags=re.I).strip()
             # Global strict tenant isolation firewall check
             response_text = self._sanitize_tenant_response(
                 response_text,
