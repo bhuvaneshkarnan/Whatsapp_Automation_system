@@ -168,6 +168,84 @@ import {
 
 const DEFAULT_BILLING_CATEGORIES = ['Naturopathy', 'Ayurveda', 'Medicine', 'Others'];
 
+function getBookingBreakdown(b: any): Record<string, number> {
+  if (!b) return {};
+  let meta = b.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch { meta = {}; }
+  }
+  if (!meta || typeof meta !== 'object') meta = {};
+  let bd = meta.billing_breakdown;
+  if (typeof bd === 'string') {
+    try { bd = JSON.parse(bd); } catch { bd = {}; }
+  }
+  if (bd && typeof bd === 'object' && !Array.isArray(bd)) {
+    const res: Record<string, number> = {};
+    Object.entries(bd).forEach(([k, v]) => {
+      const num = parseFloat(String(v || 0));
+      if (!isNaN(num)) res[k] = num;
+    });
+    return res;
+  }
+  return {};
+}
+
+function getCategoryAmount(bd: Record<string, number>, catName: string, booking?: any): number {
+  if (!catName) return 0;
+  const target = catName.trim().toLowerCase();
+
+  // 1. Exact match in bd
+  if (bd[catName] !== undefined && bd[catName] > 0) {
+    return bd[catName];
+  }
+
+  // 2. Case-insensitive lookup in bd
+  for (const [k, v] of Object.entries(bd)) {
+    if (k.trim().toLowerCase() === target && v > 0) {
+      return v;
+    }
+  }
+
+  // 3. Neuropathy / Naturopathy alias equivalence
+  const isNeuroOrNaturo = target.includes('neuro') || target.includes('naturo');
+  if (isNeuroOrNaturo) {
+    for (const [k, v] of Object.entries(bd)) {
+      const kLow = k.trim().toLowerCase();
+      if ((kLow.includes('neuro') || kLow.includes('naturo')) && v > 0) {
+        return v;
+      }
+    }
+  }
+
+  // 4. Fallback for legacy single-amount bookings where breakdown has not been explicitly split
+  const totalInBd = Object.values(bd).reduce((s, n) => s + (n || 0), 0);
+  if (totalInBd === 0 && booking && (booking.price || 0) > 0) {
+    const p = parseFloat(String(booking.price || 0)) || 0;
+    const sLow = (booking.service || '').toLowerCase();
+
+    // Check if service matches Ayurveda
+    if (target.includes('ayur') || target.includes('abhyangam') || target.includes('abiyangam')) {
+      if (sLow.includes('ayur') || sLow.includes('abhyangam') || sLow.includes('abiyangam')) {
+        return p;
+      }
+    }
+    // Check if service matches Naturopathy / Neuropathy / general therapy
+    else if (isNeuroOrNaturo) {
+      if (!sLow.includes('ayur') && !sLow.includes('abhyangam') && !sLow.includes('abiyangam') && !sLow.includes('med')) {
+        return p;
+      }
+    }
+    // Check if service matches Medicine
+    else if (target.includes('med')) {
+      if (sLow.includes('med') || sLow.includes('pharm') || sLow.includes('drug')) {
+        return p;
+      }
+    }
+  }
+
+  return 0;
+}
+
 const COUNTRY_CODES = [
   { code: '+91', country: 'India (+91)' },
   { code: '+1', country: 'United States / Canada (+1)' },
@@ -3002,7 +3080,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   useEffect(() => {
     if (selectedBookingDetail) {
-      const existing = (selectedBookingDetail.metadata?.billing_breakdown || {}) as Record<string, number>;
+      const existing = getBookingBreakdown(selectedBookingDetail);
       const initBreakdown: Record<string, string> = {};
       Object.entries(existing).forEach(([k, v]) => {
         initBreakdown[k] = String(v);
@@ -3018,7 +3096,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const finalCats = cleaned.length > 0 ? Array.from(new Set(cleaned)) : DEFAULT_BILLING_CATEGORIES;
     setSavingCategories(true);
     try {
-      await crm.updateSettings({ billing_categories: finalCats });
+      await crm.updateSettings({ billing_categories: finalCats }, settingsForm.tenant_id);
       setSettingsForm((prev) => ({ ...prev, billing_categories: finalCats }));
       setCustomCategoryInputs(finalCats);
       setIsManagingCategories(false);
@@ -7474,25 +7552,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     try {
       await crm.updateBookingPrice(bookingId, newPrice, breakdown);
       setBookings((prev) =>
-        prev.map((b) =>
-          b.id === bookingId
-            ? {
-                ...b,
-                price: newPrice,
-                metadata: breakdown
-                  ? { ...(b.metadata || {}), billing_breakdown: breakdown }
-                  : b.metadata,
-              }
-            : b
-        )
+        prev.map((b) => {
+          if (b.id !== bookingId) return b;
+          let safeMeta = b.metadata;
+          if (typeof safeMeta === 'string') {
+            try { safeMeta = JSON.parse(safeMeta); } catch { safeMeta = {}; }
+          }
+          if (!safeMeta || typeof safeMeta !== 'object' || Array.isArray(safeMeta)) safeMeta = {};
+          return {
+            ...b,
+            price: newPrice,
+            metadata: breakdown ? { ...safeMeta, billing_breakdown: breakdown } : safeMeta,
+          };
+        })
       );
       if (selectedBookingDetail && selectedBookingDetail.id === bookingId) {
+        let selMeta = selectedBookingDetail.metadata;
+        if (typeof selMeta === 'string') {
+          try { selMeta = JSON.parse(selMeta); } catch { selMeta = {}; }
+        }
+        if (!selMeta || typeof selMeta !== 'object' || Array.isArray(selMeta)) selMeta = {};
         setSelectedBookingDetail({
           ...selectedBookingDetail,
           price: newPrice,
-          metadata: breakdown
-            ? { ...(selectedBookingDetail.metadata || {}), billing_breakdown: breakdown }
-            : selectedBookingDetail.metadata,
+          metadata: breakdown ? { ...selMeta, billing_breakdown: breakdown } : selMeta,
         });
       }
       setEditingBookingPriceId(null);
@@ -12206,8 +12289,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 // Category filter
                 if (billingCategoryFilter !== 'all') {
-                  const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
-                  if (!bd[billingCategoryFilter] || bd[billingCategoryFilter] <= 0) {
+                  const bd = getBookingBreakdown(b);
+                  const amt = getCategoryAmount(bd, billingCategoryFilter, b);
+                  if (!amt || amt <= 0) {
                     return false;
                   }
                 }
@@ -12255,13 +12339,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 categoryTotals[cat] = { total: 0, count: 0 };
               });
               filteredBilling.forEach((b) => {
-                const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
-                Object.entries(bd).forEach(([k, v]) => {
-                  const num = parseFloat(String(v || 0)) || 0;
-                  if (num > 0) {
-                    if (!categoryTotals[k]) categoryTotals[k] = { total: 0, count: 0 };
-                    categoryTotals[k].total += num;
-                    categoryTotals[k].count += 1;
+                const bd = getBookingBreakdown(b);
+                billingCategories.forEach((cat) => {
+                  const amt = getCategoryAmount(bd, cat, b);
+                  if (amt > 0) {
+                    categoryTotals[cat].total += amt;
+                    categoryTotals[cat].count += 1;
                   }
                 });
               });
@@ -12272,8 +12355,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   const dt = b.start_time ? new Date(b.start_time) : null;
                   const dateStr = dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString() : '';
                   const timeStr = dt && !isNaN(dt.getTime()) ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-                  const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
-                  const catVals = billingCategories.map((c) => bd[c] !== undefined ? bd[c] : 0);
+                  const bd = getBookingBreakdown(b);
+                  const catVals = billingCategories.map((c) => getCategoryAmount(bd, c, b));
                   return [
                     `"${dateStr}"`,
                     `"${timeStr}"`,
@@ -12605,7 +12688,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             const dt = b.start_time ? new Date(b.start_time) : null;
                             const isPaid = (b.payment_status || '').toLowerCase() === 'paid';
                             const isAtClinic = b.payment_mode === 'pay_at_clinic' || (b.payment_status || '').toLowerCase() === 'pay_at_clinic';
-                            const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
+                            const bd = getBookingBreakdown(b);
 
                             return (
                               <tr
@@ -12686,7 +12769,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                 {/* Dynamic Category Breakdown Columns */}
                                 {billingCategories.map((cat) => {
-                                  const val = bd[cat];
+                                  const val = getCategoryAmount(bd, cat, b);
                                   const hasVal = val !== undefined && val > 0;
                                   return (
                                     <td key={cat} className="py-2.5 px-2.5 text-right font-mono whitespace-nowrap">
@@ -12752,8 +12835,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </td>
                             {billingCategories.map((cat) => {
                               const catSum = filteredBilling.reduce((sum, b) => {
-                                const bd = (b.metadata?.billing_breakdown || {}) as Record<string, number>;
-                                return sum + (parseFloat(String(bd[cat] || 0)) || 0);
+                                const bd = getBookingBreakdown(b);
+                                return sum + getCategoryAmount(bd, cat, b);
                               }, 0);
                               return (
                                 <td key={cat} className="py-2.5 px-2.5 text-right text-text-primary whitespace-nowrap">
@@ -24607,14 +24690,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* Multi-Service Billing Breakdown */}
                 {(() => {
-                  const existingBreakdown = (selectedBookingDetail.metadata?.billing_breakdown || {}) as Record<string, number>;
+                  const existingBreakdown = getBookingBreakdown(selectedBookingDetail);
                   const allDisplayCategories = Array.from(new Set([...billingCategories, ...Object.keys(existingBreakdown)]));
                   const effectiveTab = allDisplayCategories.includes(activeBillingTab) ? activeBillingTab : (allDisplayCategories[0] || 'Naturopathy');
 
                   const getTabValue = (cat: string) => {
                     const stateVal = billingBreakdown[cat];
                     if (stateVal !== undefined && stateVal !== '') return stateVal;
-                    if (existingBreakdown[cat] !== undefined) return String(existingBreakdown[cat]);
+                    const existingVal = getCategoryAmount(existingBreakdown, cat, selectedBookingDetail);
+                    if (existingVal > 0) return String(existingVal);
                     return '';
                   };
                   const computedTotal = allDisplayCategories.reduce((sum, cat) => {
@@ -24790,10 +24874,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       {/* Per-category summary row */}
-                      {Object.keys(existingBreakdown).length > 0 && (
+                      {allDisplayCategories.some((cat) => getCategoryAmount(existingBreakdown, cat, selectedBookingDetail) > 0) && (
                         <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1.5 border-t border-border">
                           {allDisplayCategories.map((cat) => {
-                            const saved = existingBreakdown[cat];
+                            const saved = getCategoryAmount(existingBreakdown, cat, selectedBookingDetail);
                             if (!saved) return null;
                             return (
                               <span key={cat} className="text-[10px] text-text-secondary font-mono bg-surface px-1.5 py-0.5 rounded border border-border">
