@@ -11754,109 +11754,106 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {activeNav === 'bookings' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
                 {/* Compact, Clean Action Toolbar (matching 2-tier design language) */}
-                <div className="flex flex-col gap-2 bg-surface border border-border rounded-lg p-2.5 shadow-2xs shrink-0">
-                  {/* ROW 1: Section Title, Calendar Switcher & Primary Action */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2 shrink-0">
-                      <CalendarDays className="w-4 h-4 text-accent stroke-[1.8]" />
-                      <h3 className="font-bold text-sm text-text-primary">Appointments & Bookings</h3>
-                    </div>
+                {/* Compact single-row booking toolbar */}
+                <div className="flex items-center gap-2 bg-surface border border-border rounded-lg px-2.5 py-2 shadow-2xs shrink-0 overflow-x-auto no-scrollbar">
 
-                    <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
-                      {/* Switch to Calendar Schedule Button */}
-                      <button
-                        type="button"
-                        onClick={() => navigateTo('calendar')}
-                        className="min-h-[36px] sm:min-h-[32px] h-9 sm:h-8 px-3 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary font-medium text-xs rounded-md transition-colors border border-border cursor-pointer shadow-2xs flex items-center gap-1.5 shrink-0 touch-manipulation"
-                        title="Switch to Calendar Schedule view"
-                      >
-                        <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
-                        <span>{currentTaxonomy.tab_calendar_label || 'Calendar Schedule'}</span>
-                      </button>
-
-                      {/* Refresh Button */}
-                      <button
-                        type="button"
-                        onClick={() => loadBookings()}
-                        className="min-h-[36px] min-w-[36px] sm:min-h-[32px] sm:min-w-[32px] h-9 w-9 sm:h-8 sm:w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center touch-manipulation"
-                        title="Refresh bookings"
-                      >
-                        <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingBookings ? 'animate-spin' : ''}`} />
-                      </button>
-
-                      {/* Clean Primary Add Booking Button */}
-                      <button
-                        type="button"
-                        onClick={() => setIsAddBookingOpen(true)}
-                        className="min-h-[36px] sm:min-h-[32px] h-9 sm:h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0 touch-manipulation"
-                      >
-                        <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                        <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
-                      </button>
-                    </div>
+                  {/* Title */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <CalendarDays className="w-4 h-4 text-accent stroke-[1.8]" />
+                    <h3 className="font-bold text-sm text-text-primary whitespace-nowrap">Appointments & Bookings</h3>
                   </div>
 
-                  {/* ROW 2: Status Filter Segmented Control & Live Count */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-border/60">
-                    <div className="flex items-center gap-1 bg-surface-subtle p-1 rounded-md border border-border overflow-x-auto no-scrollbar touch-scroll w-full sm:w-auto shrink-0">
-                      {[
-                        { id: 'upcoming', label: 'Upcoming' },
-                        { id: 'rescheduled', label: 'Rescheduled' },
-                        { id: 'completed', label: 'Completed' },
-                        { id: 'no_show', label: 'No-Show' },
-                        { id: 'cancelled', label: 'Cancelled' },
-                        { id: 'all', label: 'All' },
-                      ].map((st) => {
-                        const count = (bookings || []).filter((b) => {
-                          const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
-                          if (st.id === 'upcoming') return !isPast && (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled');
-                          if (st.id === 'rescheduled') return b.status === 'rescheduled';
-                          if (st.id === 'completed') {
-                            return (
-                              b.status === 'completed' ||
-                              b.status === 'attended' ||
-                              (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
-                            );
-                          }
-                          if (st.id === 'no_show') return b.status === 'no_show';
-                          if (st.id === 'cancelled') return b.status === 'cancelled';
-                          if (st.id === 'all') return true;
-                          return false;
-                        }).length;
+                  {/* Divider */}
+                  <div className="h-5 w-px bg-border shrink-0" />
 
-                        return (
-                          <button
-                            key={st.id}
-                            type="button"
-                            onClick={() => setBookingFilter(st.id)}
-                            className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
-                              bookingFilter === st.id
-                                ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
-                                : 'text-text-secondary hover:text-text-primary font-medium border border-transparent'
-                            }`}
-                          >
-                            <span>{st.label}</span>
-                            <span
-                              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-xs shrink-0 ${
-                                bookingFilter === st.id
-                                  ? 'bg-surface-subtle text-text-primary font-semibold'
-                                  : 'text-text-muted bg-surface/60'
-                              }`}
-                            >
-                              {count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                  {/* Status filter tabs */}
+                  <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0">
+                    {[
+                      { id: 'upcoming', label: 'Upcoming' },
+                      { id: 'rescheduled', label: 'Rescheduled' },
+                      { id: 'completed', label: 'Completed' },
+                      { id: 'no_show', label: 'No-Show' },
+                      { id: 'cancelled', label: 'Cancelled' },
+                      { id: 'all', label: 'All' },
+                    ].map((st) => {
+                      const count = (bookings || []).filter((b) => {
+                        const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
+                        if (st.id === 'upcoming') return !isPast && (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled');
+                        if (st.id === 'rescheduled') return b.status === 'rescheduled';
+                        if (st.id === 'completed') {
+                          return (
+                            b.status === 'completed' ||
+                            b.status === 'attended' ||
+                            (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
+                          );
+                        }
+                        if (st.id === 'no_show') return b.status === 'no_show';
+                        if (st.id === 'cancelled') return b.status === 'cancelled';
+                        if (st.id === 'all') return true;
+                        return false;
+                      }).length;
 
-                    {/* Right: Total Appointments Count */}
-                    <div className="text-xs text-text-muted font-medium shrink-0 sm:ml-auto pl-1 sm:pl-2 flex items-center gap-1">
-                      <span>Total</span>
-                      <span className="font-semibold text-text-primary">{bookings?.length || 0}</span>
-                      <span>appointments</span>
-                    </div>
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => setBookingFilter(st.id)}
+                          className={`px-2.5 py-1 text-xs rounded-sm transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                            bookingFilter === st.id
+                              ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
+                              : 'text-text-secondary hover:text-text-primary font-medium border border-transparent'
+                          }`}
+                        >
+                          <span>{st.label}</span>
+                          <span className={`text-[10px] font-mono shrink-0 ${bookingFilter === st.id ? 'text-text-primary font-semibold' : 'text-text-muted'}`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
+
+                  {/* Total count */}
+                  <div className="text-xs text-text-muted font-medium shrink-0 flex items-center gap-1 whitespace-nowrap ml-auto">
+                    <span>Total</span>
+                    <span className="font-semibold text-text-primary">{bookings?.length || 0}</span>
+                    <span>appointments</span>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="h-5 w-px bg-border shrink-0" />
+
+                  {/* Calendar schedule button */}
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('calendar')}
+                    className="h-7 px-2.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary font-medium text-xs rounded-md transition-colors border border-border cursor-pointer shadow-2xs flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+                    title="Switch to Calendar Schedule view"
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+                    <span>{currentTaxonomy.tab_calendar_label || 'Calendar Schedule'}</span>
+                  </button>
+
+                  {/* Refresh */}
+                  <button
+                    type="button"
+                    onClick={() => loadBookings()}
+                    className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+                    title="Refresh bookings"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingBookings ? 'animate-spin' : ''}`} />
+                  </button>
+
+                  {/* Book Appointment */}
+                  <button
+                    type="button"
+                    onClick={() => setIsAddBookingOpen(true)}
+                    className="h-7 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
+                  </button>
+
                 </div>
 
                 {/* Bookings Data Table */}
