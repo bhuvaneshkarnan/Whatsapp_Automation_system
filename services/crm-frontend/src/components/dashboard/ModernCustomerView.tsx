@@ -1782,74 +1782,71 @@ export function ModernCustomerView({
           </div>
         </div>
 
-        {/* ROW 2: Filter Pills Strip with Full Width Utilization */}
-        <div className="flex items-center gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar touch-scroll">
-          <div className="flex flex-1 items-center gap-1.5 flex-nowrap sm:flex-wrap py-0.5">
-            <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1 mr-0.5">
-              <Filter className="w-3 h-3 text-text-muted" />
-              <span>Filter:</span>
-            </span>
+        {/* ROW 2: Compact Filter Strip — single row, auto-width selects */}
+        <div className="flex items-center gap-2 pt-2 border-t border-border/60">
+          <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
+            <Filter className="w-3 h-3 text-text-muted" />
+            <span>Filter:</span>
+          </span>
 
-            <select
-              value={serviceFilter}
-              onChange={(e) => setServiceFilter(e.target.value)}
-              className="flex-1 min-w-[110px] px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 truncate shadow-2xs touch-manipulation"
-              title="Filter by service / inquiry"
+          <select
+            value={serviceFilter}
+            onChange={(e) => setServiceFilter(e.target.value)}
+            className="w-auto px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs shrink-0"
+            title="Filter by service / inquiry"
+          >
+            <option value="all">All Services</option>
+            {servicesList.map((svc) => (
+              <option key={svc} value={svc}>{svc}</option>
+            ))}
+          </select>
+
+          <select
+            value={warmthFilter}
+            onChange={(e) => setWarmthFilter(e.target.value)}
+            className="w-auto px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs shrink-0"
+            title="Filter by buying intent"
+          >
+            <option value="all">All Intent</option>
+            <option value="hot">Hot Intent</option>
+            <option value="warm">Warm Intent</option>
+            <option value="cold">Cold Intent</option>
+          </select>
+
+          <select
+            value={staffFilter}
+            onChange={(e) => setStaffFilter(e.target.value)}
+            className="w-auto px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs shrink-0"
+            title="Filter by assigned staff or doctor"
+          >
+            <option value="all">All Staff</option>
+            <option value="unassigned">Unassigned</option>
+            {staffList.map((st) => (
+              <option key={st.value} value={st.value}>{st.label}</option>
+            ))}
+          </select>
+
+          {(warmthFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || stageFilter !== 'all' || searchQuery.trim()) && (
+            <button
+              type="button"
+              onClick={() => {
+                setWarmthFilter('all');
+                setStageFilter('all');
+                setStaffFilter('all');
+                setServiceFilter('all');
+                setActionFilter('all');
+                setSearchQuery('');
+              }}
+              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+              title="Clear all filters"
             >
-              <option value="all">All Services</option>
-              {servicesList.map((svc) => (
-                <option key={svc} value={svc}>{svc}</option>
-              ))}
-            </select>
+              <X className="w-3 h-3" />
+              <span>Reset</span>
+            </button>
+          )}
 
-            <select
-              value={warmthFilter}
-              onChange={(e) => setWarmthFilter(e.target.value)}
-              className="flex-1 min-w-[110px] px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 shadow-2xs touch-manipulation"
-              title="Filter by buying intent"
-            >
-              <option value="all">All Intent</option>
-              <option value="hot">Hot Intent</option>
-              <option value="warm">Warm Intent</option>
-              <option value="cold">Cold Intent</option>
-            </select>
-
-            <select
-              value={staffFilter}
-              onChange={(e) => setStaffFilter(e.target.value)}
-              className="flex-1 min-w-[110px] px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 truncate shadow-2xs touch-manipulation"
-              title="Filter by assigned staff or doctor"
-            >
-              <option value="all">All Staff</option>
-              <option value="unassigned">Unassigned</option>
-              {staffList.map((st) => (
-                <option key={st.value} value={st.value}>
-                  {st.label}
-                </option>
-              ))}
-            </select>
-
-            {(warmthFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || searchQuery.trim()) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setWarmthFilter('all');
-                  setStaffFilter('all');
-                  setServiceFilter('all');
-                  setSearchQuery('');
-                }}
-                className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                title="Clear all filters and search"
-              >
-                <X className="w-3 h-3" />
-                <span>Reset</span>
-              </button>
-            )}
-          </div>
-
-          {/* Right: Record count */}
-          <div className="text-xs text-text-muted font-medium shrink-0 ml-auto pl-2 flex items-center gap-1">
-            <span>Showing</span>
+          {/* Record count pushed to right */}
+          <div className="text-xs text-text-muted font-medium ml-auto shrink-0 flex items-center gap-1 whitespace-nowrap">
             <span className="font-semibold text-text-primary">{filteredCustomers.length}</span>
             <span>of</span>
             <span className="font-semibold text-text-primary">{customers.length}</span>
