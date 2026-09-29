@@ -2998,6 +2998,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [billingDateFilter, setBillingDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month'>('all');
   const [billingCategoryFilter, setBillingCategoryFilter] = useState<string>('all');
   const [billingPaymentFilter, setBillingPaymentFilter] = useState<'all' | 'paid' | 'unpaid' | 'pay_at_clinic'>('all');
+  const [billingStatusFilter, setBillingStatusFilter] = useState<'active' | 'completed' | 'confirmed' | 'cancelled' | 'no_show' | 'all'>('active');
 
   useEffect(() => {
     if (selectedBookingDetail) {
@@ -12219,6 +12220,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   if (billingPaymentFilter === 'pay_at_clinic' && b.payment_mode !== 'pay_at_clinic' && ps !== 'pay_at_clinic') return false;
                 }
 
+                // Appointment status filter
+                if (billingStatusFilter === 'active') {
+                  // Active & Realized: excludes unpaid cancelled and unpaid no-show bookings to match real revenue
+                  if (b.status === 'cancelled' || b.status === 'no_show') {
+                    const isPaid = (b.payment_status || '').toLowerCase() === 'paid';
+                    if (!isPaid) return false;
+                  }
+                } else if (billingStatusFilter === 'completed') {
+                  if (b.status !== 'completed' && b.status !== 'attended') return false;
+                } else if (billingStatusFilter === 'confirmed') {
+                  if (b.status !== 'confirmed') return false;
+                } else if (billingStatusFilter === 'no_show') {
+                  if (b.status !== 'no_show') return false;
+                } else if (billingStatusFilter === 'cancelled') {
+                  if (b.status !== 'cancelled') return false;
+                }
+
                 return true;
               });
 
@@ -12249,7 +12267,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               });
 
               const handleExportCSV = () => {
-                const headers = ['Date', 'Time', 'Patient Name', 'Phone', 'Service', 'Doctor / Staff', ...billingCategories, 'Total Fee', 'Payment Status', 'Payment Mode'];
+                const headers = ['Date', 'Time', 'Patient Name', 'Phone', 'Service', 'Doctor / Staff', 'Booking Status', ...billingCategories, 'Total Fee', 'Payment Status', 'Payment Mode'];
                 const rows = filteredBilling.map((b) => {
                   const dt = b.start_time ? new Date(b.start_time) : null;
                   const dateStr = dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString() : '';
@@ -12263,6 +12281,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     `"${b.contact_phone || ''}"`,
                     `"${(b.service || '').replace(/"/g, '""')}"`,
                     `"${(b.staff_member || b.doctor || '').replace(/"/g, '""')}"`,
+                    `"${b.status || 'confirmed'}"`,
                     ...catVals,
                     b.price || 0,
                     `"${b.payment_status || 'unpaid'}"`,
@@ -12513,13 +12532,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         onChange={(e) => setBillingPaymentFilter(e.target.value)}
                         className="px-2 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:border-accent cursor-pointer shrink-0"
                       >
-                        <option value="all">All Payment Statuses</option>
+                        <option value="all">All Payments</option>
                         <option value="paid">Paid Only</option>
                         <option value="pay_at_clinic">Pay At Clinic</option>
                         <option value="unpaid">Unpaid / Pending</option>
                       </select>
 
-                      {(billingSearchQuery || billingDateFilter !== 'all' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all') && (
+                      {/* Appointment Status Dropdown */}
+                      <select
+                        value={billingStatusFilter}
+                        onChange={(e) => setBillingStatusFilter(e.target.value as any)}
+                        className="px-2 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:border-accent cursor-pointer shrink-0 font-medium"
+                        title="Filter by appointment attendance or booking status"
+                      >
+                        <option value="active">Active & Realized (Excludes Cancelled)</option>
+                        <option value="completed">Completed / Attended Only</option>
+                        <option value="confirmed">Confirmed / Upcoming Only</option>
+                        <option value="no_show">No-Show Only</option>
+                        <option value="cancelled">Cancelled Only</option>
+                        <option value="all">All Appointments (Gross Planned)</option>
+                      </select>
+
+                      {(billingSearchQuery || billingDateFilter !== 'all' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all' || billingStatusFilter !== 'active') && (
                         <button
                           type="button"
                           onClick={() => {
@@ -12527,6 +12561,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setBillingDateFilter('all');
                             setBillingCategoryFilter('all');
                             setBillingPaymentFilter('all');
+                            setBillingStatusFilter('active');
                           }}
                           className="text-xs text-accent hover:text-accent-hover font-medium whitespace-nowrap cursor-pointer px-1.5"
                         >
@@ -12632,8 +12667,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <div className="font-medium text-text-primary truncate max-w-[180px]">
                                     {b.service || 'Consultation'}
                                   </div>
-                                  <div className="text-[10px] text-text-muted truncate max-w-[180px]">
-                                    {b.staff_member || b.doctor || 'Staff'}
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-[10px] text-text-muted truncate max-w-[120px]">
+                                      {b.staff_member || b.doctor || 'Staff'}
+                                    </span>
+                                    {b.status === 'cancelled' && (
+                                      <span className="inline-block px-1.5 py-0.2 text-[9px] font-semibold text-red-600 bg-red-500/10 border border-red-500/20 rounded">
+                                        Cancelled
+                                      </span>
+                                    )}
+                                    {b.status === 'no_show' && (
+                                      <span className="inline-block px-1.5 py-0.2 text-[9px] font-semibold text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded">
+                                        No-Show
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
 
