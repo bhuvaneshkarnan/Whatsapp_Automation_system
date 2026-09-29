@@ -4697,33 +4697,6 @@ end
             # Slash normalization: model sometimes writes 247 instead of 24/7 due to no-hyphen instruction
             response_text = re.sub(r'\b247\b', '24/7', response_text)
 
-            # ── Post-Generation Hallucination Validator (ALL TENANTS) ──
-            # Lightweight check: detect prices in the response not grounded in services_text
-            _svc_text = (services_text or "").lower()
-            if _svc_text and response_text:
-                # Extract all ₹ prices quoted in the response
-                _quoted_prices = re.findall(r'[₹rs\.]+\s*(\d[\d,]+)', response_text, re.IGNORECASE)
-                for _qp in _quoted_prices:
-                    _qp_clean = _qp.replace(',', '')
-                    # Check if this price appears somewhere in services_text or system_prompt
-                    _in_services = _qp_clean in _svc_text
-                    _in_kb = _qp_clean in (custom_instructions or "").lower()
-                    if not _in_services and not _in_kb:
-                        # Price is not in verified knowledge base — strip it from response
-                        logger.warning(
-                            "hallucination_price_intercepted",
-                            tenant_id=tenant_id,
-                            invented_price=_qp_clean,
-                            response_snippet=response_text[:120],
-                        )
-                        # Replace the hallucinated price mention with a safe redirect
-                        response_text = re.sub(
-                            rf'[₹Rs\.]+\s*{re.escape(_qp)}',
-                            'our listed price',
-                            response_text,
-                            flags=re.IGNORECASE
-                        )
-
 
 
             # ── Trailing Sentence Deduplication (ALL TENANTS) ──
