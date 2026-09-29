@@ -20879,54 +20879,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         {/* ── Quick Setup Actions ── */}
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          {/* Download MacroDroid .mdr file */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const slug  = settingsForm.slug || '';
-                              const tok   = (settingsForm as any).missed_call_webhook_token || '';
-                              const webhookUrl = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${slug}&token=${tok}&caller_phone={caller_number}`;
-                              // MacroDroid macro JSON — triggers on Missed Call, fires HTTP GET
-                              const macro = {
-                                "m_name": "Missed Call → WhatsApp Auto-Reply",
-                                "m_GUID": `macro_${slug}_missedcall`,
-                                "m_categoryName": "CRM",
-                                "m_enabled": true,
-                                "m_triggerList": [{
-                                  "type": "MacroDroidTrigger",
-                                  "m_name": "Missed Call",
-                                  "m_classType": "com.arlosoft.macrodroid.triggers.PhoneCallTrigger",
-                                  "m_callType": 2,
-                                  "m_specificNumber": ""
-                                }],
-                                "m_actionList": [{
-                                  "type": "MacroDroidAction",
-                                  "m_name": "HTTP Request",
-                                  "m_classType": "com.arlosoft.macrodroid.action.HTTPRequestAction",
-                                  "m_url": webhookUrl,
-                                  "m_httpMethod": 0,
-                                  "m_headers": [],
-                                  "m_body": "",
-                                  "m_contentType": "application/json",
-                                  "m_outputVariable": null,
-                                  "m_enabled": true
-                                }],
-                                "m_constraintList": [],
-                                "m_description": `Triggers on any missed call and fires the webhook: ${webhookUrl}`
-                              };
-                              const blob = new Blob([JSON.stringify(macro, null, 2)], { type: 'application/json' });
-                              const a = document.createElement('a');
-                              a.href = URL.createObjectURL(blob);
-                              a.download = `missed_call_${slug}.mdr`;
-                              a.click();
-                              URL.revokeObjectURL(a.href);
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md transition-colors cursor-pointer shadow-sm"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Download MacroDroid File</span>
-                          </button>
+                        <div className="space-y-3 pt-1">
+                          {/* MacroDroid URL — copy and paste into MacroDroid HTTP Request action */}
+                          <div className="space-y-1.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
+                              <Smartphone className="w-3.5 h-3.5" />
+                              MacroDroid Webhook URL (copy → paste into MacroDroid HTTP Request)
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 min-w-0 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 font-mono text-[11px] text-amber-900 overflow-x-auto whitespace-nowrap select-all">
+                                {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${(settingsForm as any).missed_call_webhook_token || ''}&caller_phone=[tel_number]`}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const url = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${(settingsForm as any).missed_call_webhook_token || ''}&caller_phone=[tel_number]`;
+                                  navigator.clipboard.writeText(url).then(() => copyToClipboard(url, 'macrodroid_url'));
+                                }}
+                                className="shrink-0 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                {copiedKey === 'macrodroid_url' ? (
+                                  <><CheckCircle2 className="w-3.5 h-3.5" /><span>Copied!</span></>
+                                ) : (
+                                  <><Copy className="w-3.5 h-3.5" /><span>Copy URL</span></>
+                                )}
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-amber-700 font-medium">
+                              ⚠️ <strong>[tel_number]</strong> is a MacroDroid Magic Text variable — paste the full URL as-is. MacroDroid will automatically replace it with the caller's number.
+                            </p>
+                          </div>
 
                           {/* Copy Setup Message */}
                           <button
@@ -20934,16 +20916,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             onClick={() => {
                               const slug = settingsForm.slug || '';
                               const tok  = (settingsForm as any).missed_call_webhook_token || '';
-                              const url  = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${slug}&token=${tok}&caller_phone={caller_number}`;
-                              const msg  = `📞 *Missed Call → WhatsApp Auto-Reply Setup*\n\n*Android (MacroDroid):*\n1. Open MacroDroid → + Add Macro\n2. Trigger: Phone Call → Missed Call → Any number\n3. Action: Connectivity → HTTP Request → GET\n4. Paste this URL:\n${url}\n5. Save & Enable the macro.\n\n✅ Done! Any missed call will now auto-send a WhatsApp message.`;
+                              const url  = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${slug}&token=${tok}&caller_phone=[tel_number]`;
+                              const msg  = `📞 *Missed Call → WhatsApp Auto-Reply Setup*\n\n*Android — MacroDroid steps:*\n1. Open MacroDroid → tap ＋ → Add Macro\n2. Tap ＋ Triggers → Phone → Phone Call → Missed Call → Any Number → OK\n3. Tap ＋ Actions → Connectivity → HTTP Request\n4. Method: GET\n5. Paste this URL exactly:\n${url}\n   (the [tel_number] part is a Magic Text variable — paste as-is)\n6. Tap OK → Name macro → tap ✅ → Enable it\n7. Allow MacroDroid Phone permission + disable battery optimization\n\n✅ Test: Call the clinic number and don't answer. Within seconds a WhatsApp message will be sent to the caller.`;
                               navigator.clipboard.writeText(msg).then(() => {
-                                alert('Setup message copied! Paste it into WhatsApp or Notes.');
+                                copyToClipboard(msg, 'setup_msg');
                               });
                             }}
                             className="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface-subtle border border-border text-text-primary text-xs font-semibold rounded-md transition-colors cursor-pointer shadow-sm"
                           >
-                            <Share2 className="w-3.5 h-3.5 text-text-muted" />
-                            <span>Copy Setup Message</span>
+                            {copiedKey === 'setup_msg' ? (
+                              <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /><span className="text-emerald-600">Copied!</span></>
+                            ) : (
+                              <><Share2 className="w-3.5 h-3.5 text-text-muted" /><span>Copy Full Setup Instructions</span></>
+                            )}
                           </button>
                         </div>
 
