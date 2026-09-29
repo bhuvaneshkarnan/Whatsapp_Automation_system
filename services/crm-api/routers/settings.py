@@ -320,7 +320,7 @@ async def get_tenant_settings(
         # Missed Call → WhatsApp Auto-Reply
         "missed_call_webhook_token": (
             tenant_settings.get("missed_call_token")
-            or hashlib.sha256(f"{tenant_id}:{os.environ.get('JWT_SECRET', '')}:missed-call".encode()).hexdigest()[:16]
+            or hashlib.sha256(f"{tenant_id}:{os.environ.get('JWT_SECRET', '')}:missed-call".encode()).hexdigest()[:32]
         ),
         "template_missed_call": tenant_settings.get("template_missed_call", "missed_call_followup"),
 

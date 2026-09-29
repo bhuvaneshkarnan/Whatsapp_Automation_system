@@ -20878,6 +20878,75 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
+                        {/* ── Quick Setup Actions ── */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          {/* Download MacroDroid .mdr file */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const slug  = settingsForm.slug || '';
+                              const tok   = (settingsForm as any).missed_call_webhook_token || '';
+                              const webhookUrl = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${slug}&token=${tok}&caller_phone={caller_number}`;
+                              // MacroDroid macro JSON — triggers on Missed Call, fires HTTP GET
+                              const macro = {
+                                "m_name": "Missed Call → WhatsApp Auto-Reply",
+                                "m_GUID": `macro_${slug}_missedcall`,
+                                "m_categoryName": "CRM",
+                                "m_enabled": true,
+                                "m_triggerList": [{
+                                  "type": "MacroDroidTrigger",
+                                  "m_name": "Missed Call",
+                                  "m_classType": "com.arlosoft.macrodroid.triggers.PhoneCallTrigger",
+                                  "m_callType": 2,
+                                  "m_specificNumber": ""
+                                }],
+                                "m_actionList": [{
+                                  "type": "MacroDroidAction",
+                                  "m_name": "HTTP Request",
+                                  "m_classType": "com.arlosoft.macrodroid.action.HTTPRequestAction",
+                                  "m_url": webhookUrl,
+                                  "m_httpMethod": 0,
+                                  "m_headers": [],
+                                  "m_body": "",
+                                  "m_contentType": "application/json",
+                                  "m_outputVariable": null,
+                                  "m_enabled": true
+                                }],
+                                "m_constraintList": [],
+                                "m_description": `Triggers on any missed call and fires the webhook: ${webhookUrl}`
+                              };
+                              const blob = new Blob([JSON.stringify(macro, null, 2)], { type: 'application/json' });
+                              const a = document.createElement('a');
+                              a.href = URL.createObjectURL(blob);
+                              a.download = `missed_call_${slug}.mdr`;
+                              a.click();
+                              URL.revokeObjectURL(a.href);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md transition-colors cursor-pointer shadow-sm"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download MacroDroid File</span>
+                          </button>
+
+                          {/* Copy Setup Message */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const slug = settingsForm.slug || '';
+                              const tok  = (settingsForm as any).missed_call_webhook_token || '';
+                              const url  = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${slug}&token=${tok}&caller_phone={caller_number}`;
+                              const msg  = `📞 *Missed Call → WhatsApp Auto-Reply Setup*\n\n*Android (MacroDroid):*\n1. Open MacroDroid → + Add Macro\n2. Trigger: Phone Call → Missed Call → Any number\n3. Action: Connectivity → HTTP Request → GET\n4. Paste this URL:\n${url}\n5. Save & Enable the macro.\n\n✅ Done! Any missed call will now auto-send a WhatsApp message.`;
+                              navigator.clipboard.writeText(msg).then(() => {
+                                alert('Setup message copied! Paste it into WhatsApp or Notes.');
+                              });
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface-subtle border border-border text-text-primary text-xs font-semibold rounded-md transition-colors cursor-pointer shadow-sm"
+                          >
+                            <Share2 className="w-3.5 h-3.5 text-text-muted" />
+                            <span>Copy Setup Message</span>
+                          </button>
+                        </div>
+
                         {/* Setup Guide — collapsible */}
                         <details className="group">
                           <summary className="cursor-pointer list-none flex items-center justify-between p-3 bg-surface-subtle/60 border border-border rounded-md text-xs font-semibold text-text-primary hover:bg-surface-subtle transition-colors">
