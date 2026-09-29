@@ -922,8 +922,8 @@ export default function SuperAdminClients() {
   function getMissedCallUrls(slug: string, customToken?: string) {
     const base = 'https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call';
     const token = customToken || `${slug}_missed_call`;
-    const androidUrl = `${base}?tenant=${slug}&token=${token}&caller=[call_number]`;
-    const iphoneUrl = `${base}?tenant=${slug}&token=${token}&sms_text=ShortcutInput`;
+    const androidUrl = `${base}?tenant=${slug}&token=${token}&caller_phone=[tel_number]`;
+    const iphoneUrl = `${base}?tenant=${slug}&token=${token}&caller_phone=ShortcutInput`;
     return { base, token, androidUrl, iphoneUrl };
   }
 
@@ -2423,7 +2423,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <tbody className="divide-y divide-border">
                       {tenants.map((t) => {
                         const effectiveToken = t.missed_call_token || t.missed_call_webhook_token || `${t.slug}_missed_call`;
-                        const webhookUrl = `https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call?tenant=${t.slug}&token=${effectiveToken}&caller=[call_number]`;
+                        const webhookUrl = `https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call?tenant=${t.slug}&token=${effectiveToken}&caller_phone=[tel_number]`;
                         const currentTpl = editingTemplateByTenant[t.id] !== undefined
                           ? editingTemplateByTenant[t.id]
                           : (t.template_missed_call || 'missed_call_followup');
@@ -6064,7 +6064,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       {editingConfigTenant && (() => {
                         const slug = editingConfigTenant.slug;
                         const token = configForm.missed_call_webhook_token || getMissedCallUrls(slug).token;
-                        const webhookUrl = `https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call?tenant=${slug}&token=${token}&caller=[call_number]`;
+                        const webhookUrl = `https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call?tenant=${slug}&token=${token}&caller_phone=[tel_number]`;
                         return (
                           <div className="bg-amber-50 border border-amber-200 rounded-md overflow-hidden">
                             {/* Header */}
