@@ -16033,9 +16033,60 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* ── PIPELINE COLUMNS TAB ── */}
                     {dropdownActiveTab === 'pipeline_columns' ? (
                       <div className="space-y-3">
-                        <p className="text-[11px] text-text-muted leading-relaxed">
-                          Rename column headers shown in the Pipeline view, or toggle them off to hide a column entirely. The <strong>id</strong> (e.g. "new", "converted") is fixed — only the displayed label changes.
-                        </p>
+                        {/* Add new stage */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
+                            Add New Stage
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newDropdownItemInput}
+                              onChange={(e) => setNewDropdownItemInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const trimmed = newDropdownItemInput.trim();
+                                  if (!trimmed) return;
+                                  const id = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                                  const exists = (editingDropdowns.pipeline_columns || []).some((c) => c.id === id);
+                                  if (!exists) {
+                                    setEditingDropdowns((prev) => ({
+                                      ...prev,
+                                      pipeline_columns: [...(prev.pipeline_columns || []), { id, label: trimmed, visible: true }],
+                                    }));
+                                    setNewDropdownItemInput('');
+                                  }
+                                }
+                              }}
+                              placeholder="e.g. In Negotiation, Demo Scheduled..."
+                              className="flex-1 px-3 py-1.5 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:bg-surface focus:border-accent focus:outline-none transition-colors"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const trimmed = newDropdownItemInput.trim();
+                                if (!trimmed) return;
+                                const id = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                                const exists = (editingDropdowns.pipeline_columns || []).some((c) => c.id === id);
+                                if (!exists) {
+                                  setEditingDropdowns((prev) => ({
+                                    ...prev,
+                                    pipeline_columns: [...(prev.pipeline_columns || []), { id, label: trimmed, visible: true }],
+                                  }));
+                                  setNewDropdownItemInput('');
+                                }
+                              }}
+                              disabled={!newDropdownItemInput.trim()}
+                              className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-40 flex items-center gap-1.5 shrink-0"
+                            >
+                              <Plus className="w-3.5 h-3.5 stroke-[2]" />
+                              <span>Add</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Column list */}
                         <div className="space-y-2">
                           {(editingDropdowns.pipeline_columns || []).map((col, idx) => (
                             <div
@@ -16065,7 +16116,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 />
                               </button>
 
-                              {/* Column label edit */}
+                              {/* Column label */}
                               <div className="flex-1 flex items-center gap-2 min-w-0">
                                 <span className="text-[10px] font-mono text-text-muted bg-surface border border-border px-1.5 py-0.5 rounded shrink-0">{col.id}</span>
                                 {editingItemIndex === idx ? (
@@ -16123,24 +16174,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </button>
                                   </div>
                                 ) : (
-                                  <span
-                                    className={`text-xs font-semibold truncate ${col.visible ? 'text-text-primary' : 'text-text-muted line-through'}`}
-                                  >
+                                  <span className={`text-xs font-semibold truncate ${col.visible ? 'text-text-primary' : 'text-text-muted line-through'}`}>
                                     {col.label}
                                   </span>
                                 )}
                               </div>
 
-                              {/* Rename button */}
+                              {/* Rename + Delete buttons */}
                               {editingItemIndex !== idx && (
-                                <button
-                                  type="button"
-                                  onClick={() => { setEditingItemIndex(idx); setEditingItemText(col.label); }}
-                                  className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface cursor-pointer transition-colors shrink-0"
-                                  title="Rename this column"
-                                >
-                                  <Pencil className="w-3 h-3 stroke-[2]" />
-                                </button>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => { setEditingItemIndex(idx); setEditingItemText(col.label); }}
+                                    className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface cursor-pointer transition-colors"
+                                    title="Rename this column"
+                                  >
+                                    <Pencil className="w-3 h-3 stroke-[2]" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingDropdowns((prev) => ({
+                                        ...prev,
+                                        pipeline_columns: (prev.pipeline_columns || []).filter((_, i) => i !== idx),
+                                      }));
+                                    }}
+                                    className="p-1 text-text-muted hover:text-rose-500 rounded hover:bg-surface cursor-pointer transition-colors"
+                                    title="Remove this column"
+                                  >
+                                    <Trash2 className="w-3 h-3 stroke-[2]" />
+                                  </button>
+                                </div>
                               )}
                             </div>
                           ))}
@@ -16149,6 +16213,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           Tip: Hidden columns still hold customers — they just won&apos;t appear in the Pipeline board.
                         </p>
                       </div>
+
                     ) : (
                       <>
                         {/* Add New Item Input */}
