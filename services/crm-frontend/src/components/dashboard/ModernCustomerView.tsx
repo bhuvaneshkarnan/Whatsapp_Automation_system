@@ -1674,6 +1674,16 @@ export function ModernCustomerView({
             <span>Reset Filters</span>
           </button>
         )}
+
+        {/* Add Customer — right end of stats row */}
+        <button
+          type="button"
+          onClick={onAddCustomer}
+          className={`min-h-[30px] h-7 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0 whitespace-nowrap touch-manipulation ${!(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || actionFilter !== 'all' || searchQuery.trim()) ? 'ml-auto' : ''}`}
+        >
+          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+          <span>Add {taxonomy?.client_label || 'Customer'}</span>
+        </button>
       </div>
 
       {/* ── 2. UNIFIED COMPACT TOOLBAR — single row ── */}
@@ -1837,15 +1847,6 @@ export function ModernCustomerView({
           title="Refresh contacts"
         >
           <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
-        </button>
-
-        <button
-          type="button"
-          onClick={onAddCustomer}
-          className="h-7 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
-        >
-          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-          <span>Add {taxonomy?.client_label || 'Customer'}</span>
         </button>
 
       </div>
