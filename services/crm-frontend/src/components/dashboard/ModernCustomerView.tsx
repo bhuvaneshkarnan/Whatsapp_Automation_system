@@ -1783,41 +1783,17 @@ export function ModernCustomerView({
         </div>
 
         {/* ROW 2: Filter Pills Strip with Full Width Utilization */}
-        <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar touch-scroll">
-          <div className="flex items-center gap-1.5 shrink-0 flex-nowrap sm:flex-wrap py-0.5">
+        <div className="flex items-center gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar touch-scroll">
+          <div className="flex flex-1 items-center gap-1.5 flex-nowrap sm:flex-wrap py-0.5">
             <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1 mr-0.5">
               <Filter className="w-3 h-3 text-text-muted" />
               <span>Filter:</span>
             </span>
 
             <select
-              value={stageFilter}
-              onChange={(e) => setStageFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[155px] truncate shadow-2xs touch-manipulation"
-              title="Filter by stage or outcome"
-            >
-              <option value="all">All Stages & Outcomes</option>
-              {outcomeStatuses.length > 0 && (
-                <optgroup label="Outcome Statuses">
-                  {outcomeStatuses.map((st) => (
-                    <option key={st} value={st}>{st}</option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup label="Pipeline Stages">
-                <option value="new">New Inquiry</option>
-                <option value="contacted">Contacted / In Progress</option>
-                <option value="follow-up">Follow-up Due</option>
-                <option value="converted">Booked / Converted</option>
-                <option value="lost">Lost / Inactive</option>
-                <option value="action_due">Follow-up Due (Date)</option>
-              </optgroup>
-            </select>
-
-            <select
               value={serviceFilter}
               onChange={(e) => setServiceFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[135px] truncate shadow-2xs touch-manipulation"
+              className="flex-1 min-w-[110px] px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 truncate shadow-2xs touch-manipulation"
               title="Filter by service / inquiry"
             >
               <option value="all">All Services</option>
@@ -1827,21 +1803,9 @@ export function ModernCustomerView({
             </select>
 
             <select
-              value={actionFilter}
-              onChange={(e) => setActionFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[130px] truncate shadow-2xs touch-manipulation"
-              title="Filter by next action"
-            >
-              <option value="all">All Actions</option>
-              {nextActions.map((act) => (
-                <option key={act} value={act}>{act}</option>
-              ))}
-            </select>
-
-            <select
               value={warmthFilter}
               onChange={(e) => setWarmthFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[100px] shadow-2xs touch-manipulation"
+              className="flex-1 min-w-[110px] px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 shadow-2xs touch-manipulation"
               title="Filter by buying intent"
             >
               <option value="all">All Intent</option>
@@ -1853,7 +1817,7 @@ export function ModernCustomerView({
             <select
               value={staffFilter}
               onChange={(e) => setStaffFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[125px] truncate shadow-2xs touch-manipulation"
+              className="flex-1 min-w-[110px] px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 truncate shadow-2xs touch-manipulation"
               title="Filter by assigned staff or doctor"
             >
               <option value="all">All Staff</option>
@@ -1865,15 +1829,13 @@ export function ModernCustomerView({
               ))}
             </select>
 
-            {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || actionFilter !== 'all' || searchQuery.trim()) && (
+            {(warmthFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || searchQuery.trim()) && (
               <button
                 type="button"
                 onClick={() => {
                   setWarmthFilter('all');
-                  setStageFilter('all');
                   setStaffFilter('all');
                   setServiceFilter('all');
-                  setActionFilter('all');
                   setSearchQuery('');
                 }}
                 className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors"
@@ -2347,50 +2309,6 @@ export function ModernCustomerView({
         {/* KANBAN FUNNEL VIEW - COMPLETE WITH PHASE COLORS & SINGLE-VIEW RESPONSIVENESS */}
         {viewMode === 'kanban' && (
           <div className="flex-1 min-h-0 flex flex-col space-y-2">
-            {/* Mobile Stage Switcher Bar */}
-            <div className="md:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md p-1.5 shrink-0">
-              {[
-                { id: 'all', label: 'All Stages', rev: 0 },
-                {
-                  id: 'new',
-                  label: `New (${filteredCustomers.filter((c) => c.status === 'new').length})`,
-                  rev: filteredCustomers.filter((c) => c.status === 'new').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
-                },
-                {
-                  id: 'contacted',
-                  label: `Contacted (${filteredCustomers.filter((c) => c.status === 'contacted').length})`,
-                  rev: filteredCustomers.filter((c) => c.status === 'contacted').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
-                },
-                {
-                  id: 'follow-up',
-                  label: `Follow-up (${filteredCustomers.filter((c) => c.status === 'follow-up').length})`,
-                  rev: filteredCustomers.filter((c) => c.status === 'follow-up').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
-                },
-                {
-                  id: 'converted',
-                  label: `Converted (${filteredCustomers.filter((c) => c.status === 'converted').length})`,
-                  rev: filteredCustomers.filter((c) => c.status === 'converted').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
-                },
-                {
-                  id: 'lost',
-                  label: `Lost (${filteredCustomers.filter((c) => c.status === 'lost').length})`,
-                  rev: filteredCustomers.filter((c) => c.status === 'lost').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
-                },
-              ].map((stg) => (
-                <button
-                  key={stg.id}
-                  type="button"
-                  onClick={() => setKanbanMobileStage(stg.id)}
-                  className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded-md transition-all shrink-0 cursor-pointer touch-manipulation flex items-center justify-center whitespace-nowrap ${
-                    kanbanMobileStage === stg.id
-                      ? 'bg-accent text-white shadow-2xs'
-                      : 'bg-surface-subtle text-text-secondary hover:text-text-primary'
-                  }`}
-                >
-                  {stg.label}
-                </button>
-              ))}
-            </div>
 
             <div className="flex-1 min-h-0 flex md:grid md:grid-cols-5 gap-2 pb-1 w-full overflow-x-auto md:overflow-x-hidden touch-scroll">
               {[
