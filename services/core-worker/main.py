@@ -1493,6 +1493,7 @@ class CoreWorker:
             elif conv_status == "human":
                 logger.info("skipping_ai_human_mode", conv_id=conv_id, tenant_id=tenant_id)
             elif body_text:
+                typing_started_at = time.monotonic()
                 if creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
                     try:
                         await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
@@ -4638,15 +4639,16 @@ end
 
                 try:
                     if b_idx == 0:
-                        # Instant dispatch: WhatsApp native typing indicator was already displayed
-                        # while LLM was processing. Send immediately without artificial delay!
-                        typing_delay = 0.0
+                        # Ensure at least 1.0s has elapsed since typing indicator was dispatched to Meta.
+                        # This eliminates the WhatsApp client race condition where super-fast AI replies
+                        # arrive at the exact same millisecond as the typing indicator packet, leaving
+                        # the typing bubble animation stuck on screen.
+                        elapsed_since_typing = (time.monotonic() - typing_started_at) if typing_started_at else 1.0
+                        if elapsed_since_typing < 1.0:
+                            await asyncio.sleep(1.0 - elapsed_since_typing)
                     else:
-                        # Minimal 150ms pause between multi-bubble replies to preserve bubble delivery order on WhatsApp
-                        typing_delay = 0.15
-
-                    if typing_delay > 0:
-                        await asyncio.sleep(typing_delay)
+                        # 250ms pause between multi-bubble replies to preserve delivery order on WhatsApp
+                        await asyncio.sleep(0.25)
 
                     wa_id = await send_text(
                         phone_number_id=creds["phone_number_id"],
