@@ -3734,6 +3734,7 @@ end
             funnel_stage = "BOOKING_INTENT"
 
             # Determine dynamic service name appropriate for this tenant
+            clean_slug = (tenant_slug or "").strip().lower()
             if clean_slug == "boldlabs":
                 target_service = "Demo / Consultation"
             elif "abinaya" in clean_slug:
