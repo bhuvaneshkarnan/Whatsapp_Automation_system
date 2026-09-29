@@ -11427,48 +11427,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                         {/* Top Clean Actions & Period Selector */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          {/* Quick Action Button 1: Book Appointment */}
-                          <button
-                            type="button"
-                            onClick={() => setIsAddBookingOpen(true)}
-                            className="h-7.5 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-xs cursor-pointer shrink-0"
-                            title="Schedule a new appointment"
-                          >
-                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Book Appointment</span>
-                          </button>
-
-                          {/* Quick Action Button 2: WhatsApp Inbox */}
-                          <button
-                            type="button"
-                            onClick={() => setActiveNav('inbox')}
-                            className="h-7.5 flex items-center gap-1.5 px-3 bg-surface hover:bg-surface-subtle text-text-primary border border-border text-xs font-semibold rounded-sm transition-all shadow-2xs cursor-pointer shrink-0"
-                            title="Open WhatsApp chats"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
-                            <span>WhatsApp Inbox</span>
-                            {unreadConversations.length > 0 && (
-                              <span className="px-1.5 py-0.2 text-[10px] font-bold bg-rose-500 text-white rounded-full font-mono">
-                                {unreadConversations.length}
-                              </span>
-                            )}
-                          </button>
-
-                          {/* Quick Action Button 3: Add Client */}
-                          <button
-                            type="button"
-                            onClick={() => setShowAddCustomerModal(true)}
-                            className="h-7.5 flex items-center gap-1.5 px-3 bg-surface hover:bg-surface-subtle text-text-primary border border-border text-xs font-semibold rounded-sm transition-all shadow-2xs cursor-pointer shrink-0"
-                            title="Add a new contact or lead"
-                          >
-                            <UserPlus className="w-3.5 h-3.5 text-text-secondary stroke-[1.8]" />
-                            <span>Add Client</span>
-                          </button>
-
-                          <div className="h-5 w-px bg-border hidden sm:block shrink-0" />
-
                           {/* Period Selector Presets */}
-                          <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
+                          <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border h-8">
                             {[
                               { id: 'today', label: 'Today' },
                               { id: '7d', label: '7D' },
@@ -11482,7 +11442,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   setAnalyticsPeriod(preset.id as any);
                                   loadDashboardAnalytics(preset.id as any, undefined, '', '', analyticsCompare);
                                 }}
-                                className={`px-2.5 py-1 text-xs rounded-xs transition-all cursor-pointer font-medium ${
+                                className={`px-2.5 h-7 text-xs rounded transition-all cursor-pointer font-medium flex items-center justify-center ${
                                   analyticsPeriod === preset.id
                                     ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
                                     : 'text-text-secondary hover:text-text-primary border border-transparent'
@@ -11502,10 +11462,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               loadBookings();
                               loadContacts();
                             }}
-                            className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
+                            className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
                             title="Refresh overview data"
                           >
                             <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingDashboardAnalytics ? 'animate-spin' : ''}`} />
+                          </button>
+
+                          <div className="h-5 w-px bg-border hidden sm:block shrink-0" />
+
+                          {/* Primary CTA: Book Appointment */}
+                          <button
+                            type="button"
+                            onClick={() => setIsAddBookingOpen(true)}
+                            className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0"
+                            title="Schedule a new appointment"
+                          >
+                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Book Appointment</span>
                           </button>
                         </div>
                       </div>
