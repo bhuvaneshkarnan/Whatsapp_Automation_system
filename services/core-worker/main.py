@@ -8514,6 +8514,19 @@ end
                     if not last_user_msg:
                         continue
 
+                    # ── First-Contact Guard ──────────────────────────────────────────────────────
+                    # If the customer has sent only 1 message total (i.e. brand-new inquiry),
+                    # skip Touch 1 — they may simply not have had time to see and reply yet.
+                    # Only suppress Touch 1; Touch 2 (20h) still fires normally.
+                    inbound_count = sum(1 for m in history if m.get("role") == "user")
+                    if inbound_count <= 1 and not is_touch_2:
+                        logger.info(
+                            "followup_skipped_first_contact_single_message",
+                            conv_id=conv_id, tenant_id=tenant_id, inbound_count=inbound_count
+                        )
+                        continue
+
+
                     # Clean voice note prefix if present
                     clean_last_user_msg = re.sub(r'^🎤\s*\[Voice Note(?:\s*-\s*[^\]]+)?\]:\s*', '', last_user_msg, flags=re.IGNORECASE).strip()
 
@@ -8623,8 +8636,14 @@ end
                             formatted_turns.append(f"{spk}: {c_body}")
                     recent_chat_transcript = "\n".join(formatted_turns)
 
-                    # Stage-Aware Drop-off Analysis from recent turns
-                    chat_context_text = " ".join([m.get("content", "").lower() for m in recent_turns])
+                    # Stage-Aware Drop-off Analysis — use ONLY customer messages (inbound),
+                    # NOT bot replies, to avoid bot's own "time/slot/schedule" words
+                    # triggering false is_slot_drop on brand-new inquiries.
+                    chat_context_text = " ".join([
+                        m.get("content", "").lower()
+                        for m in recent_turns
+                        if m.get("role") == "user"
+                    ])
                     tenant_industry = (tenant_st.get("industry") or "").lower().strip()
                     is_clinic = tenant_industry in ("clinic", "healthcare", "wellness", "hospital", "doctor", "dental")
 
