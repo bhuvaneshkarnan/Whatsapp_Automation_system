@@ -1860,13 +1860,13 @@ export function ModernCustomerView({
               <table className="w-full text-left text-xs">
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[10.5px] uppercase tracking-wider sticky top-0 z-10 select-none">
                   <tr>
-                    <th className="py-2.5 pl-3 pr-2 min-w-[170px]">Client / Contact</th>
-                    <th className="py-2.5 px-2 min-w-[140px] max-w-[220px]">Notes</th>
+                    <th className="py-2.5 pl-3 pr-2 min-w-[175px]">Client / Contact</th>
+                    <th className="py-2.5 px-2 min-w-[150px] max-w-[240px]">Notes</th>
                     <th className="py-2.5 px-2 min-w-[130px]">Status</th>
-                    <th className="py-2.5 px-2 min-w-[110px]">Service / Inquiry</th>
-                    <th className="py-2.5 px-2 min-w-[100px]">Assigned To</th>
-                    <th className="py-2.5 px-2 min-w-[100px]">Follow-up</th>
-                    <th className="py-2.5 pl-2 pr-3 text-right min-w-[170px]">Actions</th>
+                    <th className="py-2.5 px-2 min-w-[125px]">Service / Inquiry</th>
+                    <th className="py-2.5 px-2 min-w-[115px]">Assigned To</th>
+                    <th className="py-2.5 px-2 min-w-[110px]">Follow-up</th>
+                    <th className="py-2.5 pl-2 pr-3 text-right min-w-[185px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -2025,7 +2025,7 @@ export function ModernCustomerView({
                           </td>
 
                           {/* 2. Manual Staff Notes */}
-                          <td className="py-2 px-2 min-w-[140px] max-w-[220px]" onClick={(e) => e.stopPropagation()}>
+                          <td className="py-2 px-2 min-w-[150px] max-w-[240px]" onClick={(e) => e.stopPropagation()}>
                             <div>
                               {cust.latest_note ? (
                                 <div
@@ -2105,7 +2105,7 @@ export function ModernCustomerView({
                               value={cust.health_concern || ''}
                               onChange={(e) => handleQuickUpdate(cust.id, { health_concern: e.target.value || undefined })}
                               disabled={updatingId === cust.id}
-                              className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[140px] truncate shadow-2xs"
+                              className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full min-w-[115px] max-w-[150px] truncate shadow-2xs"
                             >
                               <option value="">— Select service —</option>
                               {cust.health_concern && !servicesList.includes(cust.health_concern) && (
@@ -2124,7 +2124,7 @@ export function ModernCustomerView({
                               value={cust.preferred_doctor || ''}
                               onChange={(e) => handleQuickUpdate(cust.id, { preferred_doctor: e.target.value })}
                               disabled={updatingId === cust.id}
-                              className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[105px] truncate shadow-2xs"
+                              className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full min-w-[110px] max-w-[130px] truncate shadow-2xs"
                             >
                               <option value="">Unassigned</option>
                               {staffList.map((st) => (
@@ -2174,7 +2174,7 @@ export function ModernCustomerView({
                                 value={cust.next_action || (nextActions[0] || 'Call Again')}
                                 onChange={(e) => handleQuickUpdate(cust.id, { next_action: e.target.value })}
                                 disabled={updatingId === cust.id}
-                                className="text-[9.5px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 h-6 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors w-full max-w-[105px] truncate shadow-2xs"
+                                className="text-[9.5px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 h-6 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors w-full min-w-[105px] max-w-[125px] truncate shadow-2xs"
                                 title="Next Action"
                               >
                                 {cust.next_action && !nextActions.includes(cust.next_action) && (
@@ -2226,37 +2226,41 @@ export function ModernCustomerView({
 
                           {/* 7. Actions */}
                           <td className="py-2 pl-2 pr-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex flex-col items-end gap-1">
-                              <div className="flex items-center gap-1 justify-end">
-                                {cust.phone && (
-                                  <a
-                                    href={`tel:${formatDialablePhone(cust.phone)}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-semibold rounded-sm border border-sky-200 dark:border-sky-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                    title={`Click to call ${formatDisplayPhone(cust.phone)}`}
-                                  >
-                                    <PhoneCall className="w-3 h-3 text-sky-600 dark:text-sky-400 stroke-[2]" />
-                                    <span>Call</span>
-                                  </a>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenDetails(cust)}
-                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[11px] font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                  title="View customer details in popup"
-                                >
-                                  <User className="w-3 h-3 stroke-[1.5]" />
-                                  <span>Details</span>
-                                </button>
-
-                              </div>
-                              <div
-                                className="text-[9px] text-text-muted font-mono flex items-center justify-end gap-1"
-                                title={`Last contact: ${lastAct.formattedExact}`}
+                            <div className="flex items-center gap-1.5 justify-end">
+                              {/* WhatsApp Chat Popup */}
+                              <button
+                                type="button"
+                                onClick={() => onOpenChat(cust)}
+                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 text-[11px] font-semibold rounded-sm border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Open live WhatsApp chat in popup"
                               >
-                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${lastAct.isRecent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                                <span>{lastAct.label}</span>
-                              </div>
+                                <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                <span>Chat</span>
+                              </button>
+
+                              {/* Call */}
+                              {cust.phone && (
+                                <a
+                                  href={`tel:${formatDialablePhone(cust.phone)}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-semibold rounded-sm border border-sky-200 dark:border-sky-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title={`Click to call ${formatDisplayPhone(cust.phone)}`}
+                                >
+                                  <PhoneCall className="w-3 h-3 text-sky-600 dark:text-sky-400 stroke-[2]" />
+                                  <span>Call</span>
+                                </a>
+                              )}
+
+                              {/* Details */}
+                              <button
+                                type="button"
+                                onClick={() => onOpenDetails(cust)}
+                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[11px] font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="View customer profile, notes and history in popup"
+                              >
+                                <User className="w-3 h-3 stroke-[1.5]" />
+                                <span>Details</span>
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -2563,6 +2567,20 @@ export function ModernCustomerView({
                                 )}
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  draggable={false}
+                                  onDragStart={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenChat(cust);
+                                  }}
+                                  className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold rounded-xs border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1 shadow-2xs text-[9.5px] cursor-pointer"
+                                  title="Open live WhatsApp chat in popup"
+                                >
+                                  <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366]" />
+                                  <span>Chat</span>
+                                </button>
                                 {cust.phone && (
                                   <a
                                     href={`tel:${formatDialablePhone(cust.phone)}`}
