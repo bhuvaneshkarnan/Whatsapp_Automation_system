@@ -8587,15 +8587,18 @@ end
                     ])
 
                     if is_touch_2:
-                        mission_title = "TOUCH 2: PRE-24H FREE WINDOW EXPIRY CLOSER"
+                        mission_title = "TOUCH 2: WARM YES/NO CHECK-IN (PRE-24H WINDOW)"
                         mission_prompt_text = (
-                            "The customer has been quiet for around 20 hours. WhatsApp's 24-hour free service window is about to expire.\n"
-                            "Your goal is to send a gentle, zero-pressure 1-2 sentence message asking what date and convenient time works best for them within operating hours to keep a slot for them."
+                            "The customer has been quiet for around 20 hours. The 24-hour free messaging window is about to expire.\n"
+                            "Send one short, warm, zero-pressure message that simply asks if they are still interested — a yes/no check-in. "
+                            "Do NOT ask for a specific time or date in this message. Do NOT pitch anything. "
+                            "The goal is just to get a reply (yes/no) so the conversation stays open. "
+                            "Example tone: 'Hey [Name], still thinking about it? Just let me know a yes or no and I can take it from there!'"
                         )
                         followup_instruction = (
-                            f"[Touch 2 Pre-24h window closer. Customer has been quiet for 20 hours. "
-                            f"Send a gentle, warm 1-2 sentence message in easy Indian English asking what day and convenient time suits them best in {style_profile['label']}. "
-                            f"Use simple everyday words. Do not force morning/evening or arbitrary slots.]"
+                            f"[Touch 2 yes/no check-in. Customer has been quiet for 20 hours. "
+                            f"Write ONE warm, casual 1-sentence message in {style_profile['label']} asking if they are still interested — invite a yes or no reply. "
+                            f"No scheduling ask, no pitch, no urgency. Just a friendly check-in that keeps the door open.]"
                         )
                     elif is_price_drop:
                         mission_title = "STAGE 1: PRICE INQUIRY DROP-OFF RECOVERY"
@@ -8633,13 +8636,13 @@ end
                     elif is_slot_drop:
                         mission_title = "STAGE 1: SCHEDULING / TIME SLOT DROP-OFF RECOVERY"
                         mission_prompt_text = (
-                            "The customer was in the middle of scheduling or discussing times and went quiet.\n"
-                            "1. Create subtle, natural slot scarcity: mention that upcoming appointments are filling up.\n"
-                            "2. Ask what day and convenient time works best for them within operating hours so we can confirm their booking."
+                            "The customer was in the middle of discussing or choosing a time and went quiet.\n"
+                            "Send a warm, natural 1-2 sentence follow-up that picks up exactly where the conversation left off. "
+                            "Simply ask what day and convenient time works best for them — no pressure, no scarcity tactics, no urgency language."
                         )
                         followup_instruction = (
-                            f"[Customer dropped off during scheduling. Note that upcoming slots are filling and ask what day and convenient time works best for them in {style_profile['label']}. "
-                            f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
+                            f"[Customer dropped off during scheduling. Warmly and naturally ask what day and convenient time works best for them in {style_profile['label']}. "
+                            f"Keep it conversational and zero-pressure. No fake urgency, no 'slots filling up', no 'limited availability'. Write a short, clear 1-2 sentence followup.]"
                         )
                     else:
                         mission_title = "STAGE 1: SMART 2-HOUR CONTEXTUAL TOPIC CONTINUATION"
@@ -8721,7 +8724,7 @@ end
                         primary_provider="groq" if groq_key else "gemini",
                         gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
                         max_tokens=2048,
-                        temperature=0.3,
+                        temperature=0.15,
                         timeout_seconds=12.0,
                         tenant_id=tenant_id,
                         single_line=False,
