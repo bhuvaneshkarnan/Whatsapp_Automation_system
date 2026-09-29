@@ -20799,12 +20799,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </label>
                           <div className="flex items-center gap-2">
                             <div className="flex-1 min-w-0 bg-surface-subtle border border-border rounded-md px-3 py-2 font-mono text-[11px] text-text-primary overflow-x-auto whitespace-nowrap select-all">
-                              {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=CALLER_NUMBER`}
+                              {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=[tel_number]`}
                             </div>
                             <button
                               type="button"
                               onClick={() => copyToClipboard(
-                                `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=CALLER_NUMBER`,
+                                `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=[tel_number]`,
                                 'missed_call_url'
                               )}
                               className="shrink-0 px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -20953,10 +20953,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <li>Set method to <strong>GET</strong>.</li>
                                 <li>Paste this URL in the URL field:<br />
                                   <code className="break-all bg-surface border border-border px-2 py-1 rounded block mt-1 font-mono text-[10px] select-all">
-                                    {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || '<your-slug>'}&token=${settingsForm.missed_call_webhook_token || '<token>'}&caller_phone={caller_number}`}
+                                    {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || '<your-slug>'}&token=${settingsForm.missed_call_webhook_token || '<token>'}&caller_phone=[tel_number]`}
                                   </code>
                                 </li>
-                                <li>The macro variable <code className="bg-surface-subtle px-1 rounded">{'{caller_number}'}</code> is automatically replaced by MacroDroid with the caller's number.</li>
+                                <li><strong>[tel_number]</strong> is a MacroDroid Magic Text variable — paste the URL as-is, MacroDroid automatically replaces it with the caller's phone number.</li>
                                 <li>Tap <strong>Save</strong>. Enable the macro.</li>
                               </ol>
                             </div>
