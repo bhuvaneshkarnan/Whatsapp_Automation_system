@@ -1676,207 +1676,178 @@ export function ModernCustomerView({
         )}
       </div>
 
-      {/* ── 2. UNIFIED COMPACT TOOLBAR (Live Search, View Switcher & Actions) ── */}
-      <div className="flex flex-col gap-2 bg-surface border border-border rounded-lg p-2.5 shadow-2xs shrink-0">
-        {/* ROW 1: Navigation Tabs, Search Bar & Primary Actions */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
-          {/* Top on Mobile / Left on Desktop: View Switcher */}
-          <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
-            {!hideViewSwitcher && (
-              <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0 overflow-x-auto no-scrollbar touch-scroll">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('table')}
-                  className={`min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
-                    viewMode === 'table'
-                      ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                      : 'text-text-secondary hover:text-text-primary border border-transparent'
-                  }`}
-                >
-                  <List className="w-3.5 h-3.5 stroke-[2] shrink-0" />
-                  <span>Table</span>
-                  <span className="text-[10px] text-text-muted font-mono ml-0.5">({filteredCustomers.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('kanban')}
-                  className={`min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
-                    viewMode === 'kanban'
-                      ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                      : 'text-text-secondary hover:text-text-primary border border-transparent'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5 stroke-[2] shrink-0" />
-                  <span>Pipeline</span>
-                </button>
-                {safeTasks.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('tasks')}
-                    className={`min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
-                      viewMode === 'tasks'
-                        ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                        : 'text-text-secondary hover:text-text-primary border border-transparent'
-                    }`}
-                  >
-                    <CalendarCheck className="w-3.5 h-3.5 stroke-[2] shrink-0" />
-                    <span>Tasks</span>
-                    <span className="text-[10px] text-text-muted font-mono ml-0.5">
-                      ({safeTasks.filter((t) => !t.completed).length})
-                    </span>
-                  </button>
-                )}
-              </div>
-            )}
+      {/* ── 2. UNIFIED COMPACT TOOLBAR — single row ── */}
+      <div className="flex items-center gap-2 bg-surface border border-border rounded-lg px-2.5 py-2 shadow-2xs shrink-0 overflow-x-auto no-scrollbar">
 
-            {/* Mobile Actions: Refresh & Quick Add (rendered beside view mode on small screens) */}
-            <div className="flex sm:hidden items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="min-h-[42px] min-w-[42px] h-10 w-10 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center touch-manipulation"
-                title="Refresh contacts"
-              >
-                <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                type="button"
-                onClick={onAddCustomer}
-                className="min-h-[42px] h-10 flex items-center gap-1 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0 touch-manipulation"
-              >
-                <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>Add</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Center: Live Search Input - full width on mobile, max-w-sm on desktop */}
-          <div className="relative flex-1 max-w-full sm:max-w-xs md:max-w-sm w-full min-w-0">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
-            <input
-              type="text"
-              autoComplete="off"
-              placeholder="Search by name, phone, notes, service..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-9 sm:h-8 transition-colors"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1 cursor-pointer"
-                title="Clear search"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Desktop Right Actions: Dropdown Manager, Refresh, Add Customer */}
-          <div className="hidden sm:flex items-center gap-2 shrink-0">
-            {openDropdownOptionsModal && (
-              <button
-                type="button"
-                onClick={openDropdownOptionsModal}
-                className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
-                title="Customize CRM dropdown options"
-              >
-                <Sliders className="w-3.5 h-3.5 stroke-[1.8]" />
-              </button>
-            )}
-
+        {/* View Switcher */}
+        {!hideViewSwitcher && (
+          <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
             <button
               type="button"
-              onClick={onRefresh}
-              className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
-              title="Refresh contacts"
+              onClick={() => setViewMode('table')}
+              className={`flex items-center justify-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer whitespace-nowrap ${
+                viewMode === 'table'
+                  ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                  : 'text-text-secondary hover:text-text-primary border border-transparent'
+              }`}
             >
-              <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
+              <List className="w-3.5 h-3.5 stroke-[2] shrink-0" />
+              <span>Table</span>
+              <span className="text-[10px] text-text-muted font-mono">({filteredCustomers.length})</span>
             </button>
-
             <button
               type="button"
-              onClick={onAddCustomer}
-              className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
+              onClick={() => setViewMode('kanban')}
+              className={`flex items-center justify-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer whitespace-nowrap ${
+                viewMode === 'kanban'
+                  ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                  : 'text-text-secondary hover:text-text-primary border border-transparent'
+              }`}
             >
-              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Add {taxonomy?.client_label || 'Customer'}</span>
+              <LayoutGrid className="w-3.5 h-3.5 stroke-[2] shrink-0" />
+              <span>Pipeline</span>
             </button>
+            {safeTasks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setViewMode('tasks')}
+                className={`flex items-center justify-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer whitespace-nowrap ${
+                  viewMode === 'tasks'
+                    ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                    : 'text-text-secondary hover:text-text-primary border border-transparent'
+                }`}
+              >
+                <CalendarCheck className="w-3.5 h-3.5 stroke-[2] shrink-0" />
+                <span>Tasks</span>
+                <span className="text-[10px] text-text-muted font-mono">({safeTasks.filter((t) => !t.completed).length})</span>
+              </button>
+            )}
           </div>
-        </div>
+        )}
 
-        {/* ROW 2: Compact Filter Strip — single row, auto-width selects */}
-        <div className="flex items-center gap-2 pt-2 border-t border-border/60">
-          <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
-            <Filter className="w-3 h-3 text-text-muted" />
-            <span>Filter:</span>
-          </span>
+        {/* Divider */}
+        <div className="h-5 w-px bg-border shrink-0" />
 
-          <select
-            value={serviceFilter}
-            onChange={(e) => setServiceFilter(e.target.value)}
-            className="w-auto px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs shrink-0"
-            title="Filter by service / inquiry"
-          >
-            <option value="all">All Services</option>
-            {servicesList.map((svc) => (
-              <option key={svc} value={svc}>{svc}</option>
-            ))}
-          </select>
-
-          <select
-            value={warmthFilter}
-            onChange={(e) => setWarmthFilter(e.target.value)}
-            className="w-auto px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs shrink-0"
-            title="Filter by buying intent"
-          >
-            <option value="all">All Intent</option>
-            <option value="hot">Hot Intent</option>
-            <option value="warm">Warm Intent</option>
-            <option value="cold">Cold Intent</option>
-          </select>
-
-          <select
-            value={staffFilter}
-            onChange={(e) => setStaffFilter(e.target.value)}
-            className="w-auto px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs shrink-0"
-            title="Filter by assigned staff or doctor"
-          >
-            <option value="all">All Staff</option>
-            <option value="unassigned">Unassigned</option>
-            {staffList.map((st) => (
-              <option key={st.value} value={st.value}>{st.label}</option>
-            ))}
-          </select>
-
-          {(warmthFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || stageFilter !== 'all' || searchQuery.trim()) && (
+        {/* Live Search */}
+        <div className="relative w-44 shrink-0">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
+          <input
+            type="text"
+            autoComplete="off"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-8 pr-6 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-7 transition-colors"
+          />
+          {searchQuery && (
             <button
               type="button"
-              onClick={() => {
-                setWarmthFilter('all');
-                setStageFilter('all');
-                setStaffFilter('all');
-                setServiceFilter('all');
-                setActionFilter('all');
-                setSearchQuery('');
-              }}
-              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors shrink-0"
-              title="Clear all filters"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
             >
               <X className="w-3 h-3" />
-              <span>Reset</span>
             </button>
           )}
-
-          {/* Record count pushed to right */}
-          <div className="text-xs text-text-muted font-medium ml-auto shrink-0 flex items-center gap-1 whitespace-nowrap">
-            <span className="font-semibold text-text-primary">{filteredCustomers.length}</span>
-            <span>of</span>
-            <span className="font-semibold text-text-primary">{customers.length}</span>
-            <span>contacts</span>
-          </div>
         </div>
+
+        {/* Filter selects */}
+        <select
+          value={serviceFilter}
+          onChange={(e) => setServiceFilter(e.target.value)}
+          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
+          title="Filter by service"
+        >
+          <option value="all">All Services</option>
+          {servicesList.map((svc) => (
+            <option key={svc} value={svc}>{svc}</option>
+          ))}
+        </select>
+
+        <select
+          value={warmthFilter}
+          onChange={(e) => setWarmthFilter(e.target.value)}
+          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
+          title="Filter by intent"
+        >
+          <option value="all">All Intent</option>
+          <option value="hot">Hot</option>
+          <option value="warm">Warm</option>
+          <option value="cold">Cold</option>
+        </select>
+
+        <select
+          value={staffFilter}
+          onChange={(e) => setStaffFilter(e.target.value)}
+          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
+          title="Filter by staff"
+        >
+          <option value="all">All Staff</option>
+          <option value="unassigned">Unassigned</option>
+          {staffList.map((st) => (
+            <option key={st.value} value={st.value}>{st.label}</option>
+          ))}
+        </select>
+
+        {/* Reset filters */}
+        {(warmthFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || searchQuery.trim()) && (
+          <button
+            type="button"
+            onClick={() => {
+              setWarmthFilter('all');
+              setStageFilter('all');
+              setStaffFilter('all');
+              setServiceFilter('all');
+              setActionFilter('all');
+              setSearchQuery('');
+            }}
+            className="h-7 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+          >
+            <X className="w-3 h-3" />
+            <span>Reset</span>
+          </button>
+        )}
+
+        {/* Count — pushed right */}
+        <div className="text-xs text-text-muted font-medium ml-auto shrink-0 flex items-center gap-1 whitespace-nowrap">
+          <span className="font-semibold text-text-primary">{filteredCustomers.length}</span>
+          <span>of</span>
+          <span className="font-semibold text-text-primary">{customers.length}</span>
+          <span>contacts</span>
+        </div>
+
+        {/* Divider */}
+        <div className="h-5 w-px bg-border shrink-0" />
+
+        {/* Action icons */}
+        {openDropdownOptionsModal && (
+          <button
+            type="button"
+            onClick={openDropdownOptionsModal}
+            className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+            title="Manage CRM dropdown options"
+          >
+            <Sliders className="w-3.5 h-3.5 stroke-[1.8]" />
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+          title="Refresh contacts"
+        >
+          <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
+        </button>
+
+        <button
+          type="button"
+          onClick={onAddCustomer}
+          className="h-7 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
+        >
+          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+          <span>Add {taxonomy?.client_label || 'Customer'}</span>
+        </button>
+
       </div>
 
       {/* ── 4. VIEW CONTENT AREA ────────────────────────────────────────────── */}
