@@ -406,9 +406,17 @@ def resolve_package_and_fee(
 
     # 4. Check services_text from ai_config
     if eff_price <= 0 and services_text:
+        common_words = {'massage', 'therapy', 'consultation', 'service', 'package', 'treatment', 'clinic', 'home', 'mins'}
+        parts = [p.strip().lower() for p in re.split(r'[/()]', hint_str) if len(p.strip()) >= 3]
+        specific_parts = [p for p in parts if p not in common_words]
+        words = [w for p in specific_parts for w in p.split() if w not in common_words and len(w) >= 3]
+
         for line in services_text.splitlines():
             line_str = line.strip()
-            if hint_str and (hint_str.lower() in line_str.lower() or any(w in line_str.lower() for w in hint_str.lower().split() if len(w) > 3)):
+            if not line_str or ':' not in line_str:
+                continue
+            svc_name_in_line = line_str.split(':')[0].lower()
+            if (words and any(w in svc_name_in_line for w in words)) or (hint_str and hint_str.lower() in svc_name_in_line):
                 m_line = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', line_str, re.IGNORECASE)
                 if m_line:
                     try:
@@ -5585,7 +5593,7 @@ end
                     params.append(str(name).strip())
                     p_idx += 1
                 if health_concern:
-                    updates.append(f"health_concern = ${p_idx}")
+                    updates.append(f"health_concern = CASE WHEN COALESCE(customers.metadata->>'service_manually_set', 'false') = 'true' THEN customers.health_concern ELSE ${p_idx} END")
                     params.append(str(health_concern).strip())
                     p_idx += 1
                 if preferred_doctor:
@@ -5597,7 +5605,7 @@ end
                     params.append(str(preferred_language).strip())
                     p_idx += 1
                 if lead_probability and str(lead_probability).lower() in ("hot", "warm", "cold"):
-                    updates.append(f"lead_probability = ${p_idx}")
+                    updates.append(f"lead_probability = CASE WHEN COALESCE(customers.metadata->>'lead_prob_manually_set', 'false') = 'true' THEN customers.lead_probability ELSE ${p_idx} END")
                     params.append(str(lead_probability).lower())
                     p_idx += 1
                 if deal_value is not None:
@@ -5650,9 +5658,9 @@ end
                         last_messaged_at = NOW(),
                         name = COALESCE(NULLIF(EXCLUDED.name, 'Customer'), customers.name),
                         preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor),
-                        health_concern = COALESCE(EXCLUDED.health_concern, customers.health_concern),
+                        health_concern = CASE WHEN COALESCE(customers.metadata->>'service_manually_set', 'false') = 'true' THEN customers.health_concern ELSE COALESCE(EXCLUDED.health_concern, customers.health_concern) END,
                         preferred_language = COALESCE(EXCLUDED.preferred_language, customers.preferred_language),
-                        lead_probability = CASE WHEN EXCLUDED.lead_probability IN ('hot', 'warm', 'cold') THEN EXCLUDED.lead_probability ELSE customers.lead_probability END,
+                        lead_probability = CASE WHEN COALESCE(customers.metadata->>'lead_prob_manually_set', 'false') = 'true' THEN customers.lead_probability WHEN EXCLUDED.lead_probability IN ('hot', 'warm', 'cold') THEN EXCLUDED.lead_probability ELSE customers.lead_probability END,
                         age = COALESCE(EXCLUDED.age, customers.age),
                         location = COALESCE(EXCLUDED.location, customers.location),
                         deal_value = CASE WHEN EXCLUDED.deal_value > 0 THEN EXCLUDED.deal_value ELSE customers.deal_value END
@@ -6527,77 +6535,213 @@ end
         history: list,
         booking_action: Optional[dict] = None,
     ):
-        """Intelligently classify customer lead grade (hot/warm/cold), extract requirement/concern, and handle follow-up dates based on real conversation analysis."""
+        """Intelligently classify customer lead grade (hot/warm/cold), extract requirement/concern, and handle follow-up dates based on authentic inbound conversation analysis."""
         try:
-            full_text = " ".join([m.get("content", "") for m in history[-8:]] + [message_text]).lower()
+            # Collect customer's own inbound messages only (NEVER assistant/bot greeting messages)
+            user_texts = []
+            if history and isinstance(history, list):
+                for m in history:
+                    if m.get("role") == "user" or m.get("direction") == "inbound":
+                        c = str(m.get("content") or "").strip()
+                        c_clean = re.sub(r'</?user_message>', '', c).strip()
+                        if c_clean:
+                            user_texts.append(c_clean)
+
+            if message_text and str(message_text).strip():
+                c_curr = re.sub(r'</?user_message>', '', str(message_text)).strip()
+                if c_curr and (not user_texts or user_texts[-1] != c_curr):
+                    user_texts.append(c_curr)
+
+            user_full_text = " ".join(user_texts).lower()
+            latest_user_text = user_texts[-1].lower() if user_texts else (str(message_text or "").lower().strip())
 
             # 1. Lead Probability & Status Classification
             lead_prob = "warm"
             status = "new"
 
-            # Hot indicators: decisive booking, slot selection, payment/UPI request, callback request, acute emergency
-            hot_keywords = [
-                "book", "appointment", "schedule", "available slot", "book slot", "want to visit", "want to come", 
-                "reserve", "confirm booking", "urgent", "emergency", "severe pain", "call me", "please call", 
-                "talk to doctor", "speak with doctor", "payment link", "how to pay", "send upi", "send qr", "gpay", "phonepe",
-                "interested in booking", "can i get an appointment", "schedule for today", "schedule for tomorrow",
-                "tomorrow at", "today at", "admission", "enroll", "buy", "purchase"
+            # Pricing inquiries: User explicitly required: "what is the pricing only should segregate the actualy hot lead"
+            pricing_keywords = [
+                "price", "pricing", "cost", "how much", "charges", "fees", "fee", "rate", "tarriff", "tariff",
+                "evlo", "evalo", "evvalavu", "kitna", "package price", "package cost", "discount", "offer",
+                "kattanam", "விலை", "கட்டணம்"
             ]
-            # Warm indicators: exploratory pricing, fees, charges, service inquiries, clinic location, timings
-            warm_keywords = [
-                "cost", "price", "fee", "fees", "how much", "charges", "rate", "evlo", "evalo", "kitna",
-                "timing", "available", "doctor", "consult", "where", "location", "address",
-                "treatment", "package", "details", "info", "discount", "offer"
+            booking_keywords = [
+                "book", "booking", "appointment", "schedule", "available slot", "book slot", "slot",
+                "want to visit", "want to come", "reserve", "confirm booking", "can i visit", "can i come",
+                "today at", "tomorrow at", "tomorrow", "today", "when can i come", "doctor available",
+                "admission", "enroll", "நேரில் வர", "முன்பதிவு"
             ]
-            # Cold indicators: stop, unsubscribe, wrong number, not interested, spam, explicit decline
+            callback_keywords = [
+                "call me", "please call", "contact me", "talk to doctor", "speak with doctor",
+                "call panni", "call pannunga", "pesanum"
+            ]
+            payment_keywords = [
+                "payment link", "how to pay", "send upi", "send qr", "gpay", "phonepe", "upi id", "paytm", "pay now"
+            ]
+            urgency_keywords = [
+                "urgent", "emergency", "severe pain", "unbearable", "sudden pain"
+            ]
+
+            # Cold indicators: explicit opt-out, stop, unsubscribe, wrong number, not interested
             cold_keywords = [
                 "stop", "unsubscribe", "wrong number", "not interested", "dont message", "don't message", 
                 "remove me", "spam", "cancel my number", "no thanks", "do not call", "not required",
-                "too costly", "too expensive"
+                "too costly", "too expensive", "not needed", "vendam", "vendaam", "nahi chahiye", "wrong person"
             ]
 
-            if booking_action or any(kw in full_text for kw in ["booked for you", "appointment is booked", "appointment is confirmed", "confirmed"]):
+            if booking_action or any(kw in latest_user_text for kw in ["booked for you", "appointment is booked", "appointment is confirmed", "confirmed"]):
                 lead_prob = "hot"
                 status = "converted"
-            elif any(kw in full_text for kw in cold_keywords):
+            elif any(kw in latest_user_text for kw in cold_keywords):
                 lead_prob = "cold"
                 status = "lost"
-            elif any(kw in full_text for kw in hot_keywords):
+            elif any(kw in user_full_text for kw in pricing_keywords + booking_keywords + callback_keywords + payment_keywords + urgency_keywords):
                 lead_prob = "hot"
-                status = "new"
-            elif any(kw in full_text for kw in warm_keywords):
-                lead_prob = "warm"
                 status = "new"
             else:
                 lead_prob = "warm"
                 status = "new"
 
-            # 2. Extract Requirement / Health Concern / Inquiry
+            # 2. Extract Requirement / Health Concern / Service from Customer Chat & Tenant Catalog
             extracted_concern = None
-            concern_patterns = [
-                r"(?:have|having|suffering from|got|dealing with)\s+([a-zA-Z\s]{3,35})",
-                r"(?:interested in|looking for|inquiry about|need|want|regarding)\s+([a-zA-Z\s]{3,35})",
-                r"(?:treatment for|consultation for|problem with|course for|property in)\s+([a-zA-Z\s]{3,35})",
-            ]
-            for pat in concern_patterns:
-                m = re.search(pat, message_text, re.IGNORECASE)
-                if m:
-                    candidate = m.group(1).strip().title()
-                    # Filter out noise / common generic words
-                    if len(candidate.split()) <= 5 and not any(sw in candidate.lower() for sw in ["you", "your", "the", "this", "help", "please", "some", "more", "info", "details"]):
-                        extracted_concern = candidate
+
+            if booking_action and isinstance(booking_action, dict) and booking_action.get("service"):
+                extracted_concern = str(booking_action["service"]).strip()
+
+            raw_services_text = ""
+            if not extracted_concern:
+                # Build tenant-specific catalog of services and concerns
+                services_catalog = []
+                concerns_catalog = []
+                try:
+                    cfg_row = await self.db_pool.fetchrow("SELECT services_text FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
+                    if cfg_row and cfg_row["services_text"]:
+                        raw_services_text = cfg_row["services_text"]
+                        for line in cfg_row["services_text"].splitlines():
+                            line = line.strip()
+                            if not line or line.lower().endswith("pricing:") or line.startswith("#"):
+                                continue
+                            line = re.sub(r'^[-\*\•\d\.\)]\s*', '', line)
+                            parts = line.split(":")
+                            if len(parts) >= 2:
+                                svc = parts[0].strip()
+                                svc_clean = re.sub(r'\s*\([^)]*[\u0B80-\u0BFF]+[^)]*\)', '', svc).strip()
+                                if svc_clean and 3 <= len(svc_clean) <= 60 and svc_clean not in services_catalog:
+                                    services_catalog.append(svc_clean)
+                except Exception as e_cat:
+                    logger.debug("services_catalog_fetch_err", error=str(e_cat))
+
+                try:
+                    t_row = await self.db_pool.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                    if t_row and t_row["settings"]:
+                        st = t_row["settings"] if isinstance(t_row["settings"], dict) else json.loads(t_row["settings"])
+                        cd = st.get("crm_dropdowns", {}) or {}
+                        for s in cd.get("services_list", []):
+                            if s and str(s).strip() not in services_catalog:
+                                services_catalog.append(str(s).strip())
+                        for c in cd.get("concerns_list", []):
+                            if c and str(c).strip() not in concerns_catalog:
+                                concerns_catalog.append(str(c).strip())
+                except Exception as e_t:
+                    logger.debug("tenant_settings_services_fetch_err", error=str(e_t))
+
+                # Match against services catalog
+                for svc in services_catalog:
+                    parts = re.split(r'[/()]', svc)
+                    for p in parts:
+                        p_clean = p.strip().lower()
+                        if len(p_clean) >= 4 and p_clean in user_full_text:
+                            extracted_concern = svc
+                            break
+                    if extracted_concern:
                         break
 
+                # Multilingual & common service aliases
+                if not extracted_concern:
+                    SERVICE_ALIASES = {
+                        "powder massage": "Powder Massage / Udwarthanam",
+                        "udwarthanam": "Powder Massage / Udwarthanam",
+                        "udvartana": "Powder Massage / Udwarthanam",
+                        "உத்வர்தனம்": "Powder Massage / Udwarthanam",
+                        "பொடி மசாஜ்": "Powder Massage / Udwarthanam",
+                        "abhyangam": "Abhyangam / Ayurvedic Massage",
+                        "abhyanga": "Abhyangam / Ayurvedic Massage",
+                        "அப்யங்கம்": "Abhyangam / Ayurvedic Massage",
+                        "ayurvedic massage": "Abhyangam / Ayurvedic Massage",
+                        "reflexology": "Reflexology (Foot Massage)",
+                        "foot massage": "Reflexology (Foot Massage)",
+                        "பாத மசாஜ்": "Reflexology (Foot Massage)",
+                        "sirodhara": "Sirodhara",
+                        "shirodhara": "Sirodhara",
+                        "சிரோதாரா": "Sirodhara",
+                        "full body scrub": "Full Body Scrub",
+                        "body scrub": "Full Body Scrub",
+                        "scrub": "Full Body Scrub",
+                        "mud bath": "Mud Bath Therapy",
+                        "mud therapy": "Mud Bath Therapy",
+                        "steam bath": "Steam Bath & Thermal Spa",
+                        "thermal spa": "Steam Bath & Thermal Spa",
+                        "head massage": "Head Massage",
+                        "relaxation massage": "Full Body Relaxation Massage",
+                        "full body massage": "Full Body Relaxation Massage",
+                        "body massage": "Full Body Relaxation Massage",
+                        "de tan": "De Tan Therapy",
+                        "detan": "De Tan Therapy",
+                        "detox": "Detox Therapy",
+                        "knee pain": "Knee pain",
+                        "முழங்கால் வலி": "Knee pain",
+                        "back pain": "Back pain",
+                        "முதுகு வலி": "Back pain",
+                        "sciatica": "Sciatica",
+                        "weight loss": "Weight loss",
+                        "cupping": "Cupping",
+                        "acupuncture": "Acupuncture",
+                        "trufit": "TruFit Basic – 59 (₹999)",
+                        "automation": "Whatsapp Automation",
+                        "demo": "Clinic Demo",
+                    }
+                    for alias, canon in SERVICE_ALIASES.items():
+                        if alias in user_full_text:
+                            extracted_concern = canon
+                            break
+
+                # Match against concerns catalog
+                if not extracted_concern:
+                    for c in concerns_catalog:
+                        if c.lower() in user_full_text:
+                            extracted_concern = c
+                            break
+
+                # Match natural regex patterns from latest message
+                if not extracted_concern:
+                    concern_patterns = [
+                        r"(?:having|suffering from|got|dealing with)\s+([a-zA-Z\s]{3,35})",
+                        r"(?:interested in|looking for|inquiry about|need|want|regarding)\s+([a-zA-Z\s]{3,35})",
+                        r"(?:treatment for|consultation for|problem with|course for|property in)\s+([a-zA-Z\s]{3,35})",
+                    ]
+                    greeting_stop_words = [
+                        "you", "your", "the", "this", "help", "please", "some", "more", "info", "details", "pricing", "price",
+                        "morning", "evening", "afternoon", "night", "day", "wonderful", "great", "nice", "good",
+                        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today", "tomorrow"
+                    ]
+                    for pat in concern_patterns:
+                        m = re.search(pat, latest_user_text, re.IGNORECASE)
+                        if m:
+                            candidate = m.group(1).strip().title()
+                            if len(candidate.split()) <= 5 and not any(sw in candidate.lower() for sw in greeting_stop_words):
+                                extracted_concern = candidate
+                                break
+
             # 3. Follow-up Date & Time (Only cleared if booked/converted, never auto-assigned)
-            # Follow-up dates are set manually by staff in CRM, not auto-generated for incoming messages.
             followup_date = None
             followup_time = None
 
             # 4. Update customer record in database
-            # Build params: $1=lead_prob, then dynamic optional params, then tenant_id and phone at the end
-            # Protect existing hot leads from being demoted back to warm by casual replies
             updates = [
-                "lead_probability = CASE WHEN customers.lead_probability = 'hot' AND $1 = 'warm' THEN 'hot' ELSE $1 END",
+                """lead_probability = CASE 
+                    WHEN COALESCE(customers.metadata->>'lead_prob_manually_set', 'false') = 'true' THEN customers.lead_probability 
+                    ELSE $1 
+                END""",
                 "updated_at = NOW()",
                 "last_messaged_at = NOW()"
             ]
@@ -6622,7 +6766,11 @@ end
                     idx += 1
 
             if extracted_concern:
-                updates.append(f"health_concern = CASE WHEN customers.health_concern IS NULL OR customers.health_concern = 'General Consultation' THEN ${idx} ELSE customers.health_concern END")
+                # STRICT GUARD: If staff manually assigned a service in CRM, NEVER overwrite it!
+                updates.append(f"""health_concern = CASE 
+                    WHEN COALESCE(customers.metadata->>'service_manually_set', 'false') = 'true' THEN customers.health_concern 
+                    ELSE ${idx} 
+                END""")
                 dynamic_params.append(extracted_concern)
                 idx += 1
 
@@ -6635,9 +6783,9 @@ end
             if booking_action or status == "converted":
                 svc = (booking_action.get("service") if isinstance(booking_action, dict) else None) or extracted_concern or "Consultation"
                 ai_snapshot = f"Booked {svc} appointment via WhatsApp."
-            elif any(kw in full_text for kw in ["call me", "please call", "call back", "talk to doctor", "speak with"]):
+            elif any(kw in latest_user_text for kw in ["call me", "please call", "call back", "talk to doctor", "speak with"]):
                 ai_snapshot = f"Requested callback regarding {extracted_concern or 'services'}."
-            elif any(kw in full_text for kw in ["cost", "price", "fee", "fees", "how much", "charges"]):
+            elif any(kw in user_full_text for kw in ["cost", "price", "fee", "fees", "how much", "charges", "tariff", "rate", "evlo"]):
                 ai_snapshot = f"Inquired about pricing and details for {extracted_concern or 'services'}."
             elif extracted_concern:
                 ai_snapshot = f"Inquired about {extracted_concern} via WhatsApp."
@@ -6645,8 +6793,8 @@ end
                 ai_snapshot = f"High intent: Interested in {extracted_concern or 'services'}."
             elif status == "lost" or lead_prob == "cold":
                 ai_snapshot = "Expressed price objection / not interested currently."
-            elif message_text and 5 <= len(message_text.strip()) <= 80:
-                ai_snapshot = f"Customer asked: {message_text.strip()}"
+            elif latest_user_text and 3 <= len(latest_user_text.strip()) <= 80:
+                ai_snapshot = f"Customer asked: {latest_user_text.strip()}"
 
             if ai_snapshot:
                 updates.append(f"ai_summary = ${idx}")
@@ -6659,15 +6807,21 @@ end
                 try: deal_val = float(booking_action["price"])
                 except Exception: pass
             if not deal_val or deal_val <= 0:
-                svc_cand = (booking_action.get("service") if isinstance(booking_action, dict) else None) or extracted_concern or message_text
+                svc_cand = (booking_action.get("service") if isinstance(booking_action, dict) else None) or extracted_concern or latest_user_text
                 try:
                     t_slug = await self.db_pool.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
                 except Exception:
                     t_slug = ""
+                if not raw_services_text:
+                    try:
+                        raw_services_text = await self.db_pool.fetchval("SELECT services_text FROM ai_config WHERE tenant_id = $1::uuid", tenant_id) or ""
+                    except Exception:
+                        raw_services_text = ""
                 _, deal_val = resolve_package_and_fee(
                     service_hint=svc_cand,
-                    context_text=full_text,
+                    context_text=user_full_text,
                     tenant_slug=t_slug or "",
+                    services_text=raw_services_text,
                 )
             if deal_val and deal_val > 0:
                 updates.append(f"deal_value = ${idx}")

@@ -2103,7 +2103,17 @@ export function ModernCustomerView({
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.health_concern || ''}
-                              onChange={(e) => handleQuickUpdate(cust.id, { health_concern: e.target.value || undefined })}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '__add_custom__') {
+                                  const customSvc = prompt('Enter manual service or health concern:');
+                                  if (customSvc && customSvc.trim()) {
+                                    handleQuickUpdate(cust.id, { health_concern: customSvc.trim() });
+                                  }
+                                } else {
+                                  handleQuickUpdate(cust.id, { health_concern: val || undefined });
+                                }
+                              }}
                               disabled={updatingId === cust.id}
                               className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full min-w-[115px] max-w-[150px] truncate shadow-2xs"
                             >
@@ -2114,6 +2124,7 @@ export function ModernCustomerView({
                               {servicesList.map((svc) => (
                                 <option key={svc} value={svc}>{svc}</option>
                               ))}
+                              <option value="__add_custom__">+ Add manual service...</option>
                             </select>
                           </td>
 

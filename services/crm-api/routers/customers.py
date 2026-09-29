@@ -1234,14 +1234,18 @@ async def update_customer(
         idx += 1
 
     if payload.health_concern is not None:
+        val = payload.health_concern.strip() if payload.health_concern else None
         updates.append(f"health_concern = ${idx}")
-        params.append(payload.health_concern.strip())
+        params.append(val)
         idx += 1
+        updates.append("metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{service_manually_set}', 'true'::jsonb)")
 
     if payload.lead_probability is not None:
+        val = payload.lead_probability.strip() if payload.lead_probability else None
         updates.append(f"lead_probability = ${idx}")
-        params.append(payload.lead_probability.strip())
+        params.append(val)
         idx += 1
+        updates.append("metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{lead_prob_manually_set}', 'true'::jsonb)")
 
     if payload.converted is not None:
         updates.append(f"converted = ${idx}")
@@ -1329,6 +1333,7 @@ async def update_customer(
             updates.append(f"health_concern = ${idx}")
             params.append(clean_concerns[0])
             idx += 1
+        updates.append("metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{service_manually_set}', 'true'::jsonb)")
 
     if payload.interested_services is not None:
         clean_services = [s.strip() for s in payload.interested_services if s and s.strip()]
@@ -1956,6 +1961,30 @@ async def get_crm_dropdown_options(tenant_id: str = Depends(get_tenant_id)):
                         else:
                             merged.append(col)
                     default_options["pipeline_columns"] = merged
+
+        # Also merge services defined in ai_config.services_text for this tenant
+        ai_cfg_row = await conn.fetchrow("SELECT services_text FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
+        if ai_cfg_row and ai_cfg_row["services_text"]:
+            st_text = ai_cfg_row["services_text"]
+            parsed_services = []
+            for line in st_text.splitlines():
+                line = line.strip()
+                if not line or line.lower().endswith("pricing:") or line.startswith("#"):
+                    continue
+                line = re.sub(r'^[-\*\•\d\.\)]\s*', '', line)
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    svc = parts[0].strip()
+                    svc_clean = re.sub(r'\s*\([^)]*[\u0B80-\u0BFF]+[^)]*\)', '', svc).strip()
+                    if svc_clean and 3 <= len(svc_clean) <= 60 and svc_clean not in parsed_services:
+                        parsed_services.append(svc_clean)
+            if parsed_services:
+                current_svcs = list(default_options.get("services_list", []))
+                for ps in parsed_services:
+                    if ps not in current_svcs:
+                        current_svcs.append(ps)
+                default_options["services_list"] = current_svcs
+
     return default_options
 
 
