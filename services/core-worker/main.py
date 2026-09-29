@@ -3931,15 +3931,20 @@ end
                     full_location = (_ts.get("full_location_text") or _ts.get("location") or "").strip()
 
         tenant_isolation_boundary = (
-            "### STRICT TENANT IDENTITY & FACTUAL DATA ISOLATION (ABSOLUTE MANDATORY DIRECTIVE):\n"
+            "### ⚠ ABSOLUTE ZERO-HALLUCINATION MANDATE (READ BEFORE EVERYTHING ELSE):\n"
+            "You are a factual business WhatsApp assistant. Your ONLY job is to answer accurately from the verified business knowledge base in this prompt.\n"
+            "KNOWLEDGE-ONLY RULE: Every single fact in your reply — services, prices, operating hours, addresses, doctor names, policies — MUST come DIRECTLY and EXCLUSIVELY from the knowledge base provided below in this prompt. Period.\n"
+            "WHEN IN DOUBT → SAY 'I DON'T HAVE THAT DETAIL': If the customer asks about something not explicitly stated in this knowledge base, say warmly: 'I don't have that detail with me right now. Let me have our team get back to you shortly.' NEVER invent or guess.\n"
+            "ZERO INVENTION POLICY: Never invent, assume, or extrapolate any service, price, treatment, doctor name, location, timing, or policy that is not explicitly written in this prompt. A wrong or invented answer can directly harm the business and the customer.\n\n"
+            "### STRICT TENANT IDENTITY & FACTUAL DATA ISOLATION:\n"
             f"- Organization / Business Name: \"{tenant_name or 'this business'}\"\n"
             f"- Assistant Persona: \"{assistant_name or 'the assistant'}\"\n"
-            "ZERO CROSS-TENANT OVERLAP & EXCLUSIVE DATA GROUNDING:\n"
             f"1. You represent ONLY '{tenant_name or 'this business'}' and NO OTHER company, clinic, or client.\n"
             "2. GROUNDED EXCLUSIVELY IN THIS TENANT'S BUSINESS DETAILS: Every single fact, service, capability, policy, and detail in your reply MUST come directly from THIS tenant's factual knowledge base and services listed below.\n"
             "3. ZERO EXTERNAL INVENTIONS & ZERO HALLUCINATION: Never invent services, prices, or policies not explicitly stated in this business's knowledge base. If the customer asks about something not mentioned in this business's data, honestly state that our team can assist with that specific query. Never guess or hallucinate!\n"
             "4. Under NO circumstances should you mention, adopt, refer to, or use branding, personas, names, pricing, services, or workflows from any other business unless explicitly defined in this business's knowledge base below."
         )
+
 
         admin_phone_clean = (admin_phone or "").strip()
         admin_contact_instruction = (
@@ -3970,13 +3975,13 @@ end
 
         reinforcement_parts = [
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:",
-            "- WARM, HOSPITABLE & FRIENDLY TONE (BANISH BLUNT 'NO'): Always sound like a caring, authentic clinic coordinator on WhatsApp. NEVER be rude, cold, or give blunt 'No' rejections. When explaining restrictions (like same-gender therapist policies or consultation fees), frame them positively and warmly around patient comfort, privacy, and personalized care.",
-            "- CONTEXT-AWARE 3-BEAT CONSULTATIVE SALES FLOW (USED ONLY WHEN RELEVANT):",
-            "  * CASUAL OR ADMIN QUERIES (greetings, 'ok', 'thanks', parking, address, exact hours): Reply in 1 to 2 warm, helpful sentences. Do NOT force a sales pitch.",
-            "  * SERVICE, TREATMENT & PRICING INQUIRIES: Follow the natural 3-beat consultative flow:",
-            "    - Beat 1 (Direct Answer): Warmly answer their specific question. If they explicitly asked for price or cost, provide verified pricing in digits (e.g. ₹1399). If they only asked about services/treatments without asking for prices, describe the services without giving prices, unless business rules or custom prompt instruct to share prices upfront.",
-            "    - Beat 2 (Caring Diagnostic Question): Ask ONE gentle, caring question to understand their wellness need or concern (e.g. 'Are you looking for relief from body pain or complete relaxation?').",
-            "    - Beat 3 (Assumptive Invitation): Warmly invite them to book or suggest a convenient appointment time.",
+            "- WARM, HOSPITABLE & FRIENDLY TONE (BANISH BLUNT 'NO'): Always sound like a caring, authentic clinic coordinator on WhatsApp. NEVER be rude, cold, or give blunt 'No' rejections. Frame restrictions warmly around patient comfort, privacy, and personalized care.",
+            "- SMART CONTEXTUAL RESPONSE STYLE (NO RIGID SCRIPTS):",
+            "  * CASUAL MESSAGES ('Hi', 'Ok', 'Thanks', hours, address): Reply in 1-2 warm helpful sentences. Do NOT force a sales pitch.",
+            "  * DIRECT QUESTIONS (price, services, hours, features): Answer directly and completely first. NEVER dodge with a qualification question.",
+            "  * EXPLORATORY INQUIRIES (broad or vague need): Ask ONE gentle diagnostic question to understand their specific goal.",
+            "  * SLOT/TIMING REPLIES ('today evening', '5:30 pm', 'tomorrow', 'Monday'): IMMEDIATELY confirm the slot warmly. NEVER re-pitch or ask again what they need. Append [ACTION:CREATE_BOOKING: ...].",
+            "  * NEVER end two consecutive messages with the same closing sentence, CTA, or website link.",
             f"- OPERATING HOURS INTEGRITY: If asked about clinic / business timings or hours, directly state '{op_hours_display} daily'. Never guess from calendar slot lists.",
             "- DEMOS & BOOKING INVITATIONS: If they ask for an appointment, accept warmly and ask what day and convenient time works best for them within operating hours.",
             "- TIME PROVIDED: If they provide a time (e.g. '3 pm'), resolve to tomorrow if today is past/closed, confirm warmly, and append [ACTION:CREATE_BOOKING: ...]. NEVER reject them or claim today is fully booked!",
@@ -4224,7 +4229,7 @@ end
             primary_provider=primary_provider,
             gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
             max_tokens=2048,
-            temperature=0.3,
+            temperature=0.15,  # Low temperature = factual, grounded, low hallucination risk
             timeout_seconds=2.0,
             tenant_id=tenant_id,
             single_line=False,
@@ -4683,6 +4688,35 @@ end
             response_text = re.sub(r'\[ACTION:[^\]]+\]', '', response_text, flags=re.I).strip()
             # Slash normalization: model sometimes writes 247 instead of 24/7 due to no-hyphen instruction
             response_text = re.sub(r'\b247\b', '24/7', response_text)
+
+            # ── Post-Generation Hallucination Validator (ALL TENANTS) ──
+            # Lightweight check: detect prices in the response not grounded in services_text
+            _svc_text = (services_text or "").lower()
+            if _svc_text and response_text:
+                # Extract all ₹ prices quoted in the response
+                _quoted_prices = re.findall(r'[₹rs\.]+\s*(\d[\d,]+)', response_text, re.IGNORECASE)
+                for _qp in _quoted_prices:
+                    _qp_clean = _qp.replace(',', '')
+                    # Check if this price appears somewhere in services_text or system_prompt
+                    _in_services = _qp_clean in _svc_text
+                    _in_kb = _qp_clean in (custom_instructions or "").lower()
+                    if not _in_services and not _in_kb:
+                        # Price is not in verified knowledge base — strip it from response
+                        logger.warning(
+                            "hallucination_price_intercepted",
+                            tenant_id=tenant_id,
+                            invented_price=_qp_clean,
+                            response_snippet=response_text[:120],
+                        )
+                        # Replace the hallucinated price mention with a safe redirect
+                        response_text = re.sub(
+                            rf'[₹Rs\.]+\s*{re.escape(_qp)}',
+                            'our listed price',
+                            response_text,
+                            flags=re.IGNORECASE
+                        )
+
+
 
             # ── Trailing Sentence Deduplication (ALL TENANTS) ──
             # If the model repeats the exact same closing sentence/CTA as its previous reply,
