@@ -342,7 +342,7 @@ async def call_gemini(
         time_left = deadline - time.monotonic()
         if time_left < 0.5:
             break
-        req_timeout = min(timeout_seconds, time_left, 2.2)
+        req_timeout = min(timeout_seconds, time_left, 5.0)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
             # Use persistent pooled client — avoids TCP/TLS handshake overhead per call
@@ -850,7 +850,7 @@ async def call_llm_cascade(
                     model=gemini_model or "gemini-3.5-flash-lite",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(timeout_seconds, 2.2),
+                    timeout_seconds=min(timeout_seconds, 5.0),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )

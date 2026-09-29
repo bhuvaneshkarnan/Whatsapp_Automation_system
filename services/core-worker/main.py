@@ -2138,6 +2138,7 @@ end
         admin_phone: Optional[str] = None,
         admin_name: Optional[str] = None,
         customer_name: Optional[str] = None,
+        services_text: Optional[str] = None,
     ) -> str:
         """
         Global strict tenant isolation firewall.
@@ -2169,9 +2170,19 @@ end
                 logger.warn("cross_tenant_sanitized_marketing_copy", tenant_slug=clean_slug)
                 text = f"Hello! How can I assist you with {tenant_name or 'our services'} today?"
 
-            if any(p in text.lower() for p in ["3499 per month", "rs 3499", "₹3499", "₹3,499", "2630 per month", "rs 2630", "₹2630", "₹2,630", "2499"]):
-                logger.warn("cross_tenant_sanitized_pricing_copy", tenant_slug=clean_slug)
-                text = f"I would be happy to share our pricing details with you. Which of our services are you interested in?"
+            boldlabs_leak_patterns = [
+                "2630 per month", "rs 2630", "₹2630", "₹2,630", "2,630/month", "2630/month",
+                "3499 per month", "3499/month", "2499 per month", "2499/month",
+                "whatsapp automation & crm", "whatsapp crm plan"
+            ]
+            catalog_lower = (services_text or "").lower()
+            for bp in boldlabs_leak_patterns:
+                if bp in text.lower():
+                    # Only sanitize if this pattern is NOT legitimately part of this tenant's own services catalog
+                    if bp not in catalog_lower:
+                        logger.warn("cross_tenant_sanitized_pricing_copy", tenant_slug=clean_slug, pattern=bp)
+                        text = f"I would be happy to share our pricing details with you. Which of our services are you interested in?"
+                        break
 
         # If tenant IS Boldlabs, ensure clinic or medical terms from other clients don't leak into Boldlabs
         elif clean_slug == "boldlabs":
@@ -3721,23 +3732,44 @@ end
             or (is_ongoing_conversation and has_time_or_slot_indicator and not has_upcoming and not any(w in inbound_clean for w in ["price", "cost", "fee", "where", "location", "address"]))
         ):
             funnel_stage = "BOOKING_INTENT"
-            if is_slot_request_pending or (is_ongoing_conversation and has_time_or_slot_indicator):
+
+            # Determine dynamic service name appropriate for this tenant
+            if clean_slug == "boldlabs":
+                target_service = "Demo / Consultation"
+            elif "abinaya" in clean_slug:
+                target_service = customer_health_concern or "Health Checkup"
+            elif "aadhiran" in clean_slug:
+                target_service = customer_health_concern or "Consultation & Treatment"
+            elif "mindbody" in clean_slug:
+                target_service = "Consultation"
+            else:
+                target_service = customer_health_concern or "Appointment"
+
+            has_specific_time_of_day = bool(
+                re.search(
+                    r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2}|(?:at|by|around)\s*\d{1,2}(?::\d{2})?)\b',
+                    inbound_clean,
+                    re.I
+                )
+            )
+
+            if has_specific_time_of_day:
                 stage_directive = (
-                    f"The customer is responding with their preferred day/time for the appointment/demo: '{message_text}'.\n"
-                    "CRITICAL ANTI-LOOP & IMMEDIATE CONFIRMATION DIRECTIVE:\n"
-                    "1. ABSOLUTELY NEVER repeat your previous greeting, business intro, or demo pitch! DO NOT say 'Thanks for reaching out' or re-ask 'What day and time works best for you?'.\n"
+                    f"The customer is stating a specific preferred time: '{message_text}'.\n"
+                    "CRITICAL APPOINTMENT CONFIRMATION DIRECTIVE:\n"
+                    "1. ABSOLUTELY NEVER repeat your previous greeting or intro! Do not re-ask what time they prefer.\n"
                     f"2. Current live context: Today is {now.strftime('%A, %d %b %Y')} and current time is {now.strftime('%I:%M %p')}. Business operating hours are: {op_hours_display}.\n"
-                    f"   - If the customer requested 'today', 'today evening', or an upcoming time today within operating hours: warmly confirm it for TODAY ({today_date_str}) at their specified time (e.g. 5:30 PM)!\n"
-                    f"   - If their requested time has already passed today or operating hours for today have closed: politely explain that today's hours have passed and warmly confirm for TOMORROW ({tomorrow_date_str}) at that requested time!\n"
+                    f"   - If customer requested 'today' or an upcoming time today within operating hours: confirm for TODAY ({today_date_str}) at that time!\n"
+                    f"   - If that time has already passed today or today is closed/requested for tomorrow: confirm for TOMORROW ({tomorrow_date_str}) at that time!\n"
                     f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on a new line at the very end:\n"
-                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]"
+                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]"
                 )
             else:
                 stage_directive = (
-                    "The customer wants to schedule or check availability for an appointment, demo, or call. "
-                    "1. If the customer has NOT stated a time: Warmly accept their request (e.g. for a demo, describe what they will see in 1 line), and ask what day and convenient time suits them best within operating hours (check verified open slots above; if a date has a scheduled closure or leave, do NOT propose that date). "
-                    f"2. If the customer HAS stated a time (e.g. '3 pm', 'at 4', 'today at 5', 'tomorrow at 2'): If the requested time is still upcoming today within operating hours ({op_hours_display}) and available, book for TODAY ({today_date_str})! If that time has already passed today or today is closed/full, check if tomorrow is open. If tomorrow is closed for scheduled leave, offer the next open business day. If open, confirm for tomorrow with warmth, and MANDATORY append [ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]. "
-                    "NEVER offer a rigid pair of arbitrary times. NEVER claim today is fully booked if outside operating hours. NEVER reject customer's time."
+                    f"The customer wants to schedule or book an appointment for '{message_text}', but has NOT provided an exact hour/time.\n"
+                    f"1. Warmly acknowledge the requested day (e.g. tomorrow or today).\n"
+                    f"2. Ask what time suits them best within our operating hours ({op_hours_display}).\n"
+                    f"3. CRITICAL: STRICTLY DO NOT output any [ACTION:CREATE_BOOKING] tag until an exact time has been specified and agreed by the customer!"
                 )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
@@ -4738,6 +4770,7 @@ end
                 admin_phone=admin_phone,
                 admin_name=admin_name,
                 customer_name=confirmed_name or customer_name_display,
+                services_text=services_text,
             )
 
         # Multi-Bubble WhatsApp Pacing & Persistence:
