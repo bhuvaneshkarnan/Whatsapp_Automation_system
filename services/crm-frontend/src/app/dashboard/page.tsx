@@ -2876,16 +2876,89 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return [];
   });
 
-  const toggleImportant = (convId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const isConvStarred = (conv: Conversation | null | undefined): boolean => {
+    if (!conv) return false;
+    if (conv.id && importantConvIds.includes(conv.id)) return true;
+    const rawPhone = conv.contact_phone || conv.phone || '';
+    const cleanP = rawPhone.replace(/\D/g, '').slice(-10);
+    if (cleanP && importantConvIds.includes(cleanP)) return true;
+    if (cleanP && Array.isArray(customers)) {
+      const cust = customers.find((cu) => cu.phone && cu.phone.replace(/\D/g, '').slice(-10) === cleanP);
+      if (cust?.metadata && typeof cust.metadata === 'object' && cust.metadata.is_starred) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const toggleImportant = (convId: string, phoneOrEvent?: string | React.MouseEvent, e?: React.MouseEvent) => {
+    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+    if (phoneOrEvent && typeof phoneOrEvent === 'object' && 'stopPropagation' in phoneOrEvent) {
+      phoneOrEvent.stopPropagation();
+    }
+
+    const conv = (conversations || []).find((c) => c.id === convId) || (selectedConv?.id === convId ? selectedConv : null);
+    const rawPhone = typeof phoneOrEvent === 'string' ? phoneOrEvent : (conv?.contact_phone || conv?.phone || '');
+    const cleanP = rawPhone.replace(/\D/g, '').slice(-10);
+
+    const currentlyStarred = (convId && importantConvIds.includes(convId)) || (Boolean(cleanP) && importantConvIds.includes(cleanP));
+    const newStarred = !currentlyStarred;
+
     setImportantConvIds((prev) => {
-      const updated = prev.includes(convId) ? prev.filter((id) => id !== convId) : [...prev, convId];
+      let updated = [...prev];
+      if (newStarred) {
+        if (convId && !updated.includes(convId)) updated.push(convId);
+        if (cleanP && !updated.includes(cleanP)) updated.push(cleanP);
+      } else {
+        updated = updated.filter((id) => id !== convId && (cleanP ? id !== cleanP : true));
+      }
       try {
         localStorage.setItem('whatsapp_crm_important_chats', JSON.stringify(updated));
       } catch {}
       return updated;
     });
+
+    // Also persist to backend database via customer metadata so it NEVER gets lost across sessions or devices!
+    if (cleanP && Array.isArray(customers)) {
+      const matchedCust = customers.find((cu) => cu.phone && cu.phone.replace(/\D/g, '').slice(-10) === cleanP);
+      if (matchedCust) {
+        const currentMeta = (matchedCust.metadata && typeof matchedCust.metadata === 'object') ? matchedCust.metadata : {};
+        const updatedMeta = { ...currentMeta, is_starred: newStarred };
+        setCustomers((prev) => prev.map((cu) => cu.id === matchedCust.id ? { ...cu, metadata: updatedMeta } : cu));
+        crm.updateCustomer(matchedCust.id, { metadata: updatedMeta }).catch((err) => {
+          console.warn('Failed to persist star status to backend customer:', err);
+        });
+      }
+    }
   };
+
+  // Sync DB starred customers into importantConvIds on customer load
+  useEffect(() => {
+    if (Array.isArray(customers) && customers.length > 0) {
+      const dbStarredPhones = customers
+        .filter((cu) => cu.metadata && typeof cu.metadata === 'object' && cu.metadata.is_starred)
+        .map((cu) => (cu.phone || '').replace(/\D/g, '').slice(-10))
+        .filter(Boolean);
+
+      if (dbStarredPhones.length > 0) {
+        setImportantConvIds((prev) => {
+          const set = new Set([...prev, ...dbStarredPhones]);
+          const merged = Array.from(set);
+          if (merged.length !== prev.length) {
+            try {
+              localStorage.setItem('whatsapp_crm_important_chats', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          }
+          return prev;
+        });
+      }
+    }
+  }, [customers]);
+
+  const importantStarredCount = useMemo(() => {
+    return (conversations || []).filter((c) => isConvStarred(c)).length;
+  }, [conversations, importantConvIds, customers]);
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -8092,7 +8165,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         return c.client_type === 'repeat' || (c.completed_bookings_count ?? 0) > 0;
       }
       if (filter === 'important') {
-        return importantConvIds.includes(c.id);
+        return isConvStarred(c);
       }
       return true;
     })
@@ -14104,18 +14177,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       )}
                     </div>
 
-                    {/* ── Modern & Minimal Segmented Filter Pills ── */}
-                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll py-1 shrink-0">
+                    {/* ── Clean 3-Segment Chat Filter Bar (Zero Horizontal Scroll, Perfect Width) ── */}
+                    <div className="grid grid-cols-3 gap-1 py-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => setFilter('all')}
-                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
+                        className={`h-7 px-2 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
                           filter === 'all'
                             ? 'bg-text-primary text-surface font-semibold shadow-2xs dark:bg-accent dark:text-white'
                             : 'bg-surface-subtle text-text-secondary hover:text-text-primary hover:bg-surface border border-border/60'
                         }`}
                       >
-                        <span>{currentTaxonomy.chat_filter_all || 'All'}</span>
+                        <span>All</span>
                         <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'all' ? 'bg-white/20 text-white' : 'text-text-muted'}`}>
                           {conversations.length}
                         </span>
@@ -14123,59 +14196,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       <button
                         type="button"
-                        onClick={() => setFilter('new_lead')}
-                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
-                          filter === 'new_lead'
-                            ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
-                            : 'bg-surface-subtle text-text-secondary hover:text-emerald-700 hover:bg-emerald-50/50 border border-border/60'
-                        }`}
-                        title="First-time leads / inquiries"
-                      >
-                        <span>{currentTaxonomy.chat_filter_leads || currentTaxonomy.client_plural || 'Leads'}</span>
-                        {(() => {
-                          const count = conversations.filter((c) => c.client_type === 'new_lead' || (!c.client_type && (c.completed_bookings_count ?? 0) === 0)).length;
-                          return count > 0 ? (
-                            <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'new_lead' ? 'bg-white/20 text-white' : 'text-text-muted'}`}>
-                              {count}
-                            </span>
-                          ) : null;
-                        })()}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setFilter('repeat')}
-                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
-                          filter === 'repeat'
-                            ? 'bg-amber-600 text-white font-semibold shadow-2xs'
-                            : 'bg-surface-subtle text-text-secondary hover:text-amber-700 hover:bg-amber-50/50 border border-border/60'
-                        }`}
-                        title="Repeat clients with completed bookings"
-                      >
-                        <span>{currentTaxonomy.chat_filter_repeat || currentTaxonomy.tab_repeat_label || 'Repeat'}</span>
-                        {(() => {
-                          const count = conversations.filter((c) => c.client_type === 'repeat' || (c.completed_bookings_count ?? 0) > 0).length;
-                          return count > 0 ? (
-                            <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'repeat' ? 'bg-white/20 text-white' : 'text-text-muted'}`}>
-                              {count}
-                            </span>
-                          ) : null;
-                        })()}
-                      </button>
-
-                      <button
-                        type="button"
                         onClick={() => setFilter('new')}
-                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
+                        className={`h-7 px-2 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
                           filter === 'new'
                             ? 'bg-accent text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-accent hover:bg-accent/5 border border-border/60'
                         }`}
                         title="Unread messages"
                       >
-                        <span>{currentTaxonomy.chat_filter_unread || 'Unread'}</span>
+                        <span>Unread</span>
                         {conversations.filter((c) => (c.unread_count || 0) > 0).length > 0 && (
-                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'new' ? 'bg-white/20 text-white' : 'text-text-muted font-bold'}`}>
+                          <span className={`text-[10px] font-mono px-1.5 rounded-full ${filter === 'new' ? 'bg-white/20 text-white' : 'bg-accent text-white font-bold'}`}>
                             {conversations.filter((c) => (c.unread_count || 0) > 0).length}
                           </span>
                         )}
@@ -14184,17 +14215,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('important')}
-                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
+                        className={`h-7 px-2 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
                           filter === 'important'
-                            ? 'bg-amber-500 text-white font-semibold shadow-2xs'
-                            : 'bg-surface-subtle text-text-secondary hover:text-amber-600 hover:bg-amber-50/50 border border-border/60'
+                            ? 'bg-amber-600 text-white font-semibold shadow-2xs'
+                            : 'bg-surface-subtle text-text-secondary hover:text-amber-700 hover:bg-amber-50/50 border border-border/60'
                         }`}
-                        title="Starred conversations"
+                        title="Starred / Important conversations"
                       >
-                        <Star className={`w-3 h-3 stroke-[1.5] shrink-0 ${filter === 'important' ? 'text-white fill-white' : importantConvIds.length > 0 ? 'text-amber-500 fill-amber-500' : 'text-text-muted'}`} />
-                        {importantConvIds.length > 0 && (
-                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'important' ? 'bg-white/20 text-white' : 'text-text-muted'}`}>
-                            {importantConvIds.length}
+                        <Star className={`w-3 h-3 stroke-[2] shrink-0 ${filter === 'important' ? 'text-white fill-white' : importantStarredCount > 0 ? 'text-amber-500 fill-amber-500' : 'text-text-muted'}`} />
+                        <span>Starred</span>
+                        {importantStarredCount > 0 && (
+                          <span className={`text-[10px] font-mono px-1.5 rounded-full ${filter === 'important' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800 font-bold'}`}>
+                            {importantStarredCount}
                           </span>
                         )}
                       </button>
@@ -14217,7 +14249,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         const concern = conv.health_concern || matchedCust?.health_concern || '';
                         const lastMsg = conv.last_message || matchedCust?.last_message || '';
                         const unreadCount = conv.unread_count || 0;
-                        const isStarred = importantConvIds.includes(conv.id);
+                        const isStarred = isConvStarred(conv);
                         const avatarColor = getAvatarColor(conv.contact_name || conv.contact_phone || conv.id);
                         const initial = conv.contact_name
                           ? conv.contact_name.trim()[0].toUpperCase()
@@ -14289,7 +14321,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <div className="absolute right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150 bg-surface/90 backdrop-blur-xs rounded px-0.5">
                                     <button
                                       type="button"
-                                      onClick={(e) => toggleImportant(conv.id, e)}
+                                      onClick={(e) => toggleImportant(conv.id, conv.contact_phone || conv.phone, e)}
                                       className={`p-1 rounded-sm transition-colors duration-150 cursor-pointer ${
                                         isStarred
                                           ? 'text-amber-500'
@@ -14528,13 +14560,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          toggleImportant(selectedConv.id);
+                                          toggleImportant(selectedConv.id, phoneNum);
                                           setShowChatMoreMenu(false);
                                         }}
                                         className="w-full text-left px-3 py-2 flex items-center gap-2 text-xs hover:bg-surface-subtle text-text-primary transition-colors cursor-pointer"
                                       >
-                                        <Star className={`w-3.5 h-3.5 stroke-[1.5] ${importantConvIds.includes(selectedConv.id) ? 'fill-amber-500 text-amber-500' : 'text-text-muted'}`} />
-                                        <span>{importantConvIds.includes(selectedConv.id) ? 'Remove Star (Important)' : 'Mark as Starred (Important)'}</span>
+                                        <Star className={`w-3.5 h-3.5 stroke-[1.5] ${isConvStarred(selectedConv) ? 'fill-amber-500 text-amber-500' : 'text-text-muted'}`} />
+                                        <span>{isConvStarred(selectedConv) ? 'Remove Star (Important)' : 'Mark as Starred (Important)'}</span>
                                       </button>
 
                                       {/* Delete Chat */}
