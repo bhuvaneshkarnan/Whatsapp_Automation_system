@@ -428,7 +428,8 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * SPECIFIC TAMIL DIRECTIVE: Powder Massage / Udwarthanam must ALWAYS be called 'உத்வர்தனம்' or 'ஹெர்பல் பவுடர் மசாஜ்' (or 'Udwarthanam / Powder Massage'). NEVER write 'புடவை மசாஜ்' or 'சேலை மசாஜ்' (which means saree!).\n"
     "  * Only offer and describe treatments that explicitly exist in the verified catalog. Never invent, hallucinate, or confuse services.\n"
     "- CONVERSATIONAL WHATSAPP BREVITY (NO ESSAYS):\n"
-    "  * Keep responses to 2 to 3 natural sentences (25 to 50 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis."
+    "  * Keep responses to 2 to 3 natural sentences (25 to 50 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis.\n"
+    "  * IMPORTANT FORMATTING EXCEPTION: Forward slashes (/) are ALLOWED and REQUIRED. Always write '24/7' with the slash, never as '247'. Use '24/7' whenever referring to round-the-clock or always-on availability."
 )
 
 def _esc_html(val: Any) -> str:
@@ -4675,6 +4676,8 @@ end
 
             # Universal safety net: Strip ANY leftover action or bracket tags so they never reach WhatsApp
             response_text = re.sub(r'\[ACTION:[^\]]+\]', '', response_text, flags=re.I).strip()
+            # Slash normalization: model sometimes writes 247 instead of 24/7 due to no-hyphen instruction
+            response_text = re.sub(r'\b247\b', '24/7', response_text)
             # Global strict tenant isolation firewall check
             response_text = self._sanitize_tenant_response(
                 response_text,
