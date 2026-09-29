@@ -8139,6 +8139,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
     const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
 
+    if (bookingFilter === 'today') {
+      if (!b.start_time) return false;
+      const bDate = new Date(b.start_time);
+      return !isNaN(bDate.getTime()) && bDate.toDateString() === new Date().toDateString();
+    }
     if (bookingFilter === 'upcoming') {
       // Upcoming: strictly future active bookings (confirmed, pending, or rescheduled)
       return !isPast && (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled');
@@ -11412,7 +11417,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="flex items-center gap-2">
                             <BarChart2 className="w-5 h-5 text-accent stroke-[1.8]" />
                             <h2 className="text-base sm:text-lg font-bold text-text-primary tracking-tight">
-                              Overview
+                              Welcome back, {settingsForm.name || branding.brand_name || 'Clinic Team'}!
                             </h2>
                           </div>
                           <p className="text-xs text-text-muted mt-0.5">
@@ -11422,6 +11427,46 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                         {/* Top Clean Actions & Period Selector */}
                         <div className="flex items-center gap-2 flex-wrap">
+                          {/* Quick Action Button 1: Book Appointment */}
+                          <button
+                            type="button"
+                            onClick={() => setIsAddBookingOpen(true)}
+                            className="h-7.5 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-xs cursor-pointer shrink-0"
+                            title="Schedule a new appointment"
+                          >
+                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Book Appointment</span>
+                          </button>
+
+                          {/* Quick Action Button 2: WhatsApp Inbox */}
+                          <button
+                            type="button"
+                            onClick={() => setActiveNav('inbox')}
+                            className="h-7.5 flex items-center gap-1.5 px-3 bg-surface hover:bg-surface-subtle text-text-primary border border-border text-xs font-semibold rounded-sm transition-all shadow-2xs cursor-pointer shrink-0"
+                            title="Open WhatsApp chats"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+                            <span>WhatsApp Inbox</span>
+                            {unreadConversations.length > 0 && (
+                              <span className="px-1.5 py-0.2 text-[10px] font-bold bg-rose-500 text-white rounded-full font-mono">
+                                {unreadConversations.length}
+                              </span>
+                            )}
+                          </button>
+
+                          {/* Quick Action Button 3: Add Client */}
+                          <button
+                            type="button"
+                            onClick={() => setShowAddCustomerModal(true)}
+                            className="h-7.5 flex items-center gap-1.5 px-3 bg-surface hover:bg-surface-subtle text-text-primary border border-border text-xs font-semibold rounded-sm transition-all shadow-2xs cursor-pointer shrink-0"
+                            title="Add a new contact or lead"
+                          >
+                            <UserPlus className="w-3.5 h-3.5 text-text-secondary stroke-[1.8]" />
+                            <span>Add Client</span>
+                          </button>
+
+                          <div className="h-5 w-px bg-border hidden sm:block shrink-0" />
+
                           {/* Period Selector Presets */}
                           <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
                             {[
@@ -11457,132 +11502,144 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               loadBookings();
                               loadContacts();
                             }}
-                            className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
+                            className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
                             title="Refresh overview data"
                           >
                             <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingDashboardAnalytics ? 'animate-spin' : ''}`} />
-                          </button>
-
-                          <div className="h-5 w-px bg-border hidden sm:block shrink-0" />
-
-                          {/* Primary Quick CTA: Book Appointment */}
-                          <button
-                            type="button"
-                            onClick={() => setIsAddBookingOpen(true)}
-                            className="h-7 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-xs cursor-pointer shrink-0"
-                          >
-                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Book Appointment</span>
                           </button>
                         </div>
                       </div>
 
                       {/* ── 4 CORE ESSENTIAL SUMMARY METRIC CARDS ── */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                        {/* Card 1: Today's Schedule */}
+                        {/* Card 1: Today's Bookings */}
                         <div
                           onClick={() => {
                             setActiveNav('bookings');
-                            setBookingFilter('upcoming');
+                            setBookingFilter('today');
                           }}
-                          className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                          className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Today&apos;s Schedule</span>
-                            <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                              <CalendarDays className="w-4 h-4 stroke-[1.8]" />
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Today&apos;s Bookings</span>
+                              <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                <CalendarDays className="w-4 h-4 stroke-[1.8]" />
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
-                              {todayBookingsList.length}
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                                {todayBookingsList.length}
+                              </p>
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                {todayBookingsList.length} on today alone
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted truncate">
+                              {todayUpcomingBookings.length} upcoming • {todayAttendedBookings.length} attended today
                             </p>
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              {todayUpcomingBookings.length} upcoming
-                            </span>
                           </div>
-                          <p className="text-[11px] text-text-muted truncate">
-                            {todayAttendedBookings.length} attended today • click to view list
-                          </p>
+                          <div className="pt-2 border-t border-border flex items-center justify-between text-[11px] font-medium text-emerald-700 group-hover:text-emerald-800">
+                            <span>View today&apos;s schedule</span>
+                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform stroke-[2]" />
+                          </div>
                         </div>
 
                         {/* Card 2: Needs Attention */}
                         <div
                           onClick={() => setActiveNav('customers')}
-                          className="bg-surface border border-border hover:border-amber-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                          className="bg-surface border border-border hover:border-amber-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Needs Attention</span>
-                            <div className="w-7 h-7 rounded-sm bg-amber-50 text-amber-600 flex items-center justify-center">
-                              <Activity className="w-4 h-4 stroke-[1.8]" />
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Needs Attention</span>
+                              <div className="w-7 h-7 rounded-sm bg-amber-50 text-amber-600 flex items-center justify-center">
+                                <Activity className="w-4 h-4 stroke-[1.8]" />
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
-                              {urgentCount}
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                                {urgentCount}
+                              </p>
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                                urgentCount > 0 ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-surface-subtle text-text-muted border-border'
+                              }`}>
+                                {urgentCount > 0 ? `${urgentCount} pending` : 'All clear'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted truncate">
+                              {hotLeadsList.length} hot leads • {todayUpcomingBookings.length} visits to attend
                             </p>
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
-                              urgentCount > 0 ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-surface-subtle text-text-muted border-border'
-                            }`}>
-                              {urgentCount > 0 ? `${urgentCount} pending` : 'All clear'}
-                            </span>
                           </div>
-                          <p className="text-[11px] text-text-muted truncate">
-                            {hotLeadsList.length} leads waiting • {todayUpcomingBookings.length} visits to attend
-                          </p>
+                          <div className="pt-2 border-t border-border flex items-center justify-between text-[11px] font-medium text-amber-700 group-hover:text-amber-800">
+                            <span>Attend pending leads</span>
+                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform stroke-[2]" />
+                          </div>
                         </div>
 
                         {/* Card 3: WhatsApp Chats */}
                         <div
                           onClick={() => setActiveNav('inbox')}
-                          className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                          className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">WhatsApp Chats</span>
-                            <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
-                              <MessageSquare className="w-4 h-4 stroke-[1.8]" />
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">WhatsApp Chats</span>
+                              <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
+                                <MessageSquare className="w-4 h-4 stroke-[1.8]" />
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
-                              {conversations.length}
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                                {conversations.length}
+                              </p>
+                              {unreadConversations.length > 0 ? (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
+                                  {unreadConversations.length} unread
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                                  All caught up
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-text-muted truncate">
+                              {conversations.filter(c => c.ai_enabled !== false).length} automated by AI • instant reply
                             </p>
-                            {unreadConversations.length > 0 ? (
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
-                                {unreadConversations.length} unread
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
-                                All caught up
-                              </span>
-                            )}
                           </div>
-                          <p className="text-[11px] text-text-muted truncate">
-                            {conversations.filter(c => c.ai_enabled !== false).length} automated by AI • click to open
-                          </p>
+                          <div className="pt-2 border-t border-border flex items-center justify-between text-[11px] font-medium text-blue-700 group-hover:text-blue-800">
+                            <span>Open WhatsApp inbox</span>
+                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform stroke-[2]" />
+                          </div>
                         </div>
 
                         {/* Card 4: Attended Revenue */}
                         <div
                           onClick={() => setActiveNav('billing')}
-                          className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                          className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Attended Revenue</span>
-                            <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                              <TrendingUp className="w-4 h-4 stroke-[1.8]" />
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Attended Revenue</span>
+                              <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                <TrendingUp className="w-4 h-4 stroke-[1.8]" />
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-2xl font-bold text-emerald-700 font-mono tabular-nums truncate">
-                              {currentCurrencySymbol}{dashboardAnalyticsData
-                                ? Number(dashboardAnalyticsData.summary.total_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                                : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="text-2xl font-bold text-emerald-700 font-mono tabular-nums truncate">
+                                {currentCurrencySymbol}{dashboardAnalyticsData
+                                  ? Number(dashboardAnalyticsData.summary.total_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                  : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </p>
+                            </div>
+                            <p className="text-[11px] text-text-muted truncate">
+                              {todayRevenueVal > 0 ? `Today: ${currentCurrencySymbol}${todayRevenueVal.toLocaleString()} • ` : ''}Realized collections
                             </p>
                           </div>
-                          <p className="text-[11px] text-text-muted truncate">
-                            {todayRevenueVal > 0 ? `Today: ${currentCurrencySymbol}${todayRevenueVal.toLocaleString()} • ` : ''}Realized revenue
-                          </p>
+                          <div className="pt-2 border-t border-border flex items-center justify-between text-[11px] font-medium text-emerald-700 group-hover:text-emerald-800">
+                            <span>View invoices & billing</span>
+                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform stroke-[2]" />
+                          </div>
                         </div>
                       </div>
 
@@ -11982,6 +12039,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {/* Status filter tabs */}
                   <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0">
                     {[
+                      { id: 'today', label: 'Today' },
                       { id: 'upcoming', label: 'Upcoming' },
                       { id: 'rescheduled', label: 'Rescheduled' },
                       { id: 'completed', label: 'Completed' },
@@ -11990,6 +12048,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       { id: 'all', label: 'All' },
                     ].map((st) => {
                       const count = (bookings || []).filter((b) => {
+                        if (st.id === 'today') {
+                          if (!b.start_time) return false;
+                          const bDate = new Date(b.start_time);
+                          return !isNaN(bDate.getTime()) && bDate.toDateString() === new Date().toDateString();
+                        }
                         const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
                         if (st.id === 'upcoming') return !isPast && (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled');
                         if (st.id === 'rescheduled') return b.status === 'rescheduled';
