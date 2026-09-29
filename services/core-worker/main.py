@@ -429,7 +429,12 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * Only offer and describe treatments that explicitly exist in the verified catalog. Never invent, hallucinate, or confuse services.\n"
     "- CONVERSATIONAL WHATSAPP BREVITY (NO ESSAYS):\n"
     "  * Keep responses to 2 to 3 natural sentences (25 to 50 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis.\n"
-    "  * IMPORTANT FORMATTING EXCEPTION: Forward slashes (/) are ALLOWED and REQUIRED. Always write '24/7' with the slash, never as '247'. Use '24/7' whenever referring to round-the-clock or always-on availability."
+    "  * IMPORTANT FORMATTING EXCEPTION: Forward slashes (/) are ALLOWED and REQUIRED. Always write '24/7' with the slash, never as '247'. Use '24/7' whenever referring to round-the-clock or always-on availability.\n"
+    "- TRAILING SENTENCE VARIETY (CRITICAL — APPLIES TO ALL TENANTS):\n"
+    "  * NEVER end two or more consecutive messages with the same closing sentence, call-to-action, question, or website link.\n"
+    "  * Check your own previous reply. If it already ended with 'Would you like to check out our website...', 'Let me know if you have any questions', 'Would you like to book an appointment?', or any similar CTA, you MUST use a DIFFERENT or completely OMIT a closing CTA in the next reply.\n"
+    "  * Each reply must have a UNIQUE, CONTEXTUALLY FRESH closing that directly matches what the customer just said. DO NOT fall back to generic repeated CTAs.\n"
+    "  * If a customer has already been asked 'Would you like to book?' or 'Would you like more details?' in the last message, do NOT ask the same thing again. Instead, directly answer their new question and stop there."
 )
 
 def _esc_html(val: Any) -> str:
@@ -4678,7 +4683,37 @@ end
             response_text = re.sub(r'\[ACTION:[^\]]+\]', '', response_text, flags=re.I).strip()
             # Slash normalization: model sometimes writes 247 instead of 24/7 due to no-hyphen instruction
             response_text = re.sub(r'\b247\b', '24/7', response_text)
-            # Global strict tenant isolation firewall check
+
+            # ── Trailing Sentence Deduplication (ALL TENANTS) ──
+            # If the model repeats the exact same closing sentence/CTA as its previous reply,
+            # strip the repeated trailing sentence from the current response.
+            if last_assistant_msg and response_text:
+                def _get_last_sentence(txt: str) -> str:
+                    parts = re.split(r'(?<=[.!?])\s+', txt.strip())
+                    return parts[-1].strip() if parts else ""
+
+                last_sent_new = _get_last_sentence(response_text)
+                last_sent_prev = _get_last_sentence(last_assistant_msg)
+
+                if last_sent_new and last_sent_prev and len(last_sent_new.split()) >= 5:
+                    # Normalize to bare words for comparison
+                    _n = re.sub(r'[^\w\s]', '', last_sent_new.lower()).strip()
+                    _p = re.sub(r'[^\w\s]', '', last_sent_prev.lower()).strip()
+                    _n_words = set(_n.split())
+                    _p_words = set(_p.split())
+                    if _n_words and _p_words:
+                        _overlap = len(_n_words & _p_words) / max(len(_n_words), 1)
+                        if _overlap >= 0.75:
+                            # Strip the repeated trailing sentence from current response
+                            _sentences = re.split(r'(?<=[.!?])\s+', response_text.strip())
+                            if len(_sentences) > 1:
+                                response_text = " ".join(_sentences[:-1]).strip()
+                                logger.info("trailing_cta_deduplication_stripped",
+                                            tenant_id=tenant_id,
+                                            stripped_sentence=last_sent_new[:80])
+                            # If only 1 sentence remained (no multi-sentence response), keep it as-is
+
+
             response_text = self._sanitize_tenant_response(
                 response_text,
                 tenant_slug,
