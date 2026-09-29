@@ -5489,7 +5489,7 @@ end
             except Exception as b_err:
                 logger.warning("booking_push_failed", error=str(b_err))
 
-            # 1. Send Meta WhatsApp Template (booking_confirmationn) and record in messages table
+            # 1. Send Meta WhatsApp Template (booking_confirmation) and record in messages table
             if not creds:
                 creds = await self._get_tenant_whatsapp_creds(tenant_id)
 
@@ -5536,7 +5536,7 @@ end
                 template_name = (
                     creds.get("template_booking_confirmation") or
                     (tenant_st_row.get("template_booking_confirmation") if tenant_st_row else None) or
-                    "booking_confirmationn"
+                    "booking_confirmation"
                 )
                 formatted_date = st_dt.strftime("%d-%m-%Y")
                 formatted_time = st_dt.strftime("%I:%M %p")
@@ -7847,7 +7847,7 @@ end
                         template_name = (
                             creds.get("template_appointment_reminder") or
                             t_st.get("template_appointment_reminder") or
-                            "appointment_ramainder"
+                            "appointment_reminder"
                         )
                         components = [
                             {
