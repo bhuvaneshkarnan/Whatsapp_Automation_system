@@ -2307,76 +2307,67 @@ export function ModernCustomerView({
         {viewMode === 'kanban' && (
           <div className="flex-1 min-h-0 flex flex-col space-y-2">
 
-            <div className="flex-1 min-h-0 flex md:grid md:grid-cols-5 gap-2 pb-1 w-full overflow-x-auto md:overflow-x-hidden touch-scroll">
-              {[
-                {
-                  id: 'new',
-                  label: 'New Inquiry',
-                  dot: 'bg-blue-500 shadow-xs shadow-blue-500/40',
-                  topBar: 'bg-blue-500',
-                  colBg: 'bg-blue-50/40 dark:bg-blue-950/20',
-                  headerBg: 'bg-blue-50/90 dark:bg-blue-900/40',
-                  headerBorder: 'border-blue-200/70 dark:border-blue-800/40',
-                  headerText: 'text-blue-950 dark:text-blue-100',
-                  border: 'border-blue-200/60 dark:border-blue-800/30',
-                  badge: 'bg-blue-100/90 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 border border-blue-200/60',
-                  cardHover: 'hover:border-blue-400/50',
-                },
-                {
-                  id: 'contacted',
-                  label: 'Contacted / In Progress',
-                  dot: 'bg-indigo-500 shadow-xs shadow-indigo-500/40',
-                  topBar: 'bg-indigo-500',
-                  colBg: 'bg-indigo-50/40 dark:bg-indigo-950/20',
-                  headerBg: 'bg-indigo-50/90 dark:bg-indigo-900/40',
-                  headerBorder: 'border-indigo-200/70 dark:border-indigo-800/40',
-                  headerText: 'text-indigo-950 dark:text-indigo-100',
-                  border: 'border-indigo-200/60 dark:border-indigo-800/30',
-                  badge: 'bg-indigo-100/90 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border border-indigo-200/60',
-                  cardHover: 'hover:border-indigo-400/50',
-                },
-                {
-                  id: 'follow-up',
-                  label: 'Follow-up Due',
-                  dot: 'bg-amber-500 shadow-xs shadow-amber-500/40',
-                  topBar: 'bg-amber-500',
-                  colBg: 'bg-amber-50/40 dark:bg-amber-950/20',
-                  headerBg: 'bg-amber-50/90 dark:bg-amber-900/40',
-                  headerBorder: 'border-amber-200/70 dark:border-amber-800/40',
-                  headerText: 'text-amber-950 dark:text-amber-100',
-                  border: 'border-amber-200/60 dark:border-amber-800/30',
-                  badge: 'bg-amber-100/90 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-200/60',
-                  cardHover: 'hover:border-amber-400/50',
-                },
-                {
-                  id: 'converted',
-                  label: 'Booked / Converted',
-                  dot: 'bg-emerald-500 shadow-xs shadow-emerald-500/40',
-                  topBar: 'bg-emerald-500',
-                  colBg: 'bg-emerald-50/40 dark:bg-emerald-950/20',
-                  headerBg: 'bg-emerald-50/90 dark:bg-emerald-900/40',
-                  headerBorder: 'border-emerald-200/70 dark:border-emerald-800/40',
-                  headerText: 'text-emerald-950 dark:text-emerald-100',
-                  border: 'border-emerald-200/60 dark:border-emerald-800/30',
-                  badge: 'bg-emerald-100/90 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-200/60',
-                  cardHover: 'hover:border-emerald-400/50',
-                },
-                {
-                  id: 'lost',
-                  label: 'Lost / Inactive',
-                  dot: 'bg-slate-400 shadow-xs shadow-slate-400/40',
-                  topBar: 'bg-slate-400',
-                  colBg: 'bg-slate-50/50 dark:bg-slate-900/30',
-                  headerBg: 'bg-slate-100/80 dark:bg-slate-900/50',
-                  headerBorder: 'border-slate-200/70 dark:border-slate-800/40',
-                  headerText: 'text-slate-800 dark:text-slate-200',
-                  border: 'border-slate-200/70 dark:border-slate-800/30',
-                  badge: 'bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/60',
-                  cardHover: 'hover:border-slate-400/50',
-                },
-              ]
-                .filter((col) => kanbanMobileStage === 'all' || kanbanMobileStage === col.id)
+            <div className="flex-1 min-h-0 flex gap-2 pb-1 w-full overflow-x-auto touch-scroll" style={{ display: 'flex' }}>
+              {((): Array<{ id: string; label: string; dot: string; topBar: string; colBg: string; headerBg: string; headerBorder: string; headerText: string; border: string; badge: string; cardHover: string }> => {
+                // Style map for each column id
+                const styleMap: Record<string, { dot: string; topBar: string; colBg: string; headerBg: string; headerBorder: string; headerText: string; border: string; badge: string; cardHover: string }> = {
+                  'new': {
+                    dot: 'bg-blue-500 shadow-xs shadow-blue-500/40', topBar: 'bg-blue-500',
+                    colBg: 'bg-blue-50/40 dark:bg-blue-950/20', headerBg: 'bg-blue-50/90 dark:bg-blue-900/40',
+                    headerBorder: 'border-blue-200/70 dark:border-blue-800/40', headerText: 'text-blue-950 dark:text-blue-100',
+                    border: 'border-blue-200/60 dark:border-blue-800/30',
+                    badge: 'bg-blue-100/90 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 border border-blue-200/60',
+                    cardHover: 'hover:border-blue-400/50',
+                  },
+                  'contacted': {
+                    dot: 'bg-indigo-500 shadow-xs shadow-indigo-500/40', topBar: 'bg-indigo-500',
+                    colBg: 'bg-indigo-50/40 dark:bg-indigo-950/20', headerBg: 'bg-indigo-50/90 dark:bg-indigo-900/40',
+                    headerBorder: 'border-indigo-200/70 dark:border-indigo-800/40', headerText: 'text-indigo-950 dark:text-indigo-100',
+                    border: 'border-indigo-200/60 dark:border-indigo-800/30',
+                    badge: 'bg-indigo-100/90 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border border-indigo-200/60',
+                    cardHover: 'hover:border-indigo-400/50',
+                  },
+                  'follow-up': {
+                    dot: 'bg-amber-500 shadow-xs shadow-amber-500/40', topBar: 'bg-amber-500',
+                    colBg: 'bg-amber-50/40 dark:bg-amber-950/20', headerBg: 'bg-amber-50/90 dark:bg-amber-900/40',
+                    headerBorder: 'border-amber-200/70 dark:border-amber-800/40', headerText: 'text-amber-950 dark:text-amber-100',
+                    border: 'border-amber-200/60 dark:border-amber-800/30',
+                    badge: 'bg-amber-100/90 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-200/60',
+                    cardHover: 'hover:border-amber-400/50',
+                  },
+                  'converted': {
+                    dot: 'bg-emerald-500 shadow-xs shadow-emerald-500/40', topBar: 'bg-emerald-500',
+                    colBg: 'bg-emerald-50/40 dark:bg-emerald-950/20', headerBg: 'bg-emerald-50/90 dark:bg-emerald-900/40',
+                    headerBorder: 'border-emerald-200/70 dark:border-emerald-800/40', headerText: 'text-emerald-950 dark:text-emerald-100',
+                    border: 'border-emerald-200/60 dark:border-emerald-800/30',
+                    badge: 'bg-emerald-100/90 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-200/60',
+                    cardHover: 'hover:border-emerald-400/50',
+                  },
+                  'lost': {
+                    dot: 'bg-slate-400 shadow-xs shadow-slate-400/40', topBar: 'bg-slate-400',
+                    colBg: 'bg-slate-50/50 dark:bg-slate-900/30', headerBg: 'bg-slate-100/80 dark:bg-slate-900/50',
+                    headerBorder: 'border-slate-200/70 dark:border-slate-800/40', headerText: 'text-slate-800 dark:text-slate-200',
+                    border: 'border-slate-200/70 dark:border-slate-800/30',
+                    badge: 'bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/60',
+                    cardHover: 'hover:border-slate-400/50',
+                  },
+                };
+                const defaultCols = [
+                  { id: 'new', label: 'New Inquiry' },
+                  { id: 'contacted', label: 'Contacted / In Progress' },
+                  { id: 'follow-up', label: 'Follow-up Due' },
+                  { id: 'converted', label: 'Booked / Converted' },
+                  { id: 'lost', label: 'Lost / Inactive' },
+                ];
+                const srcCols = (crmDropdowns?.pipeline_columns && crmDropdowns.pipeline_columns.length > 0)
+                  ? crmDropdowns.pipeline_columns
+                  : defaultCols.map((c) => ({ ...c, visible: true }));
+                return srcCols
+                  .filter((c) => c.visible !== false)
+                  .map((c) => ({ id: c.id, label: c.label, ...(styleMap[c.id] || styleMap['new']) }));
+              })()
                 .map((col) => {
+
                   const colLeads = filteredCustomers.filter((c) => c.status === col.id);
                   const colRevenue = colLeads.reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
                   const isDropTarget = dragOverStage === col.id;

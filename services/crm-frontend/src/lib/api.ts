@@ -528,11 +528,18 @@ export interface DuplicateCustomerGroup {
   customers: DuplicateCustomerCandidate[];
 }
 
+export interface PipelineColumn {
+  id: string;
+  label: string;
+  visible: boolean;
+}
+
 export interface CrmDropdownOptions {
   outcome_statuses: string[];
   next_actions: string[];
   services_list: string[];
   concerns_list: string[];
+  pipeline_columns?: PipelineColumn[];
 }
 
 export interface CustomerNote {

@@ -89,6 +89,7 @@ class CrmDropdownsUpdatePayload(BaseModel):
     next_actions: Optional[List[str]] = None
     services_list: Optional[List[str]] = None
     concerns_list: Optional[List[str]] = None
+    pipeline_columns: Optional[List[dict]] = None
 
 
 class BookingCreatePayload(BaseModel):

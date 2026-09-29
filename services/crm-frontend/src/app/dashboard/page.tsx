@@ -2479,12 +2479,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // ── CRM Dropdown Options Manager Modal ──────────────────────────────────────
   const [dropdownOptionsModalOpen, setDropdownOptionsModalOpen] = useState(false);
-  const [dropdownActiveTab, setDropdownActiveTab] = useState<'outcome_statuses' | 'next_actions' | 'services_list'>('outcome_statuses');
+  const [dropdownActiveTab, setDropdownActiveTab] = useState<'outcome_statuses' | 'next_actions' | 'services_list' | 'pipeline_columns'>('outcome_statuses');
   const [editingDropdowns, setEditingDropdowns] = useState<CrmDropdownOptions>({
     outcome_statuses: [],
     next_actions: [],
     services_list: [],
     concerns_list: [],
+    pipeline_columns: [],
   });
   const [newDropdownItemInput, setNewDropdownItemInput] = useState('');
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
@@ -5769,7 +5770,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   };
 
-  function openDropdownOptionsModal(tab: 'outcome_statuses' | 'next_actions' | 'services_list' = 'outcome_statuses') {
+  function openDropdownOptionsModal(tab: 'outcome_statuses' | 'next_actions' | 'services_list' | 'pipeline_columns' = 'outcome_statuses') {
     crm.getCrmDropdownOptions().then((res) => {
       if (res && res.outcome_statuses) {
         setCrmDropdowns(res);
@@ -5778,6 +5779,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           next_actions: [...(res.next_actions || [])],
           services_list: [...(res.services_list || [])],
           concerns_list: [...(res.concerns_list || [])],
+          pipeline_columns: (res.pipeline_columns || []).map((c) => ({ ...c })),
         });
       }
     }).catch(() => {});
@@ -5786,6 +5788,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       next_actions: [...(crmDropdowns.next_actions || [])],
       services_list: [...(crmDropdowns.services_list || [])],
       concerns_list: [...(crmDropdowns.concerns_list || [])],
+      pipeline_columns: (crmDropdowns.pipeline_columns || []).map((c) => ({ ...c })),
     });
     setDropdownActiveTab(tab);
     setNewDropdownItemInput('');
@@ -15972,6 +15975,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         { id: 'outcome_statuses' as const, label: 'Outcome Statuses', count: editingDropdowns.outcome_statuses?.length || 0 },
                         { id: 'next_actions' as const, label: 'Next Actions', count: editingDropdowns.next_actions?.length || 0 },
                         { id: 'services_list' as const, label: 'Services', count: editingDropdowns.services_list?.length || 0 },
+                        { id: 'pipeline_columns' as const, label: 'Pipeline Columns', count: (editingDropdowns.pipeline_columns || []).filter((c) => c.visible).length },
                       ].map((tab) => (
                         <button
                           key={tab.id}
@@ -16004,136 +16008,260 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                   {/* Modal Body / Items List */}
                   <div className="p-5 overflow-y-auto space-y-4 flex-1">
-                    {/* Add New Item Input */}
-                    <div>
-                      <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
-                        Add New {
-                          dropdownActiveTab === 'outcome_statuses' ? 'Outcome Status' :
-                          dropdownActiveTab === 'next_actions' ? 'Next Action' : 'Service'
-                        }
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newDropdownItemInput}
-                          onChange={(e) => setNewDropdownItemInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddDropdownItem();
-                            }
-                          }}
-                          placeholder={`Type a new ${
-                            dropdownActiveTab === 'outcome_statuses' ? 'outcome status (e.g. Needs Follow-up)' :
-                            dropdownActiveTab === 'next_actions' ? 'next action (e.g. Schedule Call)' :
-                            'service (e.g. Physiotherapy)'
-                          }...`}
-                          className="flex-1 px-3 py-1.5 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:bg-surface focus:border-accent focus:outline-none transition-colors"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddDropdownItem}
-                          disabled={!newDropdownItemInput.trim()}
-                          className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-40 flex items-center gap-1.5 shrink-0"
-                        >
-                          <Plus className="w-3.5 h-3.5 stroke-[2]" />
-                          <span>Add</span>
-                        </button>
-                      </div>
-                    </div>
 
-                    {/* Current Items List */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
-                          Current Items ({(editingDropdowns[dropdownActiveTab] || []).length})
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleResetCategoryDefaults}
-                          className="text-[11px] text-text-muted hover:text-accent flex items-center gap-1 cursor-pointer transition-colors"
-                          title="Reset this category to default options"
-                        >
-                          <RotateCcw className="w-3 h-3 stroke-[1.8]" />
-                          <span>Reset to Defaults</span>
-                        </button>
-                      </div>
-
-                      <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
-                        {(editingDropdowns[dropdownActiveTab] || []).length === 0 ? (
-                          <div className="p-4 text-center border border-dashed border-border rounded-md text-text-muted text-xs">
-                            No items configured. Type above to add your first option.
-                          </div>
-                        ) : (
-                          (editingDropdowns[dropdownActiveTab] || []).map((item, idx) => (
+                    {/* ── PIPELINE COLUMNS TAB ── */}
+                    {dropdownActiveTab === 'pipeline_columns' ? (
+                      <div className="space-y-3">
+                        <p className="text-[11px] text-text-muted leading-relaxed">
+                          Rename column headers shown in the Pipeline view, or toggle them off to hide a column entirely. The <strong>id</strong> (e.g. "new", "converted") is fixed — only the displayed label changes.
+                        </p>
+                        <div className="space-y-2">
+                          {(editingDropdowns.pipeline_columns || []).map((col, idx) => (
                             <div
-                              key={idx}
-                              className="flex items-center justify-between gap-2 px-3 py-2 bg-surface-subtle border border-border rounded-md hover:border-border-hover transition-colors group"
+                              key={col.id}
+                              className="flex items-center gap-3 px-3 py-2.5 bg-surface-subtle border border-border rounded-md"
                             >
-                              {editingItemIndex === idx ? (
-                                <div className="flex items-center gap-1.5 flex-1">
-                                  <input
-                                    type="text"
-                                    value={editingItemText}
-                                    onChange={(e) => setEditingItemText(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        handleSaveEditItem(idx);
-                                      } else if (e.key === 'Escape') {
-                                        setEditingItemIndex(null);
-                                      }
-                                    }}
-                                    className="flex-1 px-2 py-0.5 text-xs bg-surface border border-accent rounded text-text-primary focus:outline-none font-medium"
-                                    autoFocus
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSaveEditItem(idx)}
-                                    className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer"
-                                    title="Save change"
-                                  >
-                                    <Check className="w-3 h-3 stroke-[2.5]" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingItemIndex(null)}
-                                    className="p-1 bg-surface-subtle hover:bg-surface text-text-muted hover:text-text-primary border border-border rounded cursor-pointer"
-                                    title="Cancel"
-                                  >
-                                    <X className="w-3 h-3 stroke-[2]" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <>
-                                  <span className="text-xs font-semibold text-text-primary truncate">
-                                    {item}
-                                  </span>
-                                  <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                              {/* Visible toggle */}
+                              <button
+                                type="button"
+                                title={col.visible ? 'Click to hide this column' : 'Click to show this column'}
+                                onClick={() => {
+                                  setEditingDropdowns((prev) => {
+                                    const cols = (prev.pipeline_columns || []).map((c, i) =>
+                                      i === idx ? { ...c, visible: !c.visible } : c
+                                    );
+                                    return { ...prev, pipeline_columns: cols };
+                                  });
+                                }}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                                  col.visible ? 'bg-accent' : 'bg-border'
+                                }`}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transform transition-transform duration-200 ${
+                                    col.visible ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+
+                              {/* Column label edit */}
+                              <div className="flex-1 flex items-center gap-2 min-w-0">
+                                <span className="text-[10px] font-mono text-text-muted bg-surface border border-border px-1.5 py-0.5 rounded shrink-0">{col.id}</span>
+                                {editingItemIndex === idx ? (
+                                  <div className="flex items-center gap-1.5 flex-1">
+                                    <input
+                                      type="text"
+                                      value={editingItemText}
+                                      onChange={(e) => setEditingItemText(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          const trimmed = editingItemText.trim();
+                                          if (trimmed) {
+                                            setEditingDropdowns((prev) => {
+                                              const cols = (prev.pipeline_columns || []).map((c, i) =>
+                                                i === idx ? { ...c, label: trimmed } : c
+                                              );
+                                              return { ...prev, pipeline_columns: cols };
+                                            });
+                                          }
+                                          setEditingItemIndex(null);
+                                          setEditingItemText('');
+                                        } else if (e.key === 'Escape') {
+                                          setEditingItemIndex(null);
+                                        }
+                                      }}
+                                      className="flex-1 px-2 py-0.5 text-xs bg-surface border border-accent rounded text-text-primary focus:outline-none font-medium"
+                                      autoFocus
+                                    />
                                     <button
                                       type="button"
-                                      onClick={() => handleStartEditItem(idx, item)}
-                                      className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface cursor-pointer transition-colors"
-                                      title="Rename / Update this option"
+                                      onClick={() => {
+                                        const trimmed = editingItemText.trim();
+                                        if (trimmed) {
+                                          setEditingDropdowns((prev) => {
+                                            const cols = (prev.pipeline_columns || []).map((c, i) =>
+                                              i === idx ? { ...c, label: trimmed } : c
+                                            );
+                                            return { ...prev, pipeline_columns: cols };
+                                          });
+                                        }
+                                        setEditingItemIndex(null);
+                                        setEditingItemText('');
+                                      }}
+                                      className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer"
                                     >
-                                      <Pencil className="w-3 h-3 stroke-[2]" />
+                                      <Check className="w-3 h-3 stroke-[2.5]" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleRemoveDropdownItem(item)}
-                                      className="p-1 text-text-muted hover:text-rose-600 rounded hover:bg-surface cursor-pointer transition-colors"
-                                      title="Remove this option"
+                                      onClick={() => { setEditingItemIndex(null); setEditingItemText(''); }}
+                                      className="p-1 bg-surface-subtle hover:bg-surface text-text-muted hover:text-text-primary border border-border rounded cursor-pointer"
                                     >
-                                      <Trash2 className="w-3 h-3 stroke-[1.8]" />
+                                      <X className="w-3 h-3 stroke-[2]" />
                                     </button>
                                   </div>
-                                </>
+                                ) : (
+                                  <span
+                                    className={`text-xs font-semibold truncate ${col.visible ? 'text-text-primary' : 'text-text-muted line-through'}`}
+                                  >
+                                    {col.label}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Rename button */}
+                              {editingItemIndex !== idx && (
+                                <button
+                                  type="button"
+                                  onClick={() => { setEditingItemIndex(idx); setEditingItemText(col.label); }}
+                                  className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface cursor-pointer transition-colors shrink-0"
+                                  title="Rename this column"
+                                >
+                                  <Pencil className="w-3 h-3 stroke-[2]" />
+                                </button>
                               )}
                             </div>
-                          ))
-                        )}
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-text-muted">
+                          Tip: Hidden columns still hold customers — they just won&apos;t appear in the Pipeline board.
+                        </p>
                       </div>
-                    </div>
+                    ) : (
+                      <>
+                        {/* Add New Item Input */}
+                        <div>
+                          <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
+                            Add New {
+                              dropdownActiveTab === 'outcome_statuses' ? 'Outcome Status' :
+                              dropdownActiveTab === 'next_actions' ? 'Next Action' : 'Service'
+                            }
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newDropdownItemInput}
+                              onChange={(e) => setNewDropdownItemInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddDropdownItem();
+                                }
+                              }}
+                              placeholder={`Type a new ${
+                                dropdownActiveTab === 'outcome_statuses' ? 'outcome status (e.g. Needs Follow-up)' :
+                                dropdownActiveTab === 'next_actions' ? 'next action (e.g. Schedule Call)' :
+                                'service (e.g. Physiotherapy)'
+                              }...`}
+                              className="flex-1 px-3 py-1.5 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:bg-surface focus:border-accent focus:outline-none transition-colors"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleAddDropdownItem}
+                              disabled={!newDropdownItemInput.trim()}
+                              className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-40 flex items-center gap-1.5 shrink-0"
+                            >
+                              <Plus className="w-3.5 h-3.5 stroke-[2]" />
+                              <span>Add</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Current Items List */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                              Current Items ({(editingDropdowns[dropdownActiveTab as 'outcome_statuses' | 'next_actions' | 'services_list'] || []).length})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleResetCategoryDefaults}
+                              className="text-[11px] text-text-muted hover:text-accent flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Reset this category to default options"
+                            >
+                              <RotateCcw className="w-3 h-3 stroke-[1.8]" />
+                              <span>Reset to Defaults</span>
+                            </button>
+                          </div>
+
+                          <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
+                            {(editingDropdowns[dropdownActiveTab as 'outcome_statuses' | 'next_actions' | 'services_list'] || []).length === 0 ? (
+                              <div className="p-4 text-center border border-dashed border-border rounded-md text-text-muted text-xs">
+                                No items configured. Type above to add your first option.
+                              </div>
+                            ) : (
+                              (editingDropdowns[dropdownActiveTab as 'outcome_statuses' | 'next_actions' | 'services_list'] || []).map((item, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-center justify-between gap-2 px-3 py-2 bg-surface-subtle border border-border rounded-md hover:border-border-hover transition-colors group"
+                                >
+                                  {editingItemIndex === idx ? (
+                                    <div className="flex items-center gap-1.5 flex-1">
+                                      <input
+                                        type="text"
+                                        value={editingItemText}
+                                        onChange={(e) => setEditingItemText(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleSaveEditItem(idx);
+                                          } else if (e.key === 'Escape') {
+                                            setEditingItemIndex(null);
+                                          }
+                                        }}
+                                        className="flex-1 px-2 py-0.5 text-xs bg-surface border border-accent rounded text-text-primary focus:outline-none font-medium"
+                                        autoFocus
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveEditItem(idx)}
+                                        className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer"
+                                        title="Save change"
+                                      >
+                                        <Check className="w-3 h-3 stroke-[2.5]" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingItemIndex(null)}
+                                        className="p-1 bg-surface-subtle hover:bg-surface text-text-muted hover:text-text-primary border border-border rounded cursor-pointer"
+                                        title="Cancel"
+                                      >
+                                        <X className="w-3 h-3 stroke-[2]" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <span className="text-xs font-semibold text-text-primary truncate">
+                                        {item}
+                                      </span>
+                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleStartEditItem(idx, item)}
+                                          className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface cursor-pointer transition-colors"
+                                          title="Rename / Update this option"
+                                        >
+                                          <Pencil className="w-3 h-3 stroke-[2]" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveDropdownItem(item)}
+                                          className="p-1 text-text-muted hover:text-rose-600 rounded hover:bg-surface cursor-pointer transition-colors"
+                                          title="Remove this option"
+                                        >
+                                          <Trash2 className="w-3 h-3 stroke-[1.8]" />
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Modal Footer */}
@@ -16158,6 +16286,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
               </div>
             )}
+
 
             {/* ── QUICK NOTE MODAL (TABLE INLINE TRIGGER) ─────────────────────── */}
             {quickNoteCustomer && (

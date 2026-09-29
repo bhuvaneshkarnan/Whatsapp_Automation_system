@@ -1880,6 +1880,13 @@ async def merge_customers(
 @router.get("/crm/dropdown-options")
 async def get_crm_dropdown_options(tenant_id: str = Depends(get_tenant_id)):
     """Return configured dropdown options for the tenant with defaults."""
+    default_pipeline_columns = [
+        {"id": "new",        "label": "New Inquiry",             "visible": True},
+        {"id": "contacted",  "label": "Contacted / In Progress", "visible": True},
+        {"id": "follow-up",  "label": "Follow-up Due",           "visible": True},
+        {"id": "converted",  "label": "Booked / Converted",      "visible": True},
+        {"id": "lost",       "label": "Lost / Inactive",         "visible": True},
+    ]
     default_options = {
         "outcome_statuses": [
             "New (Fresh)",
@@ -1919,7 +1926,8 @@ async def get_crm_dropdown_options(tenant_id: str = Depends(get_tenant_id)):
             "Sleep",
             "Gut issue",
             "Weight"
-        ]
+        ],
+        "pipeline_columns": default_pipeline_columns,
     }
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -1930,9 +1938,24 @@ async def get_crm_dropdown_options(tenant_id: str = Depends(get_tenant_id)):
                 except: settings = {}
             saved = settings.get("crm_dropdowns", {})
             if isinstance(saved, dict):
-                for k in default_options:
+                for k in ["outcome_statuses", "next_actions", "services_list", "concerns_list"]:
                     if saved.get(k) and isinstance(saved[k], list) and len(saved[k]) > 0:
                         default_options[k] = saved[k]
+                # Merge saved pipeline_columns — preserve defaults for any column not in saved list
+                if saved.get("pipeline_columns") and isinstance(saved["pipeline_columns"], list) and len(saved["pipeline_columns"]) > 0:
+                    saved_cols = {c["id"]: c for c in saved["pipeline_columns"] if isinstance(c, dict) and "id" in c}
+                    merged = []
+                    for col in default_pipeline_columns:
+                        if col["id"] in saved_cols:
+                            sc = saved_cols[col["id"]]
+                            merged.append({
+                                "id": col["id"],
+                                "label": sc.get("label", col["label"]),
+                                "visible": sc.get("visible", True),
+                            })
+                        else:
+                            merged.append(col)
+                    default_options["pipeline_columns"] = merged
     return default_options
 
 
@@ -1963,10 +1986,16 @@ async def update_crm_dropdown_options(
             crm_drops["services_list"] = [x.strip() for x in payload.services_list if x and x.strip()]
         if payload.concerns_list is not None:
             crm_drops["concerns_list"] = [x.strip() for x in payload.concerns_list if x and x.strip()]
+        if payload.pipeline_columns is not None:
+            crm_drops["pipeline_columns"] = [
+                {"id": c["id"], "label": str(c.get("label", c["id"])).strip(), "visible": bool(c.get("visible", True))}
+                for c in payload.pipeline_columns if isinstance(c, dict) and "id" in c
+            ]
         settings["crm_dropdowns"] = crm_drops
 
         await conn.execute("UPDATE tenants SET settings = $1 WHERE id = $2::uuid", json.dumps(settings), tenant_id)
     return {"status": "ok", "crm_dropdowns": crm_drops}
+
 
 
 @router.get("/notes")
