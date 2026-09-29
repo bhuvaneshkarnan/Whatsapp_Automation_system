@@ -8587,18 +8587,25 @@ end
                     ])
 
                     if is_touch_2:
-                        mission_title = "TOUCH 2: WARM YES/NO CHECK-IN (PRE-24H WINDOW)"
+                        mission_title = "TOUCH 2: CONTEXT-AWARE YES/NO INTEREST CHECK (PRE-24H WINDOW)"
                         mission_prompt_text = (
-                            "The customer has been quiet for around 20 hours. The 24-hour free messaging window is about to expire.\n"
-                            "Send one short, warm, zero-pressure message that simply asks if they are still interested — a yes/no check-in. "
-                            "Do NOT ask for a specific time or date in this message. Do NOT pitch anything. "
-                            "The goal is just to get a reply (yes/no) so the conversation stays open. "
-                            "Example tone: 'Hey [Name], still thinking about it? Just let me know a yes or no and I can take it from there!'"
+                            "The customer has been quiet for around 20 hours. The 24-hour free messaging window is about to close.\n"
+                            "Read the last 3-4 messages carefully to understand exactly what they were asking about or interested in.\n"
+                            "Write ONE short, casual, warm sentence that asks if they are still interested in THAT specific thing — "
+                            "whether it was a service, a question they had, a concern they raised, pricing, or anything else they brought up.\n"
+                            "Frame the yes/no around their actual topic, not around booking or scheduling.\n"
+                            "Examples:\n"
+                            "- If they asked about Shirodhara: 'Hey [Name], still curious about Shirodhara? Just say yes or no!'\n"
+                            "- If they asked about pricing: 'Still want to know about the pricing? Just a yes or no works!'\n"
+                            "- If they asked about WhatsApp automation: 'Still interested in setting up WhatsApp AI for your clinic? Yes or no?'\n"
+                            "- If general: 'Hey [Name], still interested? Just reply yes or no and I will help from there!'\n"
+                            "NEVER push for booking, time, or scheduling in this message."
                         )
                         followup_instruction = (
-                            f"[Touch 2 yes/no check-in. Customer has been quiet for 20 hours. "
-                            f"Write ONE warm, casual 1-sentence message in {style_profile['label']} asking if they are still interested — invite a yes or no reply. "
-                            f"No scheduling ask, no pitch, no urgency. Just a friendly check-in that keeps the door open.]"
+                            f"[Touch 2 context-aware yes/no check-in. Customer has been quiet 20 hours. "
+                            f"Read their last 3-4 messages carefully and write ONE casual warm sentence in {style_profile['label']} "
+                            f"asking if they are still interested in the SPECIFIC thing they asked about. "
+                            f"Tie the yes/no to their actual topic — not booking. Zero pressure.]"
                         )
                     elif is_price_drop:
                         mission_title = "STAGE 1: PRICE INQUIRY DROP-OFF RECOVERY"
