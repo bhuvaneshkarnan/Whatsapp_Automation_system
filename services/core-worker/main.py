@@ -5681,7 +5681,7 @@ end
                         f"• *Service:* {service_name}\n"
                         f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
                         f"• *Email:* {customer_email or 'Not provided'}\n\n"
-                        f"✅ Confirmed by WhatsApp AI Assistant & synced to Google Calendar."
+                        f"✅ Confirmed by WhatsApp AI Assistant & logged in CRM."
                     )
                     admin_template = (
                         creds.get("template_admin_notification") or
