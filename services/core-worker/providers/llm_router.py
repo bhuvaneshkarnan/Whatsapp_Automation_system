@@ -125,8 +125,13 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
         cleaned = cleaned.replace(tag, "").strip()
 
     # Protect URLs and emails from hyphen replacement
+    # Match full https:// and http:// URLs
     url_matches = re.findall(r'https?://[^\s]+', cleaned)
-    for i, u in enumerate(url_matches):
+    # Also match bare domain URLs like goboldlabs.com/whatsapp-automation-clinics or crm.goboldlabs.com
+    bare_url_matches = re.findall(r'\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:/[^\s]*)?', cleaned)
+    # Combine and deduplicate (prefer longer matches; filter out already-covered https:// ones)
+    all_url_matches = list(dict.fromkeys(url_matches + [u for u in bare_url_matches if not any(u in fu for fu in url_matches)]))
+    for i, u in enumerate(all_url_matches):
         cleaned = cleaned.replace(u, f"__URL_TOKEN_{i}__")
 
     email_matches = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', cleaned)
@@ -153,7 +158,7 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
     for i, em in enumerate(email_matches):
         cleaned = cleaned.replace(f"__EMAIL_TOKEN_{i}__", em)
 
-    for i, u in enumerate(url_matches):
+    for i, u in enumerate(all_url_matches):
         cleaned = cleaned.replace(f"__URL_TOKEN_{i}__", u)
 
     if single_line:
