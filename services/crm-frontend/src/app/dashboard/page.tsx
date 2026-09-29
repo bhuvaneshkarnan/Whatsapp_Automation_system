@@ -11538,23 +11538,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               loadBookings();
                               loadContacts();
                             }}
-                            className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
+                            className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
                             title="Refresh overview data"
                           >
                             <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingDashboardAnalytics ? 'animate-spin' : ''}`} />
                           </button>
 
-                          <div className="h-5 w-px bg-border hidden sm:block shrink-0" />
+                          <div className="h-4 w-px bg-border hidden sm:block shrink-0" />
 
                           {/* Primary CTA: Book Appointment */}
                           <button
                             type="button"
                             onClick={() => setIsAddBookingOpen(true)}
-                            className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0"
+                            className="h-7.5 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0"
                             title="Schedule a new appointment"
                           >
                             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Book Appointment</span>
+                            <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
                           </button>
                         </div>
                       </div>
@@ -12026,7 +12026,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW 1: BOOKINGS LIST & ATTENDANCE ───────────────────────────── */}
             {activeNav === 'bookings' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
+              <div className="flex-1 flex flex-col overflow-hidden space-y-2.5 bg-surface border border-border shadow-sm rounded-xl p-3 sm:p-4">
                 {/* Compact, Clean Action Toolbar (matching 2-tier design language) */}
                 {/* Compact single-row booking toolbar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 bg-surface border border-border rounded-lg px-2.5 py-1.5 shadow-2xs shrink-0">
@@ -12106,6 +12106,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                     {/* Divider */}
                     <div className="h-4 w-px bg-border shrink-0" />
+
+                    {/* Calendar Switch */}
+                    <button
+                      type="button"
+                      onClick={() => navigateTo('calendar')}
+                      className="h-7 px-2 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center gap-1 text-xs font-medium"
+                      title="Switch to Calendar view"
+                    >
+                      <Calendar className="w-3.5 h-3.5 stroke-[1.8]" />
+                      <span className="hidden sm:inline">Calendar</span>
+                    </button>
 
                     {/* Refresh */}
                     <button
@@ -12970,9 +12981,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW 2: CALENDAR VIEW ───────────────────────────────────────── */}
             {activeNav === 'calendar' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
+              <div className="flex-1 flex flex-col overflow-hidden space-y-2.5 bg-surface border border-border shadow-sm rounded-xl p-3 sm:p-4">
                 {/* Calendar Top Controls & Unified Filter Layer */}
-                <div className="flex flex-col gap-2 pt-1 pb-0.5">
+                <div className="flex flex-col gap-1.5">
                   {/* Row 1: Date Navigation on Left, View Switcher & Action Buttons on Right */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     {/* Left: Date Navigation & Title */}
@@ -12985,7 +12996,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <button
                           type="button"
                           onClick={handlePrevDate}
-                          className="min-h-[32px] min-w-[32px] flex items-center justify-center p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
+                          className="h-7.5 w-7.5 flex items-center justify-center p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
                           title="Previous"
                         >
                           <ChevronLeft className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -12993,14 +13004,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <button
                           type="button"
                           onClick={handleToday}
-                          className="min-h-[32px] px-2.5 py-0.5 text-xs font-medium text-text-body hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center touch-manipulation"
+                          className="h-7.5 px-2.5 py-0.5 text-xs font-medium text-text-body hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center touch-manipulation"
                         >
                           Today
                         </button>
                         <button
                           type="button"
                           onClick={handleNextDate}
-                          className="min-h-[32px] min-w-[32px] flex items-center justify-center p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
+                          className="h-7.5 w-7.5 flex items-center justify-center p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
                           title="Next"
                         >
                           <ChevronRight className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -13010,13 +13021,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                     {/* Right: View Switcher (Day/Week/Month) & Actions */}
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <div className="flex items-center gap-0.5 bg-surface-subtle p-1 rounded-md border border-border shrink-0">
+                      <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0">
                         {(['day', 'week', 'month'] as const).map((mode) => (
                           <button
                             key={mode}
                             type="button"
                             onClick={() => setCalendarViewMode(mode)}
-                            className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm capitalize transition-colors duration-150 cursor-pointer flex items-center justify-center font-medium touch-manipulation ${
+                            className={`h-7.5 px-2.5 py-1 text-xs rounded-sm capitalize transition-colors duration-150 cursor-pointer flex items-center justify-center font-medium touch-manipulation ${
                               calendarViewMode === mode
                                 ? 'bg-surface text-text-primary font-semibold border border-border shadow-subtle'
                                 : 'text-text-secondary hover:text-text-primary border border-transparent'
@@ -13030,7 +13041,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => navigateTo('bookings')}
-                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap shrink-0 touch-manipulation"
+                        className="h-7.5 px-2.5 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap shrink-0 touch-manipulation"
                         title="Switch to Bookings Table list view"
                       >
                         <List className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -13041,7 +13052,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         type="button"
                         onClick={handleSyncGoogleTasks}
                         disabled={syncingGoogleTasks}
-                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap disabled:opacity-50 shrink-0 touch-manipulation"
+                        className="h-7.5 px-2.5 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap disabled:opacity-50 shrink-0 touch-manipulation"
                         title="Sync with Google Tasks: automatically remove completed tasks & follow-ups"
                       >
                         <RotateCcw className={`w-3.5 h-3.5 stroke-[1.5] text-accent ${syncingGoogleTasks ? 'animate-spin' : ''}`} />
@@ -13051,7 +13062,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setShowAddTaskModal(true)}
-                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0 touch-manipulation"
+                        className="h-7.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0 touch-manipulation"
                         title="Create a new task"
                       >
                         <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
@@ -13061,16 +13072,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setIsAddBookingOpen(true)}
-                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0 touch-manipulation"
+                        className="h-7.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white font-semibold text-xs rounded-md transition-colors duration-150 flex items-center gap-1 cursor-pointer shadow-xs whitespace-nowrap shrink-0 touch-manipulation"
                       >
-                        <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>{currentTaxonomy.booking_cta || '+ Appointment'}</span>
+                        <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
                       </button>
                     </div>
                   </div>
 
                   {/* Row 2: Unified Layer / Filter Selector Pills (All, Appointments, Follow-ups, Tasks) */}
-                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-md p-1 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
+                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-md p-0.5 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
                     {[
                       { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) + (liveGcalEvents?.length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
@@ -13085,7 +13096,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           key={tab.key}
                           type="button"
                           onClick={() => setCalendarLayerFilter(tab.key as any)}
-                          className={`min-h-[36px] sm:min-h-[28px] flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
+                          className={`h-7 flex items-center gap-1.5 px-2.5 py-0.5 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                             isActive
                               ? 'bg-surface text-text-primary font-semibold border border-border shadow-xs'
                               : 'text-text-secondary hover:text-text-primary border border-transparent'
@@ -17452,7 +17463,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               placeholder="Search repeat clients..."
                               value={repeatSearch}
                               onChange={(e) => setRepeatSearch(e.target.value)}
-                              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8 transition-colors"
+                              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-7.5 transition-colors"
                             />
                             {repeatSearch && (
                               <button
@@ -17475,7 +17486,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               loadCustomers();
                               loadBookings();
                             }}
-                            className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+                            className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
                             title="Refresh repeat clients"
                           >
                             <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingCustomers ? 'animate-spin' : ''}`} />
@@ -17501,7 +17512,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               });
                               setIsAddBookingOpen(true);
                             }}
-                            className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
+                            className="h-7.5 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
                           >
                             <CalendarClock className="w-3.5 h-3.5 stroke-[2]" />
                             <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
@@ -17528,7 +17539,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               key={st.key}
                               type="button"
                               onClick={() => setRepeatHealthFilter(st.key as any)}
-                              className={`min-h-[36px] sm:min-h-[30px] px-2.5 py-1.5 text-xs rounded-md border transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs touch-manipulation whitespace-nowrap ${
+                              className={`h-7 px-2.5 py-0.5 text-xs rounded-sm border transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs touch-manipulation whitespace-nowrap ${
                                 repeatHealthFilter === st.key
                                   ? 'bg-surface text-text-primary border-border font-semibold shadow-xs'
                                   : 'bg-surface-subtle border-border text-text-secondary hover:text-text-primary hover:bg-surface'
@@ -17545,7 +17556,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <select
                             value={repeatSortBy}
                             onChange={(e) => setRepeatSortBy(e.target.value as any)}
-                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 shadow-2xs shrink-0"
+                            className="px-2 py-0.5 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7 shadow-2xs shrink-0"
                             title="Sort repeat clients"
                           >
                             <option value="most_visits">Most Visits</option>
@@ -17557,7 +17568,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <select
                             value={repeatDoctorFilter}
                             onChange={(e) => setRepeatDoctorFilter(e.target.value)}
-                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[130px] truncate shadow-2xs shrink-0"
+                            className="px-2 py-0.5 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7 max-w-[130px] truncate shadow-2xs shrink-0"
                           >
                             <option value="all">All {presetRolePlural}</option>
                             <option value="unassigned">Unassigned</option>
@@ -19039,7 +19050,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* TAB: REVIEWS & GMB FEEDBACK HUB                                            */}
             {/* ========================================================================= */}
             {activeNav === 'reviews' && (
-              <div className="flex-1 flex flex-col overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5 min-h-0">
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-2.5 bg-surface border border-border shadow-sm rounded-xl p-3 sm:p-4 min-h-0">
 
                 {/* ── 1. COMPACT HEADER & ACTIONS ─────────────────────── */}
                 <div className="flex flex-wrap items-center justify-between gap-2 px-1">
@@ -19065,7 +19076,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         type="button"
                         onClick={handleSyncGoogleReviews}
                         disabled={syncingGoogleReviews}
-                        className="px-2.5 py-1 bg-surface hover:bg-surface-subtle border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 rounded-md text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                        className="h-7.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
                         title="Google Business Profile connected. Click to sync latest reviews from Google Maps."
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -19076,7 +19087,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setGoogleConnectModalOpen(true)}
-                        className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-primary rounded-md text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                        className="h-7.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle border border-border text-text-primary rounded-md text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
                         title="Connect Google Business Profile to sync reviews and reply live"
                       >
                         <Globe className="w-3.5 h-3.5 text-text-muted" />
@@ -19093,7 +19104,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         setReviewCopied(true);
                         setTimeout(() => setReviewCopied(false), 2000);
                       }}
-                      className="px-2.5 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      className="h-7.5 px-2.5 py-1 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
                       title="Copy public review link to clipboard"
                     >
                       {reviewCopied ? <CheckCircle2 className="w-3 h-3 stroke-[2]" /> : <Copy className="w-3 h-3 stroke-[2]" />}
@@ -19105,7 +19116,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1.5 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer shadow-xs"
+                      className="h-7.5 w-7.5 flex items-center justify-center text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer shadow-xs"
                       title="Open public review portal in new tab"
                     >
                       <ArrowUpRight className="w-3.5 h-3.5" />
@@ -19115,7 +19126,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => setQrStandeeModalOpen(true)}
-                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary rounded-md border border-border text-xs font-medium flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                      className="h-7.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary rounded-md border border-border text-xs font-medium flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                       title="Generate & Print Google Review Standee / Counter Poster"
                     >
                       <QrCode className="w-3.5 h-3.5 text-text-muted" />
@@ -19127,7 +19138,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => setShowReviewConfig((prev) => !prev)}
-                      className={`px-2.5 py-1.5 rounded-md border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
+                      className={`h-7.5 px-2.5 py-1 rounded-md border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
                         showReviewConfig
                           ? 'bg-surface-subtle text-text-primary font-medium'
                           : 'bg-surface hover:bg-surface-subtle border border-border text-text-secondary'
@@ -19348,11 +19359,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full shrink-0">
                     {/* Source Tabs: Google vs Private vs All */}
-                    <div className="flex items-center p-1 bg-surface-subtle rounded-md border border-border shrink-0">
+                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border shrink-0">
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('google'); setReviewRatingFilter('all'); }}
-                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
+                        className={`h-7 px-2.5 py-0.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
                           reviewSourceTab === 'google'
                             ? 'bg-surface text-text-primary font-semibold shadow-xs border-border'
                             : 'border-transparent text-text-secondary hover:text-text-primary'
@@ -19368,7 +19379,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('local_store'); setReviewRatingFilter('all'); }}
-                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
+                        className={`h-7 px-2.5 py-0.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
                           reviewSourceTab === 'local_store'
                             ? 'bg-surface text-text-primary font-semibold shadow-xs border-border'
                             : 'border-transparent text-text-secondary hover:text-text-primary'
@@ -19384,7 +19395,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('all'); setReviewRatingFilter('all'); }}
-                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
+                        className={`h-7 px-2.5 py-0.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
                           reviewSourceTab === 'all'
                             ? 'bg-surface text-text-primary font-semibold shadow-xs border-border'
                             : 'border-transparent text-text-secondary hover:text-text-primary'
@@ -19398,7 +19409,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* Star Sub-Filters */}
-                    <div className="flex items-center gap-0.5 bg-surface p-1 rounded-md border border-border shrink-0 shadow-2xs">
+                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0 shadow-2xs">
                       {(() => {
                         const starOptions = reviewSourceTab === 'google'
                           ? (['all', 5, 4] as const)
@@ -19411,7 +19422,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             key={String(s)}
                             type="button"
                             onClick={() => setReviewRatingFilter(s)}
-                            className={`min-h-[38px] sm:min-h-[30px] px-2.5 py-1.5 rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 border shrink-0 touch-manipulation whitespace-nowrap ${
+                            className={`h-7 px-2 py-0.5 rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 border shrink-0 touch-manipulation whitespace-nowrap ${
                               reviewRatingFilter === s ? 'bg-surface-subtle text-text-primary font-semibold shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
                             }`}
                           >
@@ -19427,13 +19438,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* Reply Status Filter */}
-                    <div className="flex items-center gap-0.5 bg-surface p-1 rounded-md border border-border shrink-0 shadow-2xs">
+                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0 shadow-2xs">
                       {(['all', 'pending', 'replied'] as const).map((st) => (
                         <button
                           key={st}
                           type="button"
                           onClick={() => setReviewStatusFilter(st)}
-                          className={`min-h-[38px] sm:min-h-[30px] px-2.5 py-1.5 rounded-sm text-xs font-medium capitalize transition-colors cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
+                          className={`h-7 px-2 py-0.5 rounded-sm text-xs font-medium capitalize transition-colors cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
                             reviewStatusFilter === st ? 'bg-surface-subtle text-text-primary font-semibold shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
                           }`}
                         >
@@ -19452,14 +19463,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         placeholder="Search reviews..."
                         value={reviewSearchQuery}
                         onChange={(e) => setReviewSearchQuery(e.target.value)}
-                        className="w-full pl-7 pr-3 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:outline-none focus:border-accent"
+                        className="h-7.5 w-full pl-7 pr-3 py-1 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-accent"
                       />
                     </div>
                     <button
                       type="button"
                       onClick={() => loadReviews(true)}
                       disabled={loadingReviews}
-                      className="p-1.5 rounded bg-surface border border-border hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer shrink-0"
+                      className="h-7.5 w-7.5 rounded-md bg-surface border border-border hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer shrink-0 flex items-center justify-center shadow-2xs"
                       title="Refresh reviews"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${loadingReviews ? 'animate-spin text-accent' : ''}`} />
