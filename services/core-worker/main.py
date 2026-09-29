@@ -845,8 +845,6 @@ async def dispatch_push_notification(
 
     try:
         from pywebpush import webpush, WebPushException
-        vapid_claims = {"sub": VAPID_CLAIM_EMAIL}
-
         for sub in subs:
             sub_info = {
                 "endpoint": sub["endpoint"],
@@ -855,13 +853,23 @@ async def dispatch_push_notification(
                     "auth": sub["auth"]
                 }
             }
+            # FCM requires the VAPID 'aud' claim to equal the push service origin URL
+            # (e.g. https://fcm.googleapis.com for Chrome, https://updates.push.services.mozilla.com for Firefox)
+            # Without this FCM returns 403: "aud claim MUST include the origin of the push resource URL"
+            try:
+                from urllib.parse import urlparse
+                _parsed = urlparse(sub["endpoint"])
+                _aud = f"{_parsed.scheme}://{_parsed.netloc}"
+            except Exception:
+                _aud = "https://fcm.googleapis.com"
+            per_sub_claims = {"sub": VAPID_CLAIM_EMAIL, "aud": _aud}
             try:
                 await asyncio.to_thread(
                     webpush,
                     subscription_info=sub_info,
                     data=payload_json,
                     vapid_private_key=VAPID_PRIVATE_KEY,
-                    vapid_claims=vapid_claims,
+                    vapid_claims=per_sub_claims,
                     ttl=86400,
                     headers={"Urgency": "high"}
                 )
