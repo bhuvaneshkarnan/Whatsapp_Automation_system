@@ -11643,380 +11643,335 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
                       </div>
 
-                      {/* ── ACTION QUEUE: ONLY DISPLAY IF THERE ARE PENDING ACTIONS ── */}
-                      {urgentCount > 0 && (
-                        <div className="bg-surface border border-border rounded-md p-3.5 space-y-3 shadow-xs">
-                          <div className="flex items-center justify-between pb-2 border-b border-border">
-                            <div className="flex items-center gap-2">
-                              <CalendarClock className="w-4 h-4 text-accent stroke-[1.8]" />
-                              <h4 className="font-semibold text-xs text-text-primary">Today&apos;s Appointments & Action Queue</h4>
-                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary">
-                                {urgentCount} pending
-                              </span>
+                      {/* ── TWO-COLUMN LIVE DESK: TODAY'S SCHEDULE + HOT LEADS ── */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* 1. Today's Appointments Schedule */}
+                        <div className="bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between pb-2.5 border-b border-border">
+                              <div className="flex items-center gap-2">
+                                <CalendarDays className="w-4 h-4 text-accent stroke-[1.8]" />
+                                <h3 className="font-semibold text-xs text-text-primary tracking-tight">Today&apos;s Appointments</h3>
+                                <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-surface-subtle border border-border text-text-secondary">
+                                  {todayBookingsList.length} today
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveNav('bookings');
+                                  setBookingFilter('today');
+                                }}
+                                className="text-[11px] font-medium text-accent hover:underline flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>View all</span>
+                                <ArrowRight className="w-3 h-3 stroke-[2]" />
+                              </button>
                             </div>
-                            <span className="text-[11px] text-text-muted hidden sm:inline">
-                              Direct desk actions to attend patients and prevent lead drop-off
-                            </span>
-                          </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {/* Upcoming Today Bookings */}
-                            {todayUpcomingBookings.slice(0, 3).map((b) => {
-                              const cleanPhone = (b.contact_phone || '').replace(/[^0-9]/g, '');
-                              return (
-                                <div
-                                  key={b.id}
-                                  className="p-3 bg-surface-subtle border border-border rounded-md space-y-2 hover:border-border-strong transition-colors"
-                                >
-                                  <div className="flex items-center justify-between gap-1 text-[11px]">
-                                    <span className="font-medium text-text-secondary">
-                                      {formatTime12(b.start_time)}
-                                    </span>
-                                    <span className="font-mono font-bold text-text-primary">
-                                      {currentCurrencySymbol}{b.price || 0}
-                                    </span>
-                                  </div>
-
-                                  <div>
-                                    <p className="font-medium text-xs text-text-primary truncate">
-                                      {b.contact_name || 'Patient'}
-                                    </p>
-                                    <p className="text-[11px] text-text-muted truncate">
-                                      {b.service}
-                                    </p>
-                                    {b.location && (
-                                      <p className="text-[10px] text-text-muted truncate flex items-center gap-1 mt-0.5">
-                                        <MapPin className="w-3 h-3 text-text-muted shrink-0" />
-                                        <span>{b.location}</span>
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
-                                    {b.contact_phone && (
-                                      <a
-                                        href={`tel:${formatDialablePhone(b.contact_phone)}`}
-                                        className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
-                                        title="Call"
-                                      >
-                                        <Phone className="w-3 h-3 text-emerald-600 stroke-[1.8]" />
-                                        <span>Call</span>
-                                      </a>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const match = conversations.find(c => c.contact_phone && c.contact_phone.slice(-10) === cleanPhone.slice(-10));
-                                        if (match) setSelectedConv(match);
-                                        setActiveNav('inbox');
-                                      }}
-                                      className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
-                                      title="Chat"
-                                    >
-                                      <MessageSquare className="w-3 h-3 text-accent stroke-[1.8]" />
-                                      <span>Chat</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUpdateBookingStatus(b.id, 'completed', undefined, true)}
-                                      className="h-6.5 px-2 text-[11px] font-medium bg-accent hover:bg-accent-hover text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
-                                      title="Mark completed"
-                                    >
-                                      <Check className="w-3 h-3 stroke-[2.5]" />
-                                      <span>Done</span>
-                                    </button>
-                                  </div>
+                            {todayBookingsList.length === 0 ? (
+                              <div className="py-8 flex flex-col items-center justify-center text-center space-y-2">
+                                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                  <CheckCircle2 className="w-4 h-4 stroke-[2]" />
                                 </div>
-                              );
-                            })}
-
-                            {/* Hot Leads */}
-                            {hotLeadsList.slice(0, 3).map((c) => {
-                              const cleanPhone = (c.phone || '').replace(/[^0-9]/g, '');
-                              return (
-                                <div
-                                  key={c.id}
-                                  className="p-3 bg-surface-subtle border border-border rounded-md space-y-2 hover:border-border-strong transition-colors"
+                                <p className="text-xs font-semibold text-text-primary">No appointments scheduled for today</p>
+                                <p className="text-[11px] text-text-muted max-w-xs">
+                                  All appointments are up to date. You can schedule a new booking anytime.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsAddBookingOpen(true)}
+                                  className="mt-2 h-7 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
                                 >
-                                  <div className="flex items-center justify-between gap-1 text-[11px]">
-                                    <span className="font-semibold text-amber-700">
-                                      Hot Lead
-                                    </span>
-                                    {(c.deal_value || 0) > 0 && (
-                                      <span className="font-mono font-bold text-text-primary">
-                                        {currentCurrencySymbol}{c.deal_value}
-                                      </span>
-                                    )}
-                                  </div>
+                                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                                  <span>+ Book Appointment</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-2 pt-2 max-h-[380px] overflow-y-auto pr-1">
+                                {todayBookingsList.map((b) => {
+                                  const cleanPhone = (b.contact_phone || '').replace(/[^0-9]/g, '');
+                                  const isAttended = b.status === 'completed' || b.status === 'attended';
+                                  return (
+                                    <div
+                                      key={b.id}
+                                      className="p-3 bg-surface-subtle border border-border rounded-md hover:border-border-strong transition-colors space-y-2"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-surface border border-border text-text-primary">
+                                            {formatTime12(b.start_time)}
+                                          </span>
+                                          <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${
+                                            isAttended
+                                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                              : b.status === 'confirmed'
+                                              ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                              : b.status === 'rescheduled'
+                                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                              : 'bg-surface text-text-secondary border-border'
+                                          }`}>
+                                            {isAttended ? 'Attended' : b.status || 'Scheduled'}
+                                          </span>
+                                        </div>
+                                        {(b.price || 0) > 0 && (
+                                          <span className="font-mono font-bold text-xs text-text-primary">
+                                            {currentCurrencySymbol}{b.price}
+                                          </span>
+                                        )}
+                                      </div>
 
-                                  <div>
-                                    <p className="font-medium text-xs text-text-primary truncate">
-                                      {c.name || 'Prospect'}
-                                    </p>
-                                    <p className="text-[11px] text-text-muted truncate">
-                                      {c.health_concern || 'General Inquiring'}
-                                    </p>
-                                  </div>
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <p className="font-medium text-xs text-text-primary truncate">
+                                            {b.contact_name || 'Patient'}
+                                          </p>
+                                          <p className="text-[11px] text-text-muted truncate">
+                                            {b.service}
+                                            {b.location ? ` • ${b.location}` : ''}
+                                          </p>
+                                        </div>
+                                      </div>
 
-                                  <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
-                                    <a
-                                      href={`tel:${formatDialablePhone(c.phone)}`}
-                                      className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
-                                    >
-                                      <Phone className="w-3 h-3 text-emerald-600 stroke-[1.8]" />
-                                      <span>Call</span>
-                                    </a>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const match = conversations.find(cv => cv.contact_phone && cv.contact_phone.slice(-10) === cleanPhone.slice(-10));
-                                        if (match) setSelectedConv(match);
-                                        setActiveNav('inbox');
-                                      }}
-                                      className="h-6.5 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
-                                    >
-                                      <MessageSquare className="w-3 h-3 text-accent stroke-[1.8]" />
-                                      <span>Chat</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setIsAddBookingOpen(true)}
-                                      className="h-6.5 px-2 text-[11px] font-medium bg-accent hover:bg-accent-hover text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
-                                    >
-                                      <Calendar className="w-3 h-3 stroke-[2]" />
-                                      <span>Book</span>
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                                      <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
+                                        {b.contact_phone && (
+                                          <a
+                                            href={`tel:${formatDialablePhone(b.contact_phone)}`}
+                                            className="h-6 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
+                                            title="Call patient"
+                                          >
+                                            <Phone className="w-3 h-3 text-emerald-600 stroke-[1.8]" />
+                                            <span>Call</span>
+                                          </a>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const match = conversations.find(c => c.contact_phone && c.contact_phone.slice(-10) === cleanPhone.slice(-10));
+                                            if (match) setSelectedConv(match);
+                                            setActiveNav('inbox');
+                                          }}
+                                          className="h-6 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
+                                          title="Open WhatsApp chat"
+                                        >
+                                          <MessageSquare className="w-3 h-3 text-accent stroke-[1.8]" />
+                                          <span>Chat</span>
+                                        </button>
+
+                                        {!isAttended ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleUpdateBookingStatus(b.id, 'completed', undefined, true)}
+                                            className="h-6 px-2 text-[11px] font-medium bg-accent hover:bg-accent-hover text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
+                                            title="Mark patient attended"
+                                          >
+                                            <Check className="w-3 h-3 stroke-[2.5]" />
+                                            <span>Mark Attended</span>
+                                          </button>
+                                        ) : (
+                                          <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1 ml-auto">
+                                            <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2]" />
+                                            <span>Completed</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         </div>
-                      )}
+
+                        {/* 2. Hot Leads & Follow-ups */}
+                        <div className="bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between pb-2.5 border-b border-border">
+                              <div className="flex items-center gap-2">
+                                <Users className="w-4 h-4 text-accent stroke-[1.8]" />
+                                <h3 className="font-semibold text-xs text-text-primary tracking-tight">Hot Leads & Follow-ups</h3>
+                                <span className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded border ${
+                                  hotLeadsList.length > 0 ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-surface-subtle border-border text-text-muted'
+                                }`}>
+                                  {hotLeadsList.length > 0 ? `${hotLeadsList.length} waiting` : 'Zero leakage'}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveNav('customers')}
+                                className="text-[11px] font-medium text-accent hover:underline flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>View all leads</span>
+                                <ArrowRight className="w-3 h-3 stroke-[2]" />
+                              </button>
+                            </div>
+
+                            {hotLeadsList.length === 0 ? (
+                              <div className="py-8 flex flex-col items-center justify-center text-center space-y-2">
+                                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                  <CheckCircle2 className="w-4 h-4 stroke-[2]" />
+                                </div>
+                                <p className="text-xs font-semibold text-text-primary">Zero customer leakage: All leads attended!</p>
+                                <p className="text-[11px] text-text-muted max-w-xs">
+                                  Every prospective patient has been contacted or converted into a booking.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAddCustomerModal(true)}
+                                  className="mt-2 h-7 px-3 bg-surface hover:bg-surface-subtle border border-border text-xs font-semibold rounded-sm transition-all shadow-2xs cursor-pointer flex items-center gap-1.5 text-text-primary"
+                                >
+                                  <UserPlus className="w-3.5 h-3.5 text-text-secondary stroke-[1.8]" />
+                                  <span>+ Add Client</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-2 pt-2 max-h-[380px] overflow-y-auto pr-1">
+                                {hotLeadsList.map((c) => {
+                                  const cleanPhone = (c.phone || '').replace(/[^0-9]/g, '');
+                                  return (
+                                    <div
+                                      key={c.id}
+                                      className="p-3 bg-surface-subtle border border-border rounded-md hover:border-border-strong transition-colors space-y-2"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded">
+                                          Follow up
+                                        </span>
+                                        {(c.deal_value || 0) > 0 && (
+                                          <span className="font-mono font-bold text-xs text-text-primary">
+                                            {currentCurrencySymbol}{c.deal_value}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div>
+                                        <p className="font-medium text-xs text-text-primary truncate">
+                                          {c.name || 'Interested Customer'}
+                                        </p>
+                                        <p className="text-[11px] text-text-muted truncate">
+                                          {c.health_concern || 'General Inquiry'}
+                                        </p>
+                                      </div>
+
+                                      <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
+                                        {c.phone && (
+                                          <a
+                                            href={`tel:${formatDialablePhone(c.phone)}`}
+                                            className="h-6 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
+                                          >
+                                            <Phone className="w-3 h-3 text-emerald-600 stroke-[1.8]" />
+                                            <span>Call</span>
+                                          </a>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const match = conversations.find(cv => cv.contact_phone && cv.contact_phone.slice(-10) === cleanPhone.slice(-10));
+                                            if (match) setSelectedConv(match);
+                                            setActiveNav('inbox');
+                                          }}
+                                          className="h-6 px-2 text-[11px] font-medium bg-surface hover:bg-surface-subtle border border-border rounded flex items-center justify-center gap-1 text-text-primary cursor-pointer transition-colors"
+                                        >
+                                          <MessageSquare className="w-3 h-3 text-accent stroke-[1.8]" />
+                                          <span>Chat</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setIsAddBookingOpen(true)}
+                                          className="h-6 px-2 text-[11px] font-medium bg-accent hover:bg-accent-hover text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
+                                        >
+                                          <CalendarDays className="w-3 h-3 stroke-[2]" />
+                                          <span>Book</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ── 3. RECENT WHATSAPP INBOX ACTIVITY ── */}
+                      <div className="bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs">
+                        <div className="flex items-center justify-between pb-2.5 border-b border-border">
+                          <div className="flex items-center gap-2">
+                            <MessageSquare className="w-4 h-4 text-accent stroke-[1.8]" />
+                            <h3 className="font-semibold text-xs text-text-primary tracking-tight">Recent WhatsApp Conversations</h3>
+                            {unreadConversations.length > 0 ? (
+                              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
+                                {unreadConversations.length} unread
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle border border-border text-text-muted">
+                                Up to date
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setActiveNav('inbox')}
+                            className="text-[11px] font-medium text-accent hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>Open full inbox</span>
+                            <ArrowRight className="w-3 h-3 stroke-[2]" />
+                          </button>
+                        </div>
+
+                        {conversations.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-text-muted">
+                            No active WhatsApp conversations yet.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                            {conversations.slice(0, 4).map((conv) => {
+                              const hasUnread = (conv.unread_count || 0) > 0;
+                              return (
+                                <div
+                                  key={conv.id}
+                                  onClick={() => {
+                                    setSelectedConv(conv);
+                                    setActiveNav('inbox');
+                                  }}
+                                  className={`p-3 rounded-md border transition-all cursor-pointer flex flex-col justify-between space-y-2 ${
+                                    hasUnread
+                                      ? 'bg-rose-50/30 border-rose-200 hover:border-rose-300'
+                                      : 'bg-surface-subtle border-border hover:border-border-strong'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="flex items-center justify-between gap-1">
+                                      <p className="font-semibold text-xs text-text-primary truncate">
+                                        {conv.name || conv.contact_name || 'Patient'}
+                                      </p>
+                                      {hasUnread && (
+                                        <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                                      )}
+                                    </div>
+                                    <p className="text-[11px] text-text-muted font-mono truncate">
+                                      {conv.phone || conv.contact_phone}
+                                    </p>
+                                    <p className="text-[11px] text-text-secondary line-clamp-2 mt-1">
+                                      {conv.last_message || 'Active conversation'}
+                                    </p>
+                                  </div>
+
+                                  <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-[10px] text-text-muted">
+                                    <span>{conv.ai_enabled !== false ? 'AI Automated' : 'Manual'}</span>
+                                    <span className="font-medium text-accent flex items-center gap-0.5">
+                                      Reply <ArrowRight className="w-2.5 h-2.5" />
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
-
-                {/* ── Visual Analytics Grid ── */}
-                {dashboardAnalyticsData && (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-1">
-                    {/* Chart: Daily WhatsApp Message Traffic (Span 2 cols) */}
-                    <div className="lg:col-span-2 min-w-0 overflow-hidden bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs">
-                      <div className="flex items-center justify-between pb-2 border-b border-border">
-                        <div className="flex items-center gap-2">
-                          <Activity className="w-4 h-4 text-text-secondary stroke-[1.8]" />
-                          <h4 className="font-semibold text-xs text-text-primary">Daily WhatsApp Message Volume</h4>
-                        </div>
-                        <div className="flex items-center gap-3 text-[11px] text-text-muted">
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block" />
-                            <span className="font-medium text-text-secondary">Inbound ({dashboardAnalyticsData.summary.inbound_messages})</span>
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-xs bg-blue-500 inline-block" />
-                            <span className="font-medium text-text-secondary">Outbound ({dashboardAnalyticsData.summary.outbound_messages})</span>
-                          </span>
-                        </div>
-                      </div>
-
-                      {dashboardAnalyticsData.time_series.length === 0 ? (
-                        <div className="h-52 flex items-center justify-center text-xs text-text-muted">
-                          No message activity recorded in this time range.
-                        </div>
-                      ) : (
-                        <div className="h-52 w-full min-w-0 flex items-end gap-1 pt-4 px-1 overflow-x-hidden">
-                          {(() => {
-                            const series = dashboardAnalyticsData.time_series;
-                            const maxVal = Math.max(1, ...series.map((t) => Math.max(t.inbound, t.outbound, t.total)));
-                            const barMaxW = series.length <= 3 ? 'max-w-[120px]' : series.length <= 7 ? 'max-w-[72px]' : series.length <= 14 ? 'max-w-[52px]' : '';
-                            const barGap = series.length <= 14 ? 'gap-0.5' : 'gap-px';
-                            return series.map((t, i) => {
-                              const inPct = Math.round((t.inbound / maxVal) * 100);
-                              const outPct = Math.round((t.outbound / maxVal) * 100);
-                              const dayLabel = t.day.slice(5);
-                              const showLabel =
-                                series.length <= 14
-                                  ? true
-                                  : series.length <= 31
-                                  ? (i === 0 || i === series.length - 1 || i % 4 === 0)
-                                  : (i === 0 || i === series.length - 1 || i % 7 === 0);
-                              return (
-                                <div key={t.day || i} className={`flex-1 min-w-0 ${barMaxW} flex flex-col items-center gap-1 group relative`}>
-                                  {/* Tooltip on hover */}
-                                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col bg-slate-900 text-white text-[10px] rounded-md px-2.5 py-1.5 shadow-xl pointer-events-none z-30 whitespace-nowrap border border-white/10">
-                                    <span className="font-semibold border-b border-white/20 pb-0.5 mb-0.5">{t.day}</span>
-                                    <span className="flex items-center gap-1.5"><ArrowDownLeft className="w-3 h-3 text-emerald-400 stroke-[2]" /> Inbound: {t.inbound}</span>
-                                    <span className="flex items-center gap-1.5"><ArrowUpRight className="w-3 h-3 text-blue-400 stroke-[2]" /> Outbound: {t.outbound}</span>
-                                    <span className="font-medium pt-0.5 border-t border-white/20 mt-0.5">Total: {t.total}</span>
-                                  </div>
-                                  {/* Bars */}
-                                  <div className={`w-full h-36 flex items-end justify-center ${barGap}`}>
-                                    <div
-                                      style={{ height: t.inbound > 0 ? `${Math.max(inPct, 6)}%` : '0%' }}
-                                      className={`w-1/2 bg-emerald-500 rounded-t-xs transition-all duration-300 hover:brightness-110 cursor-pointer ${t.inbound === 0 ? 'opacity-0' : ''}`}
-                                    />
-                                    <div
-                                      style={{ height: t.outbound > 0 ? `${Math.max(outPct, 6)}%` : '0%' }}
-                                      className={`w-1/2 bg-blue-500 rounded-t-xs transition-all duration-300 hover:brightness-110 cursor-pointer ${t.outbound === 0 ? 'opacity-0' : ''}`}
-                                    />
-                                  </div>
-                                  <span className="text-[10px] text-text-muted font-mono truncate w-full text-center font-medium min-h-[14px]">
-                                    {showLabel ? dayLabel : ''}
-                                  </span>
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Funnel: Lead & Conversion Funnel (1 col) */}
-                    <div className="min-w-0 bg-surface border border-border rounded-md p-4 space-y-4 flex flex-col justify-between shadow-xs">
-                      <div className="flex items-center justify-between pb-2 border-b border-border">
-                        <div className="flex items-center gap-2">
-                          <TrendingUp className="w-4 h-4 text-text-secondary stroke-[1.8]" />
-                          <h4 className="font-semibold text-xs text-text-primary">Conversion Funnel</h4>
-                        </div>
-                        <span className="text-[11px] font-mono text-emerald-700 font-bold px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded">
-                          {dashboardAnalyticsData.summary.conversion_rate.toFixed(2)}% Overall Conv.
-                        </span>
-                      </div>
-
-                      <div className="space-y-3 py-1">
-                        {/* Stage 1: Total Leads */}
-                        <div>
-                          <div className="flex justify-between text-xs mb-1 font-medium">
-                            <span className="text-text-secondary">Total Inquiries & Leads</span>
-                            <span className="font-mono font-bold text-text-primary">{dashboardAnalyticsData.pipeline.new}</span>
-                          </div>
-                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
-                            <div className="bg-blue-500 h-full rounded-full" style={{ width: '100%' }} />
-                          </div>
-                        </div>
-
-                        {/* Stage 2: Tracked & Qualified */}
-                        <div>
-                          <div className="flex justify-between text-xs mb-1 font-medium">
-                            <span className="text-text-secondary">Qualified Prospects</span>
-                            <span className="font-mono font-bold text-text-primary">{dashboardAnalyticsData.pipeline.qualified}</span>
-                          </div>
-                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
-                            <div
-                              className="bg-amber-500 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.qualified / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Stage 3: Booked & Attended */}
-                        <div>
-                          <div className="flex justify-between text-xs mb-1 font-medium">
-                            <span className="text-emerald-700 font-semibold">Booked & Attended Visits</span>
-                            <span className="font-mono font-bold text-emerald-700">{dashboardAnalyticsData.summary.completed_bookings}</span>
-                          </div>
-                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
-                            <div
-                              className="bg-emerald-600 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.completed_bookings / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Status Badges Row (Clickable drilldown to Bookings tab) */}
-                      <div className="pt-2.5 border-t border-border grid grid-cols-3 gap-1.5 text-center">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveNav('bookings');
-                            setBookingFilter('upcoming');
-                          }}
-                          className="min-h-[44px] sm:min-h-[38px] p-1.5 rounded-md bg-surface-subtle border border-border hover:border-text-secondary transition-colors cursor-pointer text-center flex flex-col items-center justify-center touch-manipulation"
-                          title="Click to view confirmed upcoming bookings"
-                        >
-                          <p className="text-[10px] text-text-muted font-medium leading-tight">Confirmed</p>
-                          <p className="text-xs font-bold text-text-primary font-mono mt-0.5">{dashboardAnalyticsData.bookings_by_status.confirmed}</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveNav('bookings');
-                            setBookingFilter('completed');
-                          }}
-                          className="min-h-[44px] sm:min-h-[38px] p-1.5 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-200 hover:border-emerald-400 transition-colors cursor-pointer text-center flex flex-col items-center justify-center touch-manipulation"
-                          title="Click to view attended completed visits"
-                        >
-                          <p className="text-[10px] text-emerald-700 font-semibold leading-tight">Attended</p>
-                          <p className="text-xs font-bold font-mono text-emerald-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.completed}</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveNav('bookings');
-                            setBookingFilter('no_show');
-                          }}
-                          className="min-h-[44px] sm:min-h-[38px] p-1.5 rounded-md bg-rose-50 text-rose-900 border border-rose-200 hover:border-rose-400 transition-colors cursor-pointer text-center flex flex-col items-center justify-center touch-manipulation"
-                          title="Click to view no-show bookings"
-                        >
-                          <p className="text-[10px] text-rose-700 font-semibold leading-tight">No-Show</p>
-                          <p className="text-xs font-bold font-mono text-rose-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.no_show}</p>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Top Services & Health Concerns Breakdown ── */}
-                {dashboardAnalyticsData && dashboardAnalyticsData.top_services && dashboardAnalyticsData.top_services.length > 0 && (
-                  <div className="bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs">
-                    <div className="flex items-center justify-between pb-2 border-b border-border">
-                      <div className="flex items-center gap-2">
-                        <Stethoscope className="w-4 h-4 text-text-secondary stroke-[1.8]" />
-                        <div>
-                          <h4 className="font-semibold text-xs text-text-primary">Top Services & Health Concerns</h4>
-                          <p className="text-[11px] text-text-muted">Ranked by realized revenue & visit volume</p>
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-medium text-text-muted">
-                        {dashboardAnalyticsData.top_services.length} services recorded
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {dashboardAnalyticsData.top_services.map((srv, idx) => {
-                        const maxRev = Math.max(1, ...dashboardAnalyticsData.top_services!.map((s) => s.revenue));
-                        const pct = Math.round((srv.revenue / maxRev) * 100);
-                        return (
-                          <div
-                            key={srv.service || idx}
-                            className="p-3 bg-surface-subtle border border-border rounded-md space-y-2 hover:border-accent/40 transition-colors"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium text-xs text-text-primary truncate" title={srv.service}>
-                                <span className="text-text-muted font-mono mr-1.5 text-[11px]">#{idx + 1}</span>
-                                {srv.service}
-                              </span>
-                              <span className="font-mono font-bold text-xs text-emerald-700 shrink-0">
-                                {currentCurrencySymbol}{Number(srv.revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                            <div className="w-full bg-surface rounded-full h-1.5 overflow-hidden border border-border">
-                              <div
-                                className="bg-emerald-500 h-full rounded-full transition-all duration-300"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <div className="flex items-center justify-between text-[11px] text-text-muted">
-                              <span>{srv.booking_count} bookings</span>
-                              <span>{srv.completed_count} attended</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
