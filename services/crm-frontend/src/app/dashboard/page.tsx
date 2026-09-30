@@ -4053,13 +4053,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     });
 
-    // Special clinical alias convenience for Mind Body Recovery (Sam <-> Sameer <-> Dr. Sameer)
-    if (seenValues.has('sameer') || seenValues.has('dr. sameer')) {
-      if (!seenValues.has('sam')) addOption('Sam');
-      if (!seenValues.has('sameer')) addOption('Sameer');
-      if (!seenValues.has('dr. sameer')) addOption('Dr. Sameer');
-    }
-
     return {
       teamDoctors,
       sales,
@@ -4120,37 +4113,65 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     const clean = nameOrId.trim().toLowerCase();
     const cleanNoDr = clean.replace(/^dr\.?\s*/i, '').trim();
+    const norm = (s: string) => s.trim().toLowerCase().replace(/tellecalling/g, 'telecalling');
 
-    // Check teamList first (by ID or by name/email)
-    const teamMember = (teamList || []).find((m) => {
-      if (m.id === nameOrId) return true;
-      const disp = (m.display_name || '').trim().toLowerCase();
-      const dispNoDr = disp.replace(/^dr\.?\s*/i, '').trim();
-      const em = (m.email || '').trim().toLowerCase();
-      return disp === clean || dispNoDr === cleanNoDr || em === clean ||
-             (cleanNoDr === 'sam' && dispNoDr === 'sameer') ||
-             (cleanNoDr === 'sameer' && dispNoDr === 'sameer');
-    });
-
-    if (teamMember) {
-      const isDoc = teamMember.role === 'doctor';
-      const isAdmin = teamMember.role === 'admin' || teamMember.role === 'super_admin';
+    // 1. Check teamList by ID first
+    const teamMemberById = (teamList || []).find((m) => m.id === nameOrId);
+    if (teamMemberById) {
+      const isDoc = teamMemberById.role === 'doctor';
+      const isAdmin = teamMemberById.role === 'admin' || teamMemberById.role === 'super_admin';
       return {
         role: isDoc ? ('team_doctor' as const) : ('sales' as const),
-        label: teamMember.display_name || teamMember.email,
-        badge: isAdmin ? 'Admin / Staff' : isDoc ? presetRoleSingular : (teamMember.role.charAt(0).toUpperCase() + teamMember.role.slice(1)),
+        label: teamMemberById.display_name || teamMemberById.email,
+        badge: isAdmin ? 'Admin / Staff' : isDoc ? presetRoleSingular : (teamMemberById.role.charAt(0).toUpperCase() + teamMemberById.role.slice(1)),
         colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
         icon: User,
       };
     }
 
-    // Check predefinedDoctors
+    // 2. Check teamList by exact display name or email
+    const teamMemberByName = (teamList || []).find((m) => {
+      const disp = (m.display_name || '').trim().toLowerCase();
+      const em = (m.email || '').trim().toLowerCase();
+      return disp === clean || em === clean;
+    });
+
+    if (teamMemberByName) {
+      const isDoc = teamMemberByName.role === 'doctor';
+      const isAdmin = teamMemberByName.role === 'admin' || teamMemberByName.role === 'super_admin';
+      return {
+        role: isDoc ? ('team_doctor' as const) : ('sales' as const),
+        label: teamMemberByName.display_name || teamMemberByName.email,
+        badge: isAdmin ? 'Admin / Staff' : isDoc ? presetRoleSingular : (teamMemberByName.role.charAt(0).toUpperCase() + teamMemberByName.role.slice(1)),
+        colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
+        icon: User,
+      };
+    }
+
+    // 3. Check teamList by Dr. stripped prefix match (only if cleanNoDr === dispNoDr and cleanNoDr !== 'sam')
+    const teamMemberByDoc = (teamList || []).find((m) => {
+      const disp = (m.display_name || '').trim().toLowerCase();
+      const dispNoDr = disp.replace(/^dr\.?\s*/i, '').trim();
+      return cleanNoDr === dispNoDr && cleanNoDr.length > 2 && cleanNoDr !== 'sam';
+    });
+
+    if (teamMemberByDoc) {
+      const isDoc = teamMemberByDoc.role === 'doctor';
+      const isAdmin = teamMemberByDoc.role === 'admin' || teamMemberByDoc.role === 'super_admin';
+      return {
+        role: isDoc ? ('team_doctor' as const) : ('sales' as const),
+        label: teamMemberByDoc.display_name || teamMemberByDoc.email,
+        badge: isAdmin ? 'Admin / Staff' : isDoc ? presetRoleSingular : (teamMemberByDoc.role.charAt(0).toUpperCase() + teamMemberByDoc.role.slice(1)),
+        colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
+        icon: User,
+      };
+    }
+
+    // 4. Check predefinedDoctors (presets)
     const presetDoc = categorizedStaffOptions.predefinedDoctors.find((p) => {
       const pLow = p.value.toLowerCase();
       const pNoDr = pLow.replace(/^dr\.?\s*/i, '').trim();
-      return pLow === clean || pNoDr === cleanNoDr ||
-             (cleanNoDr === 'sam' && pNoDr === 'sameer') ||
-             (cleanNoDr === 'sameer' && pNoDr === 'sam');
+      return pLow === clean || norm(pLow) === norm(clean) || (cleanNoDr === pNoDr && cleanNoDr.length > 2 && cleanNoDr !== 'sam');
     });
 
     if (presetDoc) {
@@ -4163,7 +4184,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       };
     }
 
-    // Fallback: custom preset doctor name
+    // Fallback: custom preset doctor name (preserve exact name passed)
     return {
       role: 'preset_doctor' as const,
       label: nameOrId,
@@ -4286,9 +4307,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   function renderCustomerAssignPopover() {
     if (!custAssignPopover) return null;
     const q = custAssignSearch.trim().toLowerCase();
+    const norm = (s: string) => s.trim().toLowerCase().replace(/tellecalling/g, 'telecalling');
     const currentVal = (custAssignPopover.currentValue || '').trim().toLowerCase();
+    const currentValNorm = norm(currentVal);
 
-    const filteredPresets = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
+    const filteredPresets = categorizedStaffOptions.predefinedDoctors.filter((p) => {
+      if (!q) return true;
+      const pLow = p.value.toLowerCase();
+      return pLow.includes(q) || norm(pLow).includes(norm(q));
+    });
     const totalCount = categorizedStaffOptions.predefinedDoctors.length;
 
     return (
@@ -4360,7 +4387,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {presetRolePlural.toUpperCase()} (PRESETS)
                 </div>
                 {filteredPresets.map((preset) => {
-                  const isActive = currentVal === preset.value.toLowerCase();
+                  const isActive = preset.value.toLowerCase() === currentVal || norm(preset.value) === currentValNorm;
                   return (
                     <button
                       key={preset.value}
@@ -7538,10 +7565,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         const cleanDisp = disp.replace(/^dr\.?\s*/i, '').trim();
         const em = (m.email || '').trim().toLowerCase();
         return disp === docName.toLowerCase() ||
-               cleanDisp === cleanDoc ||
                em === docName.toLowerCase() ||
-               (cleanDoc === 'sam' && cleanDisp === 'sameer') ||
-               (cleanDoc === 'sameer' && cleanDisp === 'sameer');
+               (cleanDisp === cleanDoc && cleanDoc.length > 2 && cleanDoc !== 'sam' && cleanDisp !== 'sam');
       });
 
       if (matchingTeam) {

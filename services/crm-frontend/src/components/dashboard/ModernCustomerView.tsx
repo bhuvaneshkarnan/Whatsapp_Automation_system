@@ -1034,15 +1034,14 @@ export function ModernCustomerView({
         if (staffFilter === 'unassigned') {
           if (c.preferred_doctor) return false;
         } else {
+          const norm = (s: string) => s.trim().toLowerCase().replace(/tellecalling/g, 'telecalling');
           const filterLower = staffFilter.toLowerCase();
           const cleanFilter = filterLower.replace(/^dr\.?\s*/i, '').trim();
           const docLower = (c.preferred_doctor || '').toLowerCase();
           const cleanDoc = docLower.replace(/^dr\.?\s*/i, '').trim();
           const isMatch = docLower === filterLower ||
-                          cleanDoc === cleanFilter ||
-                          (cleanFilter === 'sameer' && (cleanDoc === 'sameer' || cleanDoc === 'sam')) ||
-                          (cleanFilter === 'sam' && (cleanDoc === 'sameer' || cleanDoc === 'sam')) ||
-                          (cleanFilter === 'dr. sameer' && (cleanDoc === 'sameer' || cleanDoc === 'sam'));
+                          norm(docLower) === norm(filterLower) ||
+                          (cleanDoc === cleanFilter && cleanFilter.length > 2 && cleanFilter !== 'sam');
           if (!isMatch) return false;
         }
       }
