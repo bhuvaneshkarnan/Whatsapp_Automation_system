@@ -2837,7 +2837,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       const linkedCust = (customers || []).find((cu) => (cu.phone || '').replace(/[^0-9]/g, '').slice(-10) === normPhone);
       const prob = c.lead_probability || linkedCust?.lead_probability;
       const rate = c.conversion_rate ?? linkedCust?.conversion_rate ?? 0;
-      const isConv = Boolean(c.converted || linkedCust?.converted || c.customer_status === 'converted' || linkedCust?.status === 'converted');
+      const isConv = Boolean(c.converted || linkedCust?.converted || c.customer_status === 'converted' || linkedCust?.status === 'converted' || (c.conversion_rate != null && c.conversion_rate >= 99) || (linkedCust?.conversion_rate != null && linkedCust.conversion_rate >= 99));
       return (prob === 'hot' || (!prob && rate >= 75)) && !isConv;
     }).length;
   }, [conversations, customers]);
@@ -4418,7 +4418,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const currentRate = targetCust.conversion_rate != null
       ? targetCust.conversion_rate
       : (targetCust.lead_probability === 'hot' ? 90 : (targetCust.lead_probability === 'cold' ? 20 : 50));
-    const isConverted = targetCust.converted || targetCust.status === 'converted';
+    const isConverted = targetCust.converted || targetCust.status === 'converted' || (targetCust.conversion_rate != null && targetCust.conversion_rate >= 99);
 
     const options = [
       {
@@ -4458,11 +4458,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         hoverBg: 'hover:bg-sky-50 dark:hover:bg-sky-950/40',
       },
       {
-        pct: 100,
+        pct: 99,
         prob: 'hot' as const,
         icon: CheckCircle2,
-        label: 'Converted',
-        sub: 'Successfully closed & won',
+        label: 'Booked',
+        sub: 'Appointment booked & scheduled',
         pillBg: 'bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300',
         iconColor: 'text-emerald-600',
         activeBg: 'bg-emerald-50 border-emerald-300 dark:bg-emerald-950/80 dark:border-emerald-800',
@@ -4513,8 +4513,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <div className="space-y-1">
             {options.map((opt) => {
               const isSelected =
-                (opt.pct === 100 && isConverted) ||
-                (opt.pct === 90 && currentRate >= 75 && !isConverted) ||
+                (opt.pct === 99 && (isConverted || currentRate >= 99)) ||
+                (opt.pct === 90 && currentRate >= 75 && currentRate < 99 && !isConverted) ||
                 (opt.pct === 50 && currentRate >= 40 && currentRate < 75 && !isConverted) ||
                 (opt.pct === 20 && currentRate < 40 && !isConverted);
               const IconComp = opt.icon;
@@ -4527,8 +4527,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     handleUpdateCustomer(targetCust.id, {
                       conversion_rate: opt.pct,
                       lead_probability: opt.prob,
-                      converted: opt.pct === 100,
-                      status: opt.pct === 100 ? 'converted' : (targetCust.status === 'converted' ? 'contacted' : undefined),
+                      converted: opt.pct >= 99,
+                      status: opt.pct >= 99 ? 'converted' : (targetCust.status === 'converted' ? 'contacted' : undefined),
                     });
                     setActiveRatePopover(null);
                   }}
@@ -5608,6 +5608,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       loadBookings();
       loadConversations();
       loadContacts();
+      loadCustomers();
       setTimeout(() => {
         setIsAddBookingOpen(false);
         setBookingCreateSuccess('');
@@ -6309,8 +6310,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           }));
         }
         if (patch.lead_probability !== undefined || patch.conversion_rate !== undefined || patch.converted !== undefined) {
-          const probTitle = patch.converted
-            ? 'Converted 🎉'
+          const probTitle = (patch.converted || (patch.conversion_rate !== undefined && patch.conversion_rate >= 99))
+            ? 'Booked (99%) 🎉'
             : patch.lead_probability
             ? `${patch.lead_probability.charAt(0).toUpperCase() + patch.lead_probability.slice(1)} Lead`
             : 'Updated';
@@ -8265,7 +8266,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         const linkedCust = (customers || []).find((cu) => (cu.phone || '').replace(/[^0-9]/g, '').slice(-10) === normPhone);
         const prob = c.lead_probability || linkedCust?.lead_probability;
         const rate = c.conversion_rate ?? linkedCust?.conversion_rate ?? 0;
-        const isConv = Boolean(c.converted || linkedCust?.converted || c.customer_status === 'converted' || linkedCust?.status === 'converted');
+        const isConv = Boolean(c.converted || linkedCust?.converted || c.customer_status === 'converted' || linkedCust?.status === 'converted' || (c.conversion_rate != null && c.conversion_rate >= 99) || (linkedCust?.conversion_rate != null && linkedCust.conversion_rate >= 99));
         return (prob === 'hot' || (!prob && rate >= 75)) && !isConv;
       }
       return true;
@@ -9197,32 +9198,43 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   (WA: {selectedCustomer.name})
                 </span>
               )}
-              {selectedCustomer.lead_probability && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const rate = selectedCustomer.conversion_rate != null
-                      ? selectedCustomer.conversion_rate
-                      : (selectedCustomer.lead_probability === 'hot' ? 90 : (selectedCustomer.lead_probability === 'cold' ? 20 : 50));
-                    openRatePopover(selectedCustomer.id, rate, e.currentTarget);
-                  }}
-                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 uppercase tracking-wider cursor-pointer transition-all hover:opacity-85 ${
-                    selectedCustomer.lead_probability === 'hot'
-                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                      : selectedCustomer.lead_probability === 'warm'
-                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                      : 'bg-slate-100 text-slate-700 border border-slate-200'
-                  }`}
-                  title="Click to change lead status"
-                >
-                  {selectedCustomer.lead_probability === 'hot' ? <Flame className="w-2.5 h-2.5 text-rose-600" /> :
-                   selectedCustomer.lead_probability === 'warm' ? <Sun className="w-2.5 h-2.5 text-amber-600" /> :
-                   <Snowflake className="w-2.5 h-2.5 text-slate-600" />}
-                  <span>{selectedCustomer.lead_probability}</span>
-                  <ChevronDown className="w-2 h-2 opacity-60" />
-                </button>
-              )}
+              {(() => {
+                const isBooked = Boolean(selectedCustomer.converted || selectedCustomer.status === 'converted' || (selectedCustomer.conversion_rate != null && selectedCustomer.conversion_rate >= 99) || (selectedCustomer.call_status || '').toLowerCase().includes('confirm') || (selectedCustomer.call_status || '').toLowerCase().includes('convert'));
+                const rate = selectedCustomer.conversion_rate != null
+                  ? selectedCustomer.conversion_rate
+                  : (selectedCustomer.lead_probability === 'hot' ? 90 : (selectedCustomer.lead_probability === 'cold' ? 20 : 50));
+                return (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openRatePopover(selectedCustomer.id, isBooked ? 99 : rate, e.currentTarget);
+                    }}
+                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 uppercase tracking-wider cursor-pointer transition-all hover:opacity-85 ${
+                      isBooked
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
+                        : selectedCustomer.lead_probability === 'hot' || rate >= 75
+                        ? 'bg-rose-100 text-rose-800 border-rose-200'
+                        : selectedCustomer.lead_probability === 'warm' || rate >= 40
+                        ? 'bg-amber-100 text-amber-800 border-amber-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                    title="Click to change lead status"
+                  >
+                    {isBooked ? (
+                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                    ) : selectedCustomer.lead_probability === 'hot' || rate >= 75 ? (
+                      <Flame className="w-2.5 h-2.5 text-rose-600" />
+                    ) : selectedCustomer.lead_probability === 'warm' || rate >= 40 ? (
+                      <Sun className="w-2.5 h-2.5 text-amber-600" />
+                    ) : (
+                      <Snowflake className="w-2.5 h-2.5 text-slate-600" />
+                    )}
+                    <span>{isBooked ? 'Booked (99%)' : selectedCustomer.lead_probability || 'Warm'}</span>
+                    <ChevronDown className="w-2 h-2 opacity-60" />
+                  </button>
+                );
+              })()}
               {(selectedCustomer.source === 'website_form' || selectedCustomer.metadata?.source === 'website_form' || selectedCustomer.metadata?.booked_via === 'website_form') && (
                 <span
                   className="text-[9px] font-semibold px-1.5 py-0.2 rounded-xs bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1 shrink-0"
@@ -14465,13 +14477,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {(() => {
                                     const prob = matchedCust?.lead_probability || conv.lead_probability;
                                     const rate = matchedCust?.conversion_rate ?? conv.conversion_rate ?? (prob === 'hot' ? 90 : (prob === 'cold' ? 20 : 50));
-                                    const isConvWon = Boolean(matchedCust?.converted || matchedCust?.status === 'converted' || (matchedCust?.call_status || '').toLowerCase().includes('confirm') || (matchedCust?.call_status || '').toLowerCase().includes('convert') || conv.converted || conv.customer_status === 'converted');
+                                    const isConvWon = Boolean(matchedCust?.converted || matchedCust?.status === 'converted' || (matchedCust?.conversion_rate != null && matchedCust.conversion_rate >= 99) || (matchedCust?.call_status || '').toLowerCase().includes('confirm') || (matchedCust?.call_status || '').toLowerCase().includes('convert') || conv.converted || conv.customer_status === 'converted' || (conv.conversion_rate != null && conv.conversion_rate >= 99));
 
                                     if (isConvWon) {
                                       return (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 inline-flex items-center gap-0.5" title="Converted Lead">
+                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 inline-flex items-center gap-0.5" title="Booked Appointment (99%)">
                                           <CheckCircle2 className="w-2.5 h-2.5 stroke-[2.5]" />
-                                          <span>Won</span>
+                                          <span>Booked</span>
                                         </span>
                                       );
                                     }
@@ -14597,10 +14609,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         const isConverted = Boolean(
                           matchedCust?.converted ||
                           matchedCust?.status === 'converted' ||
+                          (matchedCust?.conversion_rate != null && matchedCust.conversion_rate >= 99) ||
                           (matchedCust?.call_status || '').toLowerCase().includes('confirm') ||
                           (matchedCust?.call_status || '').toLowerCase().includes('convert') ||
                           selectedConv.converted ||
-                          selectedConv.customer_status === 'converted'
+                          selectedConv.customer_status === 'converted' ||
+                          (selectedConv.conversion_rate != null && selectedConv.conversion_rate >= 99)
                         );
                         const initial = selectedConv.contact_name
                           ? selectedConv.contact_name.trim()[0].toUpperCase()
@@ -14683,7 +14697,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                     title={`Lead Status: ${
                                       isConverted
-                                        ? 'Converted'
+                                        ? 'Booked (99%)'
                                         : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
                                         ? `Hot Lead (${custRate}%)`
                                         : custLeadProb === 'cold' || custRate < 40
@@ -14702,7 +14716,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     )}
                                     <span>
                                       {isConverted
-                                        ? 'Converted'
+                                        ? 'Booked (99%)'
                                         : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
                                         ? `Hot (${custRate}%)`
                                         : custLeadProb === 'cold' || custRate < 40
@@ -14864,7 +14878,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             <span className="text-text-muted">Lead Status: </span>
                                             <span className="font-semibold text-text-primary">
                                               {isConverted
-                                                ? 'Converted'
+                                                ? 'Booked (99%)'
                                                 : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
                                                 ? `Hot (${custRate}%)`
                                                 : custLeadProb === 'cold' || custRate < 40
@@ -15882,47 +15896,59 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         {/* Row F: Action Toolbar (Improved Lead Status + Real WhatsApp + Profile) */}
                                         <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
                                           {/* Improved Lead Status Pill */}
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (activeRatePopover?.customerId === cust.id) {
-                                                setActiveRatePopover(null);
-                                              } else {
-                                                openRatePopover(cust.id, rate, e.currentTarget);
-                                              }
-                                            }}
-                                            className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
-                                              cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert'))
-                                                  ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
-                                                  : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
-                                                  ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300'
-                                                  : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40)
-                                                  ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300'
-                                                  : 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300'
-                                            }`}
-                                            title={`Lead Status: ${cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert')) ? 'Converted' : cust.lead_probability ? cust.lead_probability.charAt(0).toUpperCase() + cust.lead_probability.slice(1) : 'Unknown'} (${rate}%) — Click to change`}
-                                          >
-                                            {cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert')) ? (
-                                                <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
-                                              ) : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75) ? (
-                                                <Flame className="w-3 h-3 text-rose-600 stroke-[2.2]" />
-                                              ) : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40) ? (
-                                                <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
-                                              ) : (
-                                                <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
-                                              )}
-                                            <span>
-                                              {cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert'))
-                                                  ? 'Converted'
-                                                  : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
-                                                  ? `Hot (${rate}%)`
-                                                  : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40)
-                                                  ? `Warm (${rate}%)`
-                                                  : `Cold (${rate}%)`}
-                                            </span>
-                                            <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
-                                          </button>
+                                          {(() => {
+                                            const isCustBooked = Boolean(
+                                              cust.converted ||
+                                              cust.status === 'converted' ||
+                                              cust.converted === true ||
+                                              (cust.conversion_rate != null && cust.conversion_rate >= 99) ||
+                                              (cust.call_status || '').toLowerCase().includes('confirm') ||
+                                              (cust.call_status || '').toLowerCase().includes('convert')
+                                            );
+                                            return (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  if (activeRatePopover?.customerId === cust.id) {
+                                                    setActiveRatePopover(null);
+                                                  } else {
+                                                    openRatePopover(cust.id, isCustBooked ? 99 : rate, e.currentTarget);
+                                                  }
+                                                }}
+                                                className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
+                                                  isCustBooked
+                                                    ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
+                                                    : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
+                                                    ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300'
+                                                    : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40)
+                                                    ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300'
+                                                    : 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300'
+                                                }`}
+                                                title={`Lead Status: ${isCustBooked ? 'Booked (99%)' : cust.lead_probability ? cust.lead_probability.charAt(0).toUpperCase() + cust.lead_probability.slice(1) : 'Unknown'} (${isCustBooked ? 99 : rate}%) — Click to change`}
+                                              >
+                                                {isCustBooked ? (
+                                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
+                                                ) : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75) ? (
+                                                  <Flame className="w-3 h-3 text-rose-600 stroke-[2.2]" />
+                                                ) : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40) ? (
+                                                  <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
+                                                ) : (
+                                                  <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
+                                                )}
+                                                <span>
+                                                  {isCustBooked
+                                                    ? 'Booked (99%)'
+                                                    : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
+                                                    ? `Hot (${rate}%)`
+                                                    : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40)
+                                                    ? `Warm (${rate}%)`
+                                                    : `Cold (${rate}%)`}
+                                                </span>
+                                                <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
+                                              </button>
+                                            );
+                                          })()}
 
                                           {/* Action Buttons: Real WhatsApp & Profile */}
                                           <div className="flex items-center gap-1">
@@ -25492,11 +25518,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <ChevronDown className="w-2.5 h-2.5 opacity-60" />
                               </button>
                             )}
-                            {/* Converted Badge */}
-                            {(selectedCustomer.converted || selectedCustomer.status === 'converted' || (selectedCustomer.call_status || '').toLowerCase().includes('confirm') || (selectedCustomer.call_status || '').toLowerCase().includes('convert')) ? (
+                            {/* Booked (99%) Badge */}
+                            {(selectedCustomer.converted || selectedCustomer.status === 'converted' || (selectedCustomer.conversion_rate != null && selectedCustomer.conversion_rate >= 99) || (selectedCustomer.call_status || '').toLowerCase().includes('confirm') || (selectedCustomer.call_status || '').toLowerCase().includes('convert')) ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                <span>Converted</span>
+                                <span>Booked (99%)</span>
                               </span>
                             ) : null}
                             {(selectedCustomer.source === 'website_form' || selectedCustomer.metadata?.source === 'website_form' || selectedCustomer.metadata?.booked_via === 'website_form') && (

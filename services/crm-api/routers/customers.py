@@ -152,6 +152,7 @@ async def get_customer_global_stats(
                     call_status ILIKE ${idx}
                     OR status = 'converted'
                     OR COALESCE(converted, false) = true
+                    OR COALESCE(conversion_rate, 0) >= 99
                     OR call_status ILIKE '%confirm%'
                     OR EXISTS (
                         SELECT 1 FROM bookings b
@@ -217,6 +218,7 @@ async def get_customer_global_stats(
                     conditions.append("""(
                         status = 'converted'
                         OR COALESCE(converted, false) = true
+                        OR COALESCE(conversion_rate, 0) >= 99
                         OR call_status ILIKE '%convert%'
                         OR call_status ILIKE '%confirm%'
                         OR EXISTS (
@@ -373,6 +375,7 @@ async def get_customer_global_stats(
                 COUNT(*) FILTER (
                     WHERE (status IN ('new', 'follow-up') OR call_status ILIKE '%new%' OR call_status ILIKE '%info%')
                     AND COALESCE(converted, false) = false
+                    AND COALESCE(conversion_rate, 0) < 99
                     AND COALESCE(status, '') NOT IN ('converted', 'lost')
                     AND COALESCE(call_status, '') NOT ILIKE '%convert%'
                     AND COALESCE(call_status, '') NOT ILIKE '%confirm%'
@@ -380,6 +383,7 @@ async def get_customer_global_stats(
                 COUNT(*) FILTER (
                     WHERE LOWER(lead_probability) = 'hot' 
                     AND COALESCE(converted, false) = false
+                    AND COALESCE(conversion_rate, 0) < 99
                     AND COALESCE(status, '') NOT IN ('converted', 'lost')
                     AND COALESCE(call_status, '') NOT ILIKE '%convert%'
                     AND COALESCE(call_status, '') NOT ILIKE '%confirm%'
@@ -387,6 +391,7 @@ async def get_customer_global_stats(
                 COUNT(*) FILTER (
                     WHERE status = 'converted' 
                     OR converted = true 
+                    OR COALESCE(conversion_rate, 0) >= 99
                     OR call_status ILIKE '%convert%' 
                     OR call_status ILIKE '%confirm%'
                 ) as converted
@@ -496,6 +501,7 @@ async def list_customers(
                     c.call_status ILIKE ${idx}
                     OR c.status = 'converted'
                     OR COALESCE(c.converted, false) = true
+                    OR COALESCE(c.conversion_rate, 0) >= 99
                     OR c.call_status ILIKE '%confirm%'
                     OR COALESCE(b_stats.completed_bookings_count, 0) > 0
                 )""")
@@ -528,6 +534,7 @@ async def list_customers(
                         AND c.followup_date IS NULL
                         AND COALESCE(b_stats.completed_bookings_count, 0) = 0
                         AND COALESCE(c.converted, false) = false
+                        AND COALESCE(c.conversion_rate, 0) < 99
                         AND COALESCE(c.status, '') NOT IN ('converted', 'lost', 'follow-up', 'contacted')
                         AND COALESCE(c.call_status, '') NOT ILIKE '%convert%'
                         AND COALESCE(c.call_status, '') NOT ILIKE '%confirm%'
@@ -549,6 +556,7 @@ async def list_customers(
                     conditions.append("""(
                         c.status = 'converted'
                         OR COALESCE(c.converted, false) = true
+                        OR COALESCE(c.conversion_rate, 0) >= 99
                         OR c.call_status ILIKE '%convert%'
                         OR c.call_status ILIKE '%confirm%'
                         OR COALESCE(b_stats.completed_bookings_count, 0) > 0
@@ -1251,6 +1259,8 @@ async def update_customer(
         updates.append(f"converted = ${idx}")
         params.append(payload.converted)
         idx += 1
+        if payload.converted is True and payload.conversion_rate is None:
+            updates.append("conversion_rate = COALESCE(conversion_rate, 99)")
 
     if payload.clear_followup:
         updates.append(f"followup_date = ${idx}")
@@ -1293,10 +1303,12 @@ async def update_customer(
             updates.append(f"lead_probability = ${idx}")
             params.append(legacy_lp)
             idx += 1
-        if cr == 100 and payload.converted is None:
+        if cr >= 99 and payload.converted is None:
             updates.append(f"converted = ${idx}")
             params.append(True)
             idx += 1
+            if payload.status is None:
+                updates.append("status = 'converted'")
 
     if payload.call_status is not None:
         cs = payload.call_status.strip()

@@ -363,11 +363,12 @@ async def create_booking(
             if not existing_cust:
                 new_cust_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, deal_value, followup_date, followup_time, created_at, updated_at)
-                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, $6, $7, CURRENT_DATE + 7, '10:00 AM', now(), now())
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, conversion_rate, health_concern, preferred_doctor, deal_value, followup_date, followup_time, created_at, updated_at)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, 99, $5, $6, $7, CURRENT_DATE + 7, '10:00 AM', now(), now())
                        ON CONFLICT (tenant_id, phone) DO UPDATE
                        SET status = 'converted',
                            converted = true,
+                           conversion_rate = 99,
                            lead_probability = 'hot',
                            deal_value = CASE WHEN EXCLUDED.deal_value > 0 THEN EXCLUDED.deal_value ELSE customers.deal_value END,
                            preferred_doctor = COALESCE(customers.preferred_doctor, EXCLUDED.preferred_doctor),
@@ -375,12 +376,13 @@ async def create_booking(
                     new_cust_id, tenant_id, clean_phone, clean_name, payload.service.strip() or "General Consultation", staff, eff_price
                 )
             else:
-                # Update status to converted, name if empty, deal_value, and link preferred_doctor if assigned
+                # Update status to converted, conversion_rate to 99, name if empty, deal_value, and link preferred_doctor if assigned
                 await conn.execute(
                     """UPDATE customers 
                        SET name = COALESCE(NULLIF(name, ''), $1), 
                            status = 'converted', 
                            converted = true, 
+                           conversion_rate = 99,
                            lead_probability = 'hot', 
                            deal_value = CASE WHEN $2 > 0 THEN $2 ELSE deal_value END,
                            preferred_doctor = COALESCE(preferred_doctor, $3),

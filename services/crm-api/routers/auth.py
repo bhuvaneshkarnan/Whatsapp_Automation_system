@@ -2278,9 +2278,9 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             if not cust:
                 cust_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, source, metadata, created_at, updated_at)
-                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, $6, $7, $8::jsonb, now(), now())
-                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', health_concern = EXCLUDED.health_concern, preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor), source = COALESCE(customers.source, EXCLUDED.source), metadata = COALESCE(customers.metadata, '{}'::jsonb) || EXCLUDED.metadata, updated_at = now()""",
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, conversion_rate, health_concern, preferred_doctor, source, metadata, created_at, updated_at)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, 99, $5, $6, $7, $8::jsonb, now(), now())
+                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, conversion_rate = 99, lead_probability = 'hot', health_concern = EXCLUDED.health_concern, preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor), source = COALESCE(customers.source, EXCLUDED.source), metadata = COALESCE(customers.metadata, '{}'::jsonb) || EXCLUDED.metadata, updated_at = now()""",
                     cust_id, tenant_id, clean_phone, clean_name, health_concern_str, staff, booking_source, json.dumps({"source": booking_source, "booked_via": "website_form"})
                 )
             else:
@@ -2290,6 +2290,7 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                        SET name = COALESCE(NULLIF(name, ''), $1), 
                            status = 'converted', 
                            converted = true, 
+                           conversion_rate = 99,
                            lead_probability = 'hot', 
                            health_concern = $2, 
                            preferred_doctor = COALESCE($3, preferred_doctor),

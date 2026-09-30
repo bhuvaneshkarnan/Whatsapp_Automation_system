@@ -6087,17 +6087,21 @@ end
                 )
                 logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt), price=eff_price)
 
-            if eff_price > 0:
-                try:
-                    await self.db_pool.execute(
-                        """UPDATE customers
-                           SET deal_value = $1, status = 'converted', converted = true, lead_probability = 'hot', updated_at = NOW()
-                           WHERE tenant_id = $2::uuid AND (phone = $3 OR phone LIKE $4 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $5)""",
-                        eff_price, tenant_id, contact_phone, f"%{contact_phone[-10:]}%", contact_phone[-10:] if len(contact_phone) >= 10 else contact_phone
-                    )
-                    logger.info("ai_booking_customer_deal_value_saved", phone=contact_phone, deal_value=eff_price)
-                except Exception as e_cdeal:
-                    logger.warning("save_customer_deal_value_direct_failed", error=str(e_cdeal))
+            try:
+                await self.db_pool.execute(
+                    """UPDATE customers
+                       SET deal_value = CASE WHEN $1 > 0 THEN $1 ELSE deal_value END,
+                           status = 'converted',
+                           converted = true,
+                           conversion_rate = 99,
+                           lead_probability = 'hot',
+                           updated_at = NOW()
+                       WHERE tenant_id = $2::uuid AND (phone = $3 OR phone LIKE $4 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $5)""",
+                    eff_price, tenant_id, contact_phone, f"%{contact_phone[-10:]}%", contact_phone[-10:] if len(contact_phone) >= 10 else contact_phone
+                )
+                logger.info("ai_booking_customer_deal_value_saved", phone=contact_phone, deal_value=eff_price, conversion_rate=99)
+            except Exception as e_cdeal:
+                logger.warning("save_customer_deal_value_direct_failed", error=str(e_cdeal))
 
             if booking_loc:
                 try:
