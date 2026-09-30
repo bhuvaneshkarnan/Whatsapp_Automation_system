@@ -54,7 +54,12 @@ async def list_conversations(
                    bk.last_visit_service,
                    bk.last_visit_doctor,
                    cust_info.preferred_doctor,
-                   cust_info.health_concern
+                   cust_info.health_concern,
+                   cust_info.customer_id,
+                   cust_info.lead_probability,
+                   cust_info.conversion_rate,
+                   cust_info.converted,
+                   cust_info.customer_status
             FROM conversations c
             JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
             LEFT JOIN users u ON u.id = c.assigned_to AND u.tenant_id = c.tenant_id
@@ -93,9 +98,21 @@ async def list_conversations(
                 WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
             ) bk ON true
             LEFT JOIN LATERAL (
-                SELECT cust.preferred_doctor, cust.health_concern 
+                SELECT 
+                    cust.id AS customer_id,
+                    cust.lead_probability,
+                    cust.conversion_rate,
+                    cust.converted,
+                    cust.status AS customer_status,
+                    cust.preferred_doctor, 
+                    cust.health_concern 
                 FROM customers cust 
-                WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) 
+                WHERE cust.tenant_id = c.tenant_id 
+                  AND (
+                    cust.phone = ct.phone 
+                    OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)
+                  )
+                ORDER BY cust.updated_at DESC NULLS LAST
                 LIMIT 1
             ) cust_info ON true
             WHERE c.tenant_id = $1::uuid
@@ -161,6 +178,11 @@ async def list_conversations(
             "last_visit_doctor": r["last_visit_doctor"] or None,
             "preferred_doctor": r["preferred_doctor"] or r["last_visit_doctor"] or None,
             "health_concern": r["health_concern"] or None,
+            "customer_id": str(r["customer_id"]) if r["customer_id"] else None,
+            "lead_probability": r["lead_probability"] or None,
+            "conversion_rate": r["conversion_rate"] if r["conversion_rate"] is not None else None,
+            "converted": bool(r["converted"]) if r["converted"] is not None else False,
+            "customer_status": r["customer_status"] or None,
         })
     return out
 

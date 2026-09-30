@@ -259,10 +259,11 @@ async def analyze_with_gemini_vision(image_bytes: bytes, mime_type: str, gemini_
                     },
                     {
                         "text": (
-                            "You are an assistant for a healthcare / wellness clinic on WhatsApp. "
-                            "Analyze this image sent by a customer. "
-                            "In 1-2 concise sentences, clearly describe what is shown (any visible text, document, prescription, medicine, skin/body issue, coupon, clinic flyer, or question). "
-                            "Return ONLY the concise factual description so the WhatsApp AI assistant can reply appropriately."
+                            "You are an objective document and image analysis engine. "
+                            "Analyze this image sent by a customer to a business on WhatsApp. "
+                            "In 1-2 concise, objective sentences, clearly describe what is visible in the image (e.g. text content, medical prescription/report, skin/body concern, product, payment receipt, third-party brochure, or document). "
+                            "CRITICAL INSTRUCTION: Do NOT assume or state that any business name, brand, doctor, branch list, location, or address shown in the image belongs to the receiving business. It may belong to a competitor or third party. Describe the visible content objectively (e.g. 'The image contains a document listing locations...', 'A photo showing text...'). "
+                            "Return ONLY the concise factual description without assuming affiliation."
                         )
                     }
                 ]

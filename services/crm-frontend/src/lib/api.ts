@@ -339,6 +339,11 @@ export interface Conversation {
   last_visit_doctor?: string | null;
   preferred_doctor?: string | null;
   health_concern?: string | null;
+  customer_id?: string | null;
+  lead_probability?: 'hot' | 'warm' | 'cold' | string | null;
+  conversion_rate?: number | null;
+  converted?: boolean | null;
+  customer_status?: string | null;
 }
 
 export interface DashboardAnalyticsData {

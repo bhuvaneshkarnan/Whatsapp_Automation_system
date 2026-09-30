@@ -2829,7 +2829,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'new' | 'new_lead' | 'repeat' | 'important'>('all');
+  const [filter, setFilter] = useState<'all' | 'new' | 'new_lead' | 'repeat' | 'important' | 'hot'>('all');
+
+  const hotLeadsCount = useMemo(() => {
+    return (conversations || []).filter((c) => {
+      const normPhone = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '').slice(-10);
+      const linkedCust = (customers || []).find((cu) => (cu.phone || '').replace(/[^0-9]/g, '').slice(-10) === normPhone);
+      const prob = c.lead_probability || linkedCust?.lead_probability;
+      const rate = c.conversion_rate ?? linkedCust?.conversion_rate ?? 0;
+      const isConv = Boolean(c.converted || linkedCust?.converted || c.customer_status === 'converted' || linkedCust?.status === 'converted');
+      return (prob === 'hot' || (!prob && rate >= 75)) && !isConv;
+    }).length;
+  }, [conversations, customers]);
 
   // Media Attachment & Lightbox State
   const [selectedMediaFile, setSelectedMediaFile] = useState<File | null>(null);
@@ -6212,17 +6223,99 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   async function handleUpdateCustomer(customerId: string, patch: Partial<Customer>) {
-    // Instant optimistic update
+    // Instant optimistic update on customers & selectedCustomer
     setCustomers((prev) => prev.map((c) => (c.id === customerId ? { ...c, ...patch } : c)));
     if (selectedCustomer && selectedCustomer.id === customerId) {
       setSelectedCustomer((prev) => (prev ? { ...prev, ...patch } : null));
     }
+
+    // Bidirectional sync with Chat View (selected conversation & sidebar conversation list)
+    const targetCust = customers.find((c) => c.id === customerId);
+    const targetPhoneDigits = (patch.phone || targetCust?.phone || '').replace(/\D/g, '');
+    const targetLast10 = targetPhoneDigits.length >= 10 ? targetPhoneDigits.slice(-10) : targetPhoneDigits;
+
+    if (targetLast10) {
+      if (selectedConv) {
+        const convPhone = (selectedConv.contact_phone || selectedConv.phone || '').replace(/\D/g, '');
+        if (convPhone === targetPhoneDigits || (targetLast10 && convPhone.endsWith(targetLast10))) {
+          setSelectedConv((prev) => (prev ? {
+            ...prev,
+            customer_id: customerId,
+            lead_probability: (patch.lead_probability as any) !== undefined ? patch.lead_probability : prev.lead_probability,
+            conversion_rate: patch.conversion_rate !== undefined ? patch.conversion_rate : prev.conversion_rate,
+            converted: patch.converted !== undefined ? patch.converted : prev.converted,
+            customer_status: patch.status !== undefined ? patch.status : prev.customer_status,
+            preferred_doctor: patch.preferred_doctor !== undefined ? patch.preferred_doctor : prev.preferred_doctor,
+            health_concern: patch.health_concern !== undefined ? patch.health_concern : prev.health_concern,
+          } : null));
+        }
+      }
+      setConversations((prev) => prev.map((cv) => {
+        const cvPhone = (cv.contact_phone || cv.phone || '').replace(/\D/g, '');
+        if (cvPhone === targetPhoneDigits || (targetLast10 && cvPhone.endsWith(targetLast10))) {
+          return {
+            ...cv,
+            customer_id: customerId,
+            lead_probability: (patch.lead_probability as any) !== undefined ? patch.lead_probability : cv.lead_probability,
+            conversion_rate: patch.conversion_rate !== undefined ? patch.conversion_rate : cv.conversion_rate,
+            converted: patch.converted !== undefined ? patch.converted : cv.converted,
+            customer_status: patch.status !== undefined ? patch.status : cv.customer_status,
+            preferred_doctor: patch.preferred_doctor !== undefined ? patch.preferred_doctor : cv.preferred_doctor,
+            health_concern: patch.health_concern !== undefined ? patch.health_concern : cv.health_concern,
+          };
+        }
+        return cv;
+      }));
+    }
+
     try {
       const updated = await crm.updateCustomer(customerId, patch);
       if (updated && updated.id) {
         setCustomers((prev) => prev.map((c) => (c.id === customerId ? { ...c, ...updated } : c)));
         if (selectedCustomer && selectedCustomer.id === customerId) {
           setSelectedCustomer((prev) => (prev ? { ...prev, ...updated } : null));
+        }
+        if (targetLast10) {
+          if (selectedConv) {
+            const convPhone = (selectedConv.contact_phone || selectedConv.phone || '').replace(/\D/g, '');
+            if (convPhone === targetPhoneDigits || (targetLast10 && convPhone.endsWith(targetLast10))) {
+              setSelectedConv((prev) => (prev ? {
+                ...prev,
+                customer_id: updated.id,
+                lead_probability: updated.lead_probability ?? prev.lead_probability,
+                conversion_rate: updated.conversion_rate ?? prev.conversion_rate,
+                converted: updated.converted ?? prev.converted,
+                customer_status: updated.status ?? prev.customer_status,
+                preferred_doctor: updated.preferred_doctor ?? prev.preferred_doctor,
+                health_concern: updated.health_concern ?? prev.health_concern,
+              } : null));
+            }
+          }
+          setConversations((prev) => prev.map((cv) => {
+            const cvPhone = (cv.contact_phone || cv.phone || '').replace(/\D/g, '');
+            if (cvPhone === targetPhoneDigits || (targetLast10 && cvPhone.endsWith(targetLast10))) {
+              return {
+                ...cv,
+                customer_id: updated.id,
+                lead_probability: updated.lead_probability ?? cv.lead_probability,
+                conversion_rate: updated.conversion_rate ?? cv.conversion_rate,
+                converted: updated.converted ?? cv.converted,
+                customer_status: updated.status ?? cv.customer_status,
+                preferred_doctor: updated.preferred_doctor ?? cv.preferred_doctor,
+                health_concern: updated.health_concern ?? cv.health_concern,
+              };
+            }
+            return cv;
+          }));
+        }
+        if (patch.lead_probability !== undefined || patch.conversion_rate !== undefined || patch.converted !== undefined) {
+          const probTitle = patch.converted
+            ? 'Converted 🎉'
+            : patch.lead_probability
+            ? `${patch.lead_probability.charAt(0).toUpperCase() + patch.lead_probability.slice(1)} Lead`
+            : 'Updated';
+          setActionNotice(`Lead status synced: ${probTitle}`);
+          setTimeout(() => setActionNotice(null), 3000);
         }
         if (patch.followup_date !== undefined || patch.followup_time !== undefined) {
           loadTasks();
@@ -8167,6 +8260,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       if (filter === 'important') {
         return isConvStarred(c);
       }
+      if (filter === 'hot') {
+        const normPhone = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '').slice(-10);
+        const linkedCust = (customers || []).find((cu) => (cu.phone || '').replace(/[^0-9]/g, '').slice(-10) === normPhone);
+        const prob = c.lead_probability || linkedCust?.lead_probability;
+        const rate = c.conversion_rate ?? linkedCust?.conversion_rate ?? 0;
+        const isConv = Boolean(c.converted || linkedCust?.converted || c.customer_status === 'converted' || linkedCust?.status === 'converted');
+        return (prob === 'hot' || (!prob && rate >= 75)) && !isConv;
+      }
       return true;
     })
     .sort((a, b) => {
@@ -9097,17 +9198,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </span>
               )}
               {selectedCustomer.lead_probability && (
-                <span
-                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded-xs uppercase tracking-wider ${
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const rate = selectedCustomer.conversion_rate != null
+                      ? selectedCustomer.conversion_rate
+                      : (selectedCustomer.lead_probability === 'hot' ? 90 : (selectedCustomer.lead_probability === 'cold' ? 20 : 50));
+                    openRatePopover(selectedCustomer.id, rate, e.currentTarget);
+                  }}
+                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 uppercase tracking-wider cursor-pointer transition-all hover:opacity-85 ${
                     selectedCustomer.lead_probability === 'hot'
                       ? 'bg-rose-100 text-rose-800 border border-rose-200'
                       : selectedCustomer.lead_probability === 'warm'
                       ? 'bg-amber-100 text-amber-800 border border-amber-200'
                       : 'bg-slate-100 text-slate-700 border border-slate-200'
                   }`}
+                  title="Click to change lead status"
                 >
-                  {selectedCustomer.lead_probability}
-                </span>
+                  {selectedCustomer.lead_probability === 'hot' ? <Flame className="w-2.5 h-2.5 text-rose-600" /> :
+                   selectedCustomer.lead_probability === 'warm' ? <Sun className="w-2.5 h-2.5 text-amber-600" /> :
+                   <Snowflake className="w-2.5 h-2.5 text-slate-600" />}
+                  <span>{selectedCustomer.lead_probability}</span>
+                  <ChevronDown className="w-2 h-2 opacity-60" />
+                </button>
               )}
               {(selectedCustomer.source === 'website_form' || selectedCustomer.metadata?.source === 'website_form' || selectedCustomer.metadata?.booked_via === 'website_form') && (
                 <span
@@ -14193,12 +14307,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       )}
                     </div>
 
-                    {/* ── Clean 3-Segment Chat Filter Bar (Zero Horizontal Scroll, Perfect Width) ── */}
-                    <div className="grid grid-cols-3 gap-1 py-1 shrink-0">
+                    {/* ── Clean 4-Segment Chat Filter Bar (Zero Horizontal Scroll, Perfect Width) ── */}
+                    <div className="grid grid-cols-4 gap-1 py-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => setFilter('all')}
-                        className={`h-7 px-2 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
+                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
                           filter === 'all'
                             ? 'bg-text-primary text-surface font-semibold shadow-2xs dark:bg-accent dark:text-white'
                             : 'bg-surface-subtle text-text-secondary hover:text-text-primary hover:bg-surface border border-border/60'
@@ -14213,7 +14327,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('new')}
-                        className={`h-7 px-2 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
+                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
                           filter === 'new'
                             ? 'bg-accent text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-accent hover:bg-accent/5 border border-border/60'
@@ -14222,7 +14336,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       >
                         <span>Unread</span>
                         {conversations.filter((c) => (c.unread_count || 0) > 0).length > 0 && (
-                          <span className={`text-[10px] font-mono px-1.5 rounded-full ${filter === 'new' ? 'bg-white/20 text-white' : 'bg-accent text-white font-bold'}`}>
+                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'new' ? 'bg-white/20 text-white' : 'bg-accent text-white font-bold'}`}>
                             {conversations.filter((c) => (c.unread_count || 0) > 0).length}
                           </span>
                         )}
@@ -14230,8 +14344,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       <button
                         type="button"
+                        onClick={() => setFilter('hot')}
+                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
+                          filter === 'hot'
+                            ? 'bg-rose-600 text-white font-semibold shadow-2xs'
+                            : 'bg-surface-subtle text-text-secondary hover:text-rose-700 hover:bg-rose-50/50 border border-border/60'
+                        }`}
+                        title="Hot Leads (High Intent)"
+                      >
+                        <Flame className={`w-3 h-3 stroke-[2] shrink-0 ${filter === 'hot' ? 'text-white' : 'text-rose-500'}`} />
+                        <span>Hot</span>
+                        {hotLeadsCount > 0 && (
+                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'hot' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800 font-bold'}`}>
+                            {hotLeadsCount}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => setFilter('important')}
-                        className={`h-7 px-2 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
+                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
                           filter === 'important'
                             ? 'bg-amber-600 text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-amber-700 hover:bg-amber-50/50 border border-border/60'
@@ -14241,7 +14374,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <Star className={`w-3 h-3 stroke-[2] shrink-0 ${filter === 'important' ? 'text-white fill-white' : importantStarredCount > 0 ? 'text-amber-500 fill-amber-500' : 'text-text-muted'}`} />
                         <span>Starred</span>
                         {importantStarredCount > 0 && (
-                          <span className={`text-[10px] font-mono px-1.5 rounded-full ${filter === 'important' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800 font-bold'}`}>
+                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'important' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800 font-bold'}`}>
                             {importantStarredCount}
                           </span>
                         )}
@@ -14257,8 +14390,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     ) : (
                       filteredConversations.map((conv) => {
                         const isSelected = selectedConv?.id === conv.id;
-                        const cleanPhone = (conv.contact_phone || '').replace(/[^0-9]/g, '');
-                        const matchedCust = customers.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
+                        const cleanPhone = (conv.contact_phone || conv.phone || '').replace(/\D/g, '');
+                        const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+                        const matchedCust = last10 && Array.isArray(customers)
+                          ? customers.find((c) => {
+                              if (!c?.phone) return false;
+                              const cDigits = c.phone.replace(/\D/g, '');
+                              return cDigits === cleanPhone || (last10 && cDigits.endsWith(last10));
+                            })
+                          : null;
                         const isRepeat = conv.client_type === 'repeat' || (conv.completed_bookings_count ?? 0) > 0 || (matchedCust?.completed_bookings_count ?? 0) > 0;
                         const visitCount = conv.completed_bookings_count ?? matchedCust?.completed_bookings_count ?? 0;
                         const staffName = conv.assigned_staff_name || conv.preferred_doctor || matchedCust?.preferred_doctor || '';
@@ -14306,7 +14446,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                             {/* Middle: Clean Minimal Stack */}
                             <div className="flex-1 min-w-0 space-y-0.5">
-                              {/* Line 1: Name + Repeat Tag (if repeat) + Timestamp / Hover Actions */}
+                              {/* Line 1: Name + Repeat Tag (if repeat) + Lead Status + Timestamp / Hover Actions */}
                               <div className="flex items-center justify-between gap-1.5 min-w-0">
                                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                   <p className={`text-xs truncate ${unreadCount > 0 ? 'font-bold text-text-primary' : 'font-semibold text-text-primary'}`}>
@@ -14321,6 +14461,46 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <span>Repeat{visitCount > 0 ? ` (${visitCount})` : ''}</span>
                                     </span>
                                   )}
+                                  {/* Lead Status Badge in Conversation List Item */}
+                                  {(() => {
+                                    const prob = matchedCust?.lead_probability || conv.lead_probability;
+                                    const rate = matchedCust?.conversion_rate ?? conv.conversion_rate ?? (prob === 'hot' ? 90 : (prob === 'cold' ? 20 : 50));
+                                    const isConvWon = Boolean(matchedCust?.converted || matchedCust?.status === 'converted' || (matchedCust?.call_status || '').toLowerCase().includes('confirm') || (matchedCust?.call_status || '').toLowerCase().includes('convert') || conv.converted || conv.customer_status === 'converted');
+
+                                    if (isConvWon) {
+                                      return (
+                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 inline-flex items-center gap-0.5" title="Converted Lead">
+                                          <CheckCircle2 className="w-2.5 h-2.5 stroke-[2.5]" />
+                                          <span>Won</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (prob === 'hot' || (!prob && rate >= 75)) {
+                                      return (
+                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 shrink-0 inline-flex items-center gap-0.5" title="Hot Lead (High Intent)">
+                                          <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2.5]" />
+                                          <span>Hot</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (prob === 'warm' || (!prob && rate >= 40 && rate < 75)) {
+                                      return (
+                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 shrink-0 inline-flex items-center gap-0.5" title="Warm Lead (Active)">
+                                          <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2.5]" />
+                                          <span>Warm</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (prob === 'cold' || (!prob && rate < 40)) {
+                                      return (
+                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800 shrink-0 inline-flex items-center gap-0.5" title="Cold Lead (Nurture)">
+                                          <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2.5]" />
+                                          <span>Cold</span>
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                   {isStarred && (
                                     <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500 shrink-0" />
                                   )}
@@ -14399,12 +14579,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <>
                       {/* Unified Single-Row Chat Header */}
                       {(() => {
-                        const cleanPhone = (selectedConv.contact_phone || selectedConv.phone || '').replace(/[^0-9]/g, '');
-                        const matchedCust = cleanPhone && Array.isArray(customers) ? customers.find((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone) : null;
+                        const cleanPhone = (selectedConv.contact_phone || selectedConv.phone || '').replace(/\D/g, '');
+                        const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+                        const matchedCust = last10 && Array.isArray(customers)
+                          ? customers.find((c) => {
+                              if (!c?.phone) return false;
+                              const cDigits = c.phone.replace(/\D/g, '');
+                              return cDigits === cleanPhone || (last10 && cDigits.endsWith(last10));
+                            })
+                          : null;
                         const isRepeat = selectedConv.client_type === 'repeat' || (selectedConv.completed_bookings_count ?? 0) > 0 || (matchedCust?.completed_bookings_count ?? 0) > 0;
                         const visitCount = selectedConv.completed_bookings_count ?? matchedCust?.completed_bookings_count ?? 0;
                         const lastService = selectedConv.last_visit_service || matchedCust?.last_visit_service;
                         const phoneNum = selectedConv.contact_phone || selectedConv.phone;
+                        const custLeadProb = matchedCust?.lead_probability || selectedConv.lead_probability || null;
+                        const custRate = matchedCust?.conversion_rate ?? selectedConv.conversion_rate ?? (custLeadProb === 'hot' ? 90 : (custLeadProb === 'cold' ? 20 : 50));
+                        const isConverted = Boolean(
+                          matchedCust?.converted ||
+                          matchedCust?.status === 'converted' ||
+                          (matchedCust?.call_status || '').toLowerCase().includes('confirm') ||
+                          (matchedCust?.call_status || '').toLowerCase().includes('convert') ||
+                          selectedConv.converted ||
+                          selectedConv.customer_status === 'converted'
+                        );
                         const initial = selectedConv.contact_name
                           ? selectedConv.contact_name.trim()[0].toUpperCase()
                           : (phoneNum ? phoneNum.replace(/\D/g, '').slice(-1) : 'C');
@@ -14443,6 +14640,77 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <span>New Lead</span>
                                     </span>
                                   )}
+
+                                  {/* Lead Status Interactive Pill (Hot / Warm / Cold / Converted) */}
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      let targetC = matchedCust;
+                                      if (!targetC && phoneNum) {
+                                        try {
+                                          const created = await crm.createCustomer({
+                                            phone: phoneNum,
+                                            name: selectedConv.contact_name || (phoneNum ? formatDisplayPhone(phoneNum) : 'Customer'),
+                                            lead_probability: 'warm',
+                                            status: 'lead',
+                                            health_concern: selectedConv.health_concern || 'General Consultation',
+                                          });
+                                          if (created && created.id) {
+                                            setCustomers((prev) => [created, ...prev]);
+                                            targetC = created;
+                                          }
+                                        } catch (err) {
+                                          console.error('Failed to create customer on lead pill click:', err);
+                                        }
+                                      }
+                                      if (targetC) {
+                                        if (activeRatePopover?.customerId === targetC.id) {
+                                          setActiveRatePopover(null);
+                                        } else {
+                                          openRatePopover(targetC.id, custRate, e.currentTarget);
+                                        }
+                                      }
+                                    }}
+                                    className={`h-6 px-2 rounded-full border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer shrink-0 ${
+                                      isConverted
+                                        ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
+                                        : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
+                                        ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300'
+                                        : custLeadProb === 'cold' || custRate < 40
+                                        ? 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300'
+                                        : 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300'
+                                    }`}
+                                    title={`Lead Status: ${
+                                      isConverted
+                                        ? 'Converted'
+                                        : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
+                                        ? `Hot Lead (${custRate}%)`
+                                        : custLeadProb === 'cold' || custRate < 40
+                                        ? `Cold Lead (${custRate}%)`
+                                        : `Warm Lead (${custRate}%)`
+                                    } — Click to change status`}
+                                  >
+                                    {isConverted ? (
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
+                                    ) : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75) ? (
+                                      <Flame className="w-3 h-3 text-rose-600 stroke-[2.2]" />
+                                    ) : custLeadProb === 'cold' || custRate < 40 ? (
+                                      <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
+                                    ) : (
+                                      <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
+                                    )}
+                                    <span>
+                                      {isConverted
+                                        ? 'Converted'
+                                        : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
+                                        ? `Hot (${custRate}%)`
+                                        : custLeadProb === 'cold' || custRate < 40
+                                        ? `Cold (${custRate}%)`
+                                        : `Warm (${custRate}%)`}
+                                    </span>
+                                    <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
+                                  </button>
                                 </div>
                                 {phoneNum && (
                                   <div className="flex items-center gap-2 text-[11px] text-text-muted font-mono leading-tight mt-0.5">
@@ -14553,6 +14821,61 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       onClick={() => setShowChatMoreMenu(false)}
                                     />
                                     <div className="absolute right-0 mt-1 w-56 bg-surface border border-border rounded-md shadow-xl z-50 py-1 text-xs divide-y divide-border/40">
+                                      {/* Lead Status */}
+                                      <button
+                                        type="button"
+                                        onClick={async (e) => {
+                                          setShowChatMoreMenu(false);
+                                          let targetC = matchedCust;
+                                          if (!targetC && phoneNum) {
+                                            try {
+                                              const created = await crm.createCustomer({
+                                                phone: phoneNum,
+                                                name: selectedConv.contact_name || (phoneNum ? formatDisplayPhone(phoneNum) : 'Customer'),
+                                                lead_probability: 'warm',
+                                                status: 'lead',
+                                                health_concern: selectedConv.health_concern || 'General Consultation',
+                                              });
+                                              if (created && created.id) {
+                                                setCustomers((prev) => [created, ...prev]);
+                                                targetC = created;
+                                              }
+                                            } catch (err) {
+                                              console.error('Failed to create customer for lead popover:', err);
+                                            }
+                                          }
+                                          if (targetC) {
+                                            openRatePopover(targetC.id, custRate, e.currentTarget);
+                                          }
+                                        }}
+                                        className="w-full text-left px-3 py-2 flex items-center justify-between text-xs hover:bg-surface-subtle text-text-primary transition-colors cursor-pointer"
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          {isConverted ? (
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                          ) : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75) ? (
+                                            <Flame className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                          ) : custLeadProb === 'cold' || custRate < 40 ? (
+                                            <Snowflake className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                                          ) : (
+                                            <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                          )}
+                                          <div className="truncate">
+                                            <span className="text-text-muted">Lead Status: </span>
+                                            <span className="font-semibold text-text-primary">
+                                              {isConverted
+                                                ? 'Converted'
+                                                : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
+                                                ? `Hot (${custRate}%)`
+                                                : custLeadProb === 'cold' || custRate < 40
+                                                ? `Cold (${custRate}%)`
+                                                : `Warm (${custRate}%)`}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <ChevronDown className="w-3 h-3 text-text-muted shrink-0 ml-1" />
+                                      </button>
+
                                       {/* Assign Staff */}
                                       <button
                                         type="button"
@@ -25144,18 +25467,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </h3>
                             {/* Lead Grade Badge */}
                             {selectedCustomer.lead_probability && (
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${
-                                selectedCustomer.lead_probability === 'hot'
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
-                                  : selectedCustomer.lead_probability === 'warm'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                                  : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-                              }`}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const rate = selectedCustomer.conversion_rate != null
+                                    ? selectedCustomer.conversion_rate
+                                    : (selectedCustomer.lead_probability === 'hot' ? 90 : (selectedCustomer.lead_probability === 'cold' ? 20 : 50));
+                                  openRatePopover(selectedCustomer.id, rate, e.currentTarget);
+                                }}
+                                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide cursor-pointer transition-all hover:opacity-85 ${
+                                  selectedCustomer.lead_probability === 'hot'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                    : selectedCustomer.lead_probability === 'warm'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                    : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                                }`}
+                                title="Click to change lead status"
+                              >
                                 {selectedCustomer.lead_probability === 'hot' ? <Flame className="w-3 h-3 text-rose-500 fill-rose-500 animate-pulse" /> :
-                                 selectedCustomer.lead_probability === 'warm' ? <Zap className="w-3 h-3 text-amber-500 fill-amber-500" /> :
+                                 selectedCustomer.lead_probability === 'warm' ? <Sun className="w-3 h-3 text-amber-500 fill-amber-500" /> :
                                  <Snowflake className="w-3 h-3 text-slate-400" />}
                                 <span>{selectedCustomer.lead_probability} lead</span>
-                              </span>
+                                <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+                              </button>
                             )}
                             {/* Converted Badge */}
                             {(selectedCustomer.converted || selectedCustomer.status === 'converted' || (selectedCustomer.call_status || '').toLowerCase().includes('confirm') || (selectedCustomer.call_status || '').toLowerCase().includes('convert')) ? (
