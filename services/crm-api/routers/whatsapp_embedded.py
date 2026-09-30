@@ -30,6 +30,7 @@ class WhatsAppEmbeddedSignupPayload(BaseModel):
 
 
 @router.get("/oauth/whatsapp/config")
+@router.get("/api/v1/crm/oauth/whatsapp/config")
 async def get_whatsapp_oauth_config():
     """Return public Meta App ID and config ID for Facebook SDK initialization."""
     return {
@@ -268,6 +269,7 @@ class WhatsAppPublicCallbackPayload(BaseModel):
 
 
 @router.post("/oauth/whatsapp/public-callback")
+@router.post("/api/v1/crm/oauth/whatsapp/public-callback")
 async def whatsapp_public_callback(payload: WhatsAppPublicCallbackPayload):
     """
     Public callback endpoint invoked when a client completes the shareable onboarding link.
@@ -304,55 +306,71 @@ async def whatsapp_public_callback(payload: WhatsAppPublicCallbackPayload):
 
 
 @router.get("/oauth/whatsapp/callback")
+@router.get("/api/v1/crm/oauth/whatsapp/callback")
+@router.get("/oauth/whatsapp/embedded-signup")
+@router.get("/api/v1/crm/oauth/whatsapp/embedded-signup")
+@router.get("/oauth/whatsapp/public-callback")
+@router.get("/api/v1/crm/oauth/whatsapp/public-callback")
 async def whatsapp_get_callback(
     code: Optional[str] = None,
     state: Optional[str] = None,
     waba_id: Optional[str] = None,
     phone_number_id: Optional[str] = None,
+    target_tenant_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
     error: Optional[str] = None,
     error_description: Optional[str] = None,
 ):
     """
-    Direct GET redirect endpoint if Meta redirects directly to the API server.
+    Direct GET redirect endpoint if Meta redirects directly to the API server via browser or popup.
+    Handles redirects from both /onboard links and /dashboard.
     """
-    if error:
-        err_msg = error_description or error or "Meta signup was cancelled or failed."
-        return RedirectResponse(url=f"https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error={urllib.parse.quote(err_msg)}")
-
-    if not code:
-        return RedirectResponse(url="https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error=Missing+authorization+code")
-
-    target_tenant_id = None
-    if state:
+    target_tid = target_tenant_id or tenant_id
+    if not target_tid and state:
         try:
             state_data = json.loads(state)
-            target_tenant_id = state_data.get("target_tenant_id")
+            target_tid = state_data.get("target_tenant_id") or state_data.get("tenant_id")
         except Exception:
             try:
                 state_data = json.loads(urllib.parse.unquote(state))
-                target_tenant_id = state_data.get("target_tenant_id")
+                target_tid = state_data.get("target_tenant_id") or state_data.get("tenant_id")
             except Exception:
                 pass
 
-    if not target_tenant_id:
+    redirect_base = f"https://crm.goboldlabs.com/onboard?tenant_id={target_tid}" if target_tid else "https://crm.goboldlabs.com/dashboard"
+
+    if error:
+        err_msg = error_description or error or "Meta signup was cancelled or failed."
+        sep = "&" if "?" in redirect_base else "?"
+        return RedirectResponse(url=f"{redirect_base}{sep}status=error&error={urllib.parse.quote(err_msg)}")
+
+    if not code:
+        sep = "&" if "?" in redirect_base else "?"
+        return RedirectResponse(url=f"{redirect_base}{sep}status=error&error=Missing+authorization+code")
+
+    if not target_tid:
         return RedirectResponse(url="https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error=Missing+target+tenant")
 
     try:
         async with database.db_pool.acquire() as conn:
             res = await execute_embedded_signup(
                 conn=conn,
-                tenant_id=str(target_tenant_id),
+                tenant_id=str(target_tid),
                 code=code,
                 waba_id=waba_id,
                 phone_number_id=phone_number_id
             )
-        return RedirectResponse(url=f"https://crm.goboldlabs.com/dashboard?whatsapp_status=connected&phone_id={urllib.parse.quote(res.get('phone_number_id', ''))}")
+        sep = "&" if "?" in redirect_base else "?"
+        phone_param = urllib.parse.quote(res.get("phone_number_id", ""))
+        return RedirectResponse(url=f"{redirect_base}{sep}status=success&whatsapp_status=connected&phone_id={phone_param}")
     except Exception as e:
-        logger.error("whatsapp_get_callback_failed", error=str(e))
-        return RedirectResponse(url=f"https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error={urllib.parse.quote(str(e))}")
+        logger.error("whatsapp_get_callback_failed", error=str(e), tenant_id=target_tid)
+        sep = "&" if "?" in redirect_base else "?"
+        return RedirectResponse(url=f"{redirect_base}{sep}status=error&error={urllib.parse.quote(str(e))}")
 
 
 @router.post("/oauth/whatsapp/embedded-signup")
+@router.post("/api/v1/crm/oauth/whatsapp/embedded-signup")
 async def tenant_whatsapp_embedded_signup(
     payload: WhatsAppEmbeddedSignupPayload,
     tenant_id: str = Depends(get_tenant_id),
@@ -376,6 +394,7 @@ async def tenant_whatsapp_embedded_signup(
 
 
 @router.post("/admin/tenants/{target_tenant_id}/oauth/whatsapp/embedded-signup")
+@router.post("/api/v1/crm/admin/tenants/{target_tenant_id}/oauth/whatsapp/embedded-signup")
 async def admin_whatsapp_embedded_signup(
     target_tenant_id: str,
     payload: WhatsAppEmbeddedSignupPayload,
@@ -395,6 +414,7 @@ async def admin_whatsapp_embedded_signup(
 
 
 @router.post("/oauth/whatsapp/disconnect")
+@router.post("/api/v1/crm/oauth/whatsapp/disconnect")
 async def tenant_disconnect_whatsapp(
     tenant_id: str = Depends(get_tenant_id),
     caller: dict = Depends(get_caller_context)
@@ -422,6 +442,7 @@ async def tenant_disconnect_whatsapp(
 
 
 @router.post("/admin/tenants/{target_tenant_id}/oauth/whatsapp/disconnect")
+@router.post("/api/v1/crm/admin/tenants/{target_tenant_id}/oauth/whatsapp/disconnect")
 async def admin_disconnect_whatsapp(
     target_tenant_id: str,
     admin_user: dict = Depends(verify_super_admin)

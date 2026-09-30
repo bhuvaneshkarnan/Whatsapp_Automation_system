@@ -815,6 +815,17 @@ async def update_tenant_settings(
         else:
             await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'whatsapp', $3::jsonb, true)", wa_cred_id, tenant_id, json.dumps(wa_data))
 
+        # Keep tenants.whatsapp_configured in sync with credentials
+        is_wa_configured = bool(wa_data.get("phone_number_id") and (wa_data.get("access_token") or wa_data.get("waba_id")))
+        await conn.execute(
+            """UPDATE tenants 
+               SET whatsapp_configured = $1, 
+                   settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{whatsapp_configured}', $2::jsonb),
+                   updated_at = now() 
+               WHERE id = $3::uuid""",
+            is_wa_configured, json.dumps(is_wa_configured), tenant_id
+        )
+
         # Auto-provision Meta templates if WABA credentials are present or updated
         if wa_data.get("waba_id") and wa_data.get("access_token"):
             try:
@@ -1576,6 +1587,17 @@ async def update_whatsapp_credentials(
                 "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'whatsapp', $3::jsonb, true)",
                 wa_cred_id, tenant_id, json.dumps(wa_data)
             )
+
+        # Keep tenants.whatsapp_configured in sync with credentials
+        is_wa_configured = bool(wa_data.get("phone_number_id") and (wa_data.get("access_token") or wa_data.get("waba_id")))
+        await conn.execute(
+            """UPDATE tenants 
+               SET whatsapp_configured = $1, 
+                   settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{whatsapp_configured}', $2::jsonb),
+                   updated_at = now() 
+               WHERE id = $3::uuid""",
+            is_wa_configured, json.dumps(is_wa_configured), tenant_id
+        )
 
     # Trigger background template sync
     if clean_waba_id and clean_token:
