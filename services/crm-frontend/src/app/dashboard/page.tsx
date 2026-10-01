@@ -4437,6 +4437,75 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     );
   }
 
+  function getCustomerLeadStatus(cust: {
+    conversion_rate?: number | null;
+    status?: string | null;
+    converted?: boolean | null;
+    lead_probability?: string | null;
+    call_status?: string | null;
+  }) {
+    const is100 = cust.conversion_rate === 100 || (cust.status === 'converted' && cust.conversion_rate !== 99);
+    const is99 = (cust.conversion_rate === 99 || cust.status === 'booked' || cust.converted) && !is100;
+
+    if (is100) {
+      return {
+        rate: 100,
+        label: 'Converted (100%)',
+        shortLabel: 'Converted (100%)',
+        type: 'converted' as const,
+        icon: CheckCircle2,
+        pillClass: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-700 dark:text-emerald-200',
+        iconColor: 'text-emerald-600',
+      };
+    }
+    if (is99) {
+      return {
+        rate: 99,
+        label: 'Booked (99%)',
+        shortLabel: 'Booked (99%)',
+        type: 'booked' as const,
+        icon: CalendarCheck,
+        pillClass: 'bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-700 dark:bg-teal-950 dark:border-teal-800 dark:text-teal-300',
+        iconColor: 'text-teal-600',
+      };
+    }
+    const rate = cust.conversion_rate != null
+      ? cust.conversion_rate
+      : (cust.lead_probability === 'hot' ? 90 : (cust.lead_probability === 'cold' ? 20 : 50));
+
+    if (cust.lead_probability === 'hot' || rate >= 75) {
+      return {
+        rate,
+        label: `Hot Lead (${rate}%)`,
+        shortLabel: `Hot (${rate}%)`,
+        type: 'hot' as const,
+        icon: Flame,
+        pillClass: 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300',
+        iconColor: 'text-rose-600',
+      };
+    }
+    if (cust.lead_probability === 'cold' || rate < 40) {
+      return {
+        rate,
+        label: `Cold Lead (${rate}%)`,
+        shortLabel: `Cold (${rate}%)`,
+        type: 'cold' as const,
+        icon: Snowflake,
+        pillClass: 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300',
+        iconColor: 'text-sky-600',
+      };
+    }
+    return {
+      rate,
+      label: `Warm Lead (${rate}%)`,
+      shortLabel: `Warm (${rate}%)`,
+      type: 'warm' as const,
+      icon: Sun,
+      pillClass: 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300',
+      iconColor: 'text-amber-600',
+    };
+  }
+
   function renderLeadRatePopover() {
     if (!activeRatePopover) return null;
     const targetCust = customers.find((c) => c.id === activeRatePopover.customerId);
@@ -4445,7 +4514,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const currentRate = targetCust.conversion_rate != null
       ? targetCust.conversion_rate
       : (targetCust.lead_probability === 'hot' ? 90 : (targetCust.lead_probability === 'cold' ? 20 : 50));
-    const isConverted = targetCust.converted || targetCust.status === 'converted' || (targetCust.conversion_rate != null && targetCust.conversion_rate >= 99);
+    const isConverted100 = targetCust.conversion_rate === 100 || (targetCust.status === 'converted' && targetCust.conversion_rate !== 99);
+    const isBooked99 = (targetCust.conversion_rate === 99 || targetCust.status === 'booked' || targetCust.converted) && !isConverted100;
 
     const options = [
       {
@@ -4487,13 +4557,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       {
         pct: 99,
         prob: 'hot' as const,
-        icon: CheckCircle2,
+        icon: CalendarCheck,
         label: 'Booked',
         sub: 'Appointment booked & scheduled',
-        pillBg: 'bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300',
-        iconColor: 'text-emerald-600',
-        activeBg: 'bg-emerald-50 border-emerald-300 dark:bg-emerald-950/80 dark:border-emerald-800',
-        checkColor: 'text-emerald-600 dark:text-emerald-400',
+        pillBg: 'bg-teal-100 border-teal-200 text-teal-700 dark:bg-teal-950 dark:border-teal-800 dark:text-teal-300',
+        iconColor: 'text-teal-600',
+        activeBg: 'bg-teal-50 border-teal-300 dark:bg-teal-950/80 dark:border-teal-800',
+        checkColor: 'text-teal-600 dark:text-teal-400',
+        hoverBg: 'hover:bg-teal-50 dark:hover:bg-teal-950/40',
+      },
+      {
+        pct: 100,
+        prob: 'converted' as const,
+        icon: CheckCircle2,
+        label: 'Converted',
+        sub: 'Appointment attended • Converted',
+        pillBg: 'bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-700 dark:text-emerald-200',
+        iconColor: 'text-emerald-700',
+        activeBg: 'bg-emerald-50 border-emerald-400 dark:bg-emerald-950/80 dark:border-emerald-700',
+        checkColor: 'text-emerald-700 dark:text-emerald-400',
         hoverBg: 'hover:bg-emerald-50 dark:hover:bg-emerald-950/40',
       },
     ];
@@ -4540,10 +4622,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <div className="space-y-1">
             {options.map((opt) => {
               const isSelected =
-                (opt.pct === 99 && (isConverted || currentRate >= 99)) ||
-                (opt.pct === 90 && currentRate >= 75 && currentRate < 99 && !isConverted) ||
-                (opt.pct === 50 && currentRate >= 40 && currentRate < 75 && !isConverted) ||
-                (opt.pct === 20 && currentRate < 40 && !isConverted);
+                (opt.pct === 100 && isConverted100) ||
+                (opt.pct === 99 && isBooked99) ||
+                (opt.pct === 90 && currentRate >= 75 && currentRate < 99 && !isConverted100 && !isBooked99) ||
+                (opt.pct === 50 && currentRate >= 40 && currentRate < 75 && !isConverted100 && !isBooked99) ||
+                (opt.pct === 20 && currentRate < 40 && !isConverted100 && !isBooked99);
               const IconComp = opt.icon;
 
               return (
@@ -4554,8 +4637,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     handleUpdateCustomer(targetCust.id, {
                       conversion_rate: opt.pct,
                       lead_probability: opt.prob,
-                      converted: opt.pct >= 99,
-                      status: opt.pct >= 99 ? 'converted' : (targetCust.status === 'converted' ? 'contacted' : undefined),
+                      converted: opt.pct === 100,
+                      status: opt.pct === 100 ? 'converted' : (opt.pct === 99 ? 'booked' : (targetCust.status === 'converted' ? 'contacted' : undefined)),
                     });
                     setActiveRatePopover(null);
                   }}
@@ -5067,7 +5150,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (activeNav === 'overview') {
       loadDashboardAnalytics(analyticsPeriod);
       loadConversations();
-      loadBookings(10);
+      loadBookings(1000);
       loadTeamList();
     } else if (activeNav === 'inbox') {
       loadConversations();
@@ -5420,6 +5503,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       prev[idx].unread_count !== c.unread_count ||
                       prev[idx].status !== c.status ||
                       prev[idx].lead_probability !== c.lead_probability ||
+                      prev[idx].conversion_rate !== c.conversion_rate ||
+                      prev[idx].converted !== c.converted ||
                       prev[idx].name !== c.name
                   );
                 return isDiff ? fresh : prev;
@@ -5459,7 +5544,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         // 5. Real-time Bookings directory automatic live sync (when on bookings or billing tab)
         if (activeNav === 'bookings' || activeNav === 'billing') {
           try {
-            const freshBookings = await crm.getBookings(undefined, 200);
+            const freshBookings = await crm.getBookings(undefined, 1000);
             if (isMounted && Array.isArray(freshBookings)) {
               setBookings((prev) => {
                 const isDiff =
@@ -5488,7 +5573,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           try {
             await crm.syncGoogleTasksCompleted().catch(() => null);
             const [bData, cData, tData] = await Promise.all([
-              crm.getBookings(undefined, 500).catch(() => []),
+              crm.getBookings(undefined, 1000).catch(() => []),
               crm.getCustomers({ limit: 1000 }).catch(() => []),
               crm.getTasks('all').catch(() => []),
             ]);
@@ -5538,7 +5623,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     };
   }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupActionFilter, followupSearch, isAuthChecking, user]);
 
-  async function loadBookings(limit = 200) {
+  async function loadBookings(limit = 1000) {
     setLoadingBookings(true);
     try {
       const data = await crm.getBookings(undefined, limit);
@@ -5559,7 +5644,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       await crm.syncGoogleTasksCompleted().catch(() => null);
 
       const [bData, cData, tData, gData, statsData] = await Promise.all([
-          crm.getBookings(undefined, 500).catch(() => []),
+          crm.getBookings(undefined, 1000).catch(() => []),
           crm.getCustomers({ limit: 1000 }).catch(() => []),
           crm.getTasks('all').catch(() => []),
           crm.getLiveCalendarAvailability().catch(() => null),
@@ -6337,7 +6422,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           }));
         }
         if (patch.lead_probability !== undefined || patch.conversion_rate !== undefined || patch.converted !== undefined) {
-          const probTitle = (patch.converted || (patch.conversion_rate !== undefined && patch.conversion_rate >= 99))
+          const probTitle = (patch.conversion_rate === 100 || patch.status === 'converted')
+            ? 'Converted (100%) 🏆'
+            : (patch.converted || (patch.conversion_rate !== undefined && patch.conversion_rate >= 99))
             ? 'Booked (99%) 🎉'
             : patch.lead_probability
             ? `${patch.lead_probability.charAt(0).toUpperCase() + patch.lead_probability.slice(1)} Lead`
@@ -7689,11 +7776,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         setSelectedBookingDetail({ ...selectedBookingDetail, status: newStatus, ...(newStartTime ? { start_time: newStartTime } : {}) });
       }
 
-      if (newStatus === 'completed') {
+      if (newStatus === 'completed' || newStatus === 'attended') {
+        const targetB = bookings.find((b) => b.id === bookingId);
+        if (targetB) {
+          const cleanBPhone = (targetB.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
+          setCustomers((prev) =>
+            prev.map((c) => {
+              const cleanCPhone = (c.phone || '').replace(/[^0-9]/g, '').slice(-10);
+              if (
+                (cleanBPhone && cleanCPhone && cleanCPhone === cleanBPhone) ||
+                (targetB.contact_name && c.name && c.name.toLowerCase() === targetB.contact_name.toLowerCase())
+              ) {
+                return {
+                  ...c,
+                  converted: true,
+                  conversion_rate: 100,
+                  status: 'converted',
+                  lead_probability: 'converted',
+                };
+              }
+              return c;
+            })
+          );
+        }
+        loadCustomers();
         if (sendReview === false) {
-          setActionNotice('Client marked Attended! Review template was skipped.');
+          setActionNotice('Client marked Attended & Converted (100%)! Review template was skipped.');
         } else {
-          setActionNotice('Client marked Attended! Post-service review request template scheduled via WhatsApp.');
+          setActionNotice('Client marked Attended & Converted (100%)! Post-service review request scheduled.');
         }
       } else if (newStatus === 'no_show') {
         setActionNotice('Client marked No-Show! Reschedule nudge WhatsApp template sent to client.');
@@ -9224,38 +9334,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </span>
               )}
               {(() => {
-                const isBooked = Boolean(selectedCustomer.converted || selectedCustomer.status === 'converted' || (selectedCustomer.conversion_rate != null && selectedCustomer.conversion_rate >= 99) || (selectedCustomer.call_status || '').toLowerCase().includes('confirm') || (selectedCustomer.call_status || '').toLowerCase().includes('convert'));
-                const rate = selectedCustomer.conversion_rate != null
-                  ? selectedCustomer.conversion_rate
-                  : (selectedCustomer.lead_probability === 'hot' ? 90 : (selectedCustomer.lead_probability === 'cold' ? 20 : 50));
+                const leadStatus = getCustomerLeadStatus(selectedCustomer);
+                const StatusIcon = leadStatus.icon;
                 return (
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      openRatePopover(selectedCustomer.id, isBooked ? 99 : rate, e.currentTarget);
+                      openRatePopover(selectedCustomer.id, leadStatus.rate, e.currentTarget);
                     }}
-                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 uppercase tracking-wider cursor-pointer transition-all hover:opacity-85 ${
-                      isBooked
-                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
-                        : selectedCustomer.lead_probability === 'hot' || rate >= 75
-                        ? 'bg-rose-100 text-rose-800 border-rose-200'
-                        : selectedCustomer.lead_probability === 'warm' || rate >= 40
-                        ? 'bg-amber-100 text-amber-800 border-amber-200'
-                        : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
+                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 uppercase tracking-wider cursor-pointer transition-all hover:opacity-85 ${leadStatus.pillClass}`}
                     title="Click to change lead status"
                   >
-                    {isBooked ? (
-                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                    ) : selectedCustomer.lead_probability === 'hot' || rate >= 75 ? (
-                      <Flame className="w-2.5 h-2.5 text-rose-600" />
-                    ) : selectedCustomer.lead_probability === 'warm' || rate >= 40 ? (
-                      <Sun className="w-2.5 h-2.5 text-amber-600" />
-                    ) : (
-                      <Snowflake className="w-2.5 h-2.5 text-slate-600" />
-                    )}
-                    <span>{isBooked ? 'Booked (99%)' : selectedCustomer.lead_probability || 'Warm'}</span>
+                    <StatusIcon className={`w-2.5 h-2.5 ${leadStatus.iconColor}`} />
+                    <span>{leadStatus.shortLabel}</span>
                     <ChevronDown className="w-2 h-2 opacity-60" />
                   </button>
                 );
@@ -11636,6 +11728,44 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   // 4. Combined Urgent Count
                   const urgentCount = todayUpcomingBookings.length + hotLeadsList.length + unreadConversations.length;
 
+                  // 5. Total Leads & Converted Leads (in single box)
+                  const totalLeadsCount = dashboardAnalyticsData?.summary?.total_leads ?? (customers || []).length;
+                  const convertedLeadsCount = dashboardAnalyticsData?.summary?.converted_leads ?? (customers || []).filter(c =>
+                    c.converted === true || c.status === 'converted' || c.conversion_rate === 100 || (c.conversion_rate != null && c.conversion_rate >= 99)
+                  ).length;
+                  const leadConversionRate = totalLeadsCount > 0
+                    ? (dashboardAnalyticsData?.summary?.conversion_rate ?? Math.round((convertedLeadsCount / totalLeadsCount) * 100))
+                    : 0;
+                  const bookedCount = (customers || []).filter(c => (c.conversion_rate === 99 || c.status === 'booked') && c.conversion_rate !== 100).length;
+                  const fullyConvertedCount = (customers || []).filter(c => c.conversion_rate === 100 || c.status === 'converted').length;
+
+                  // 6. Fees Charged by Service breakdown
+                  const serviceRevenueBreakdown: Array<{ service: string; revenue: number; totalCount: number; attendedCount: number }> = (() => {
+                    if (dashboardAnalyticsData?.top_services && dashboardAnalyticsData.top_services.length > 0) {
+                      return dashboardAnalyticsData.top_services.map(s => ({
+                        service: s.service,
+                        revenue: Number(s.revenue) || 0,
+                        totalCount: s.booking_count || 0,
+                        attendedCount: s.completed_count || 0,
+                      }));
+                    }
+                    const map = new Map<string, { service: string; revenue: number; totalCount: number; attendedCount: number }>();
+                    (bookings || []).forEach(b => {
+                      const sName = (b.service || 'General Service').trim();
+                      if (!sName) return;
+                      const existing = map.get(sName) || { service: sName, revenue: 0, totalCount: 0, attendedCount: 0 };
+                      const price = Number(b.price) || 0;
+                      const isAttended = b.status === 'completed' || b.status === 'attended';
+                      existing.totalCount += 1;
+                      if (isAttended) {
+                        existing.attendedCount += 1;
+                        existing.revenue += price;
+                      }
+                      map.set(sName, existing);
+                    });
+                    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue || b.totalCount - a.totalCount);
+                  })();
+
                   return (
                     <div className="space-y-4">
                       {/* ── TOP CLEAN HEADER & CONTROLS ── */}
@@ -11710,8 +11840,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
                       </div>
 
-                      {/* ── 4 CORE ESSENTIAL SUMMARY METRIC CARDS ── */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                      {/* ── 5 CORE ESSENTIAL SUMMARY METRIC CARDS ── */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
                         {/* Card 1: Today's Bookings */}
                         <div
                           onClick={() => {
@@ -11745,7 +11875,43 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
-                        {/* Card 2: Needs Attention */}
+                        {/* Card 2: Total Leads & Converted Leads (Single Box) */}
+                        <div
+                          onClick={() => {
+                            setActiveNav('customers');
+                            setFollowupFilter('all');
+                          }}
+                          className="bg-surface border border-border hover:border-indigo-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Leads & Converted</span>
+                              <div className="w-7 h-7 rounded-sm bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 flex items-center justify-center">
+                                <Users className="w-4 h-4 stroke-[1.8]" />
+                              </div>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-2">
+                              <div className="flex items-baseline gap-1.5">
+                                <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                                  {totalLeadsCount}
+                                </p>
+                                <span className="text-[11px] text-text-muted font-medium">total leads</span>
+                              </div>
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800">
+                                {convertedLeadsCount} converted ({leadConversionRate}%)
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted truncate">
+                              {bookedCount} booked (99%) • {fullyConvertedCount} attended (100%)
+                            </p>
+                          </div>
+                          <div className="pt-2 border-t border-border flex items-center justify-between text-[11px] font-medium text-indigo-700 dark:text-indigo-400 group-hover:text-indigo-800">
+                            <span>View lead pipeline</span>
+                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform stroke-[2]" />
+                          </div>
+                        </div>
+
+                        {/* Card 3: Needs Attention */}
                         <div
                           onClick={() => setActiveNav('customers')}
                           className="bg-surface border border-border hover:border-amber-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
@@ -11777,7 +11943,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
-                        {/* Card 3: WhatsApp Chats */}
+                        {/* Card 4: WhatsApp Chats */}
                         <div
                           onClick={() => setActiveNav('inbox')}
                           className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
@@ -11813,7 +11979,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
-                        {/* Card 4: Attended Revenue */}
+                        {/* Card 5: Attended Revenue */}
                         <div
                           onClick={() => setActiveNav('billing')}
                           className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2.5 shadow-xs group flex flex-col justify-between"
@@ -11841,6 +12007,54 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform stroke-[2]" />
                           </div>
                         </div>
+                      </div>
+
+                      {/* ── FEES CHARGED BY SERVICE BREAKDOWN ── */}
+                      <div className="bg-surface border border-border rounded-md p-3.5 sm:p-4 space-y-3 shadow-xs">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-border">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-emerald-600 stroke-[1.8]" />
+                            <h3 className="font-semibold text-xs text-text-primary tracking-tight">Fees Charged by Service</h3>
+                            <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                              {serviceRevenueBreakdown.length} services billed
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-text-muted">
+                            <span>Total Collections:</span>
+                            <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                              {currentCurrencySymbol}{serviceRevenueBreakdown.reduce((sum, s) => sum + s.revenue, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+
+                        {serviceRevenueBreakdown.length === 0 ? (
+                          <div className="py-4 text-center text-xs text-text-muted">
+                            No service fees recorded for this period yet.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                            {serviceRevenueBreakdown.map((srv, idx) => (
+                              <div
+                                key={srv.service || idx}
+                                className="p-3 bg-surface-subtle border border-border hover:border-emerald-500/40 rounded-md transition-colors flex items-center justify-between gap-2 shadow-2xs group"
+                              >
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-xs text-text-primary truncate group-hover:text-emerald-700 transition-colors" title={srv.service}>
+                                    {srv.service}
+                                  </p>
+                                  <p className="text-[10px] text-text-muted mt-0.5">
+                                    {srv.attendedCount} attended {srv.totalCount > srv.attendedCount ? `• ${srv.totalCount} booked` : ''}
+                                  </p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400">
+                                    {currentCurrencySymbol}{Number(srv.revenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* ── TWO-COLUMN LIVE DESK: TODAY'S SCHEDULE + HOT LEADS ── */}
@@ -12526,7 +12740,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW 1-B: DEDICATED BILLING & REVENUE VIEW ───────────────────── */}
             {activeNav === 'billing' && (() => {
-              const filteredBilling = (bookings || []).filter((b) => {
+              // 1. Timezone-safe local calendar day boundaries
+              const now = new Date();
+              const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+              const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+              const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+              const endOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+              const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
+              const startOfMonth = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29, 0, 0, 0, 0);
+
+              // 2. Base filtered bookings (search, date, payment status, booking status — independent of category filter)
+              const baseFilteredBilling = (bookings || []).filter((b) => {
                 if (b.is_occupied_only) return false;
 
                 // Search query
@@ -12541,31 +12765,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   }
                 }
 
-                // Date filter
-                if (billingDateFilter !== 'all' && b.start_time) {
+                // Date filter with accurate boundaries
+                if (billingDateFilter !== 'all') {
+                  if (!b.start_time) return false;
                   const bDate = new Date(b.start_time);
                   if (isNaN(bDate.getTime())) return false;
-                  const todayStr = new Date().toISOString().split('T')[0];
-                  if (billingDateFilter === 'today') {
-                    if (b.start_time.split('T')[0] !== todayStr) return false;
-                  } else if (billingDateFilter === 'yesterday') {
-                    const yest = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-                    if (b.start_time.split('T')[0] !== yest) return false;
-                  } else if (billingDateFilter === 'week') {
-                    const weekAgo = new Date(Date.now() - 7 * 86400000);
-                    if (bDate < weekAgo) return false;
-                  } else if (billingDateFilter === 'month') {
-                    const monthAgo = new Date(Date.now() - 30 * 86400000);
-                    if (bDate < monthAgo) return false;
-                  }
-                }
 
-                // Category filter
-                if (billingCategoryFilter !== 'all') {
-                  const bd = getBookingBreakdown(b);
-                  const amt = getCategoryAmount(bd, billingCategoryFilter, b);
-                  if (!amt || amt <= 0) {
-                    return false;
+                  if (billingDateFilter === 'today') {
+                    if (bDate < startOfToday || bDate > endOfToday) return false;
+                  } else if (billingDateFilter === 'yesterday') {
+                    if (bDate < startOfYesterday || bDate > endOfYesterday) return false;
+                  } else if (billingDateFilter === 'week') {
+                    if (bDate < startOfWeek || bDate > endOfToday) return false;
+                  } else if (billingDateFilter === 'month') {
+                    if (bDate < startOfMonth || bDate > endOfToday) return false;
                   }
                 }
 
@@ -12597,21 +12810,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 return true;
               });
 
-              // KPI aggregates
-              const totalRevenue = filteredBilling.reduce((sum, b) => sum + (parseFloat(String(b.price || 0)) || 0), 0);
-              const totalPaid = filteredBilling.reduce((sum, b) => {
-                const isPaid = (b.payment_status || '').toLowerCase() === 'paid';
-                return sum + (isPaid ? (parseFloat(String(b.price || 0)) || 0) : 0);
-              }, 0);
-              const totalPending = Math.max(0, totalRevenue - totalPaid);
-              const billedCount = filteredBilling.filter((b) => (b.price || 0) > 0).length;
-
-              // Category totals
+              // 3. Stable Category totals (calculated across baseFilteredBilling so category badges remain constant)
               const categoryTotals: Record<string, { total: number; count: number }> = {};
               billingCategories.forEach((cat) => {
                 categoryTotals[cat] = { total: 0, count: 0 };
               });
-              filteredBilling.forEach((b) => {
+              baseFilteredBilling.forEach((b) => {
                 const bd = getBookingBreakdown(b);
                 billingCategories.forEach((cat) => {
                   const amt = getCategoryAmount(bd, cat, b);
@@ -12621,6 +12825,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   }
                 });
               });
+
+              // 4. Filtered ledger rows (applying category filter if active)
+              const filteredBilling = baseFilteredBilling.filter((b) => {
+                if (billingCategoryFilter === 'all') return true;
+                const bd = getBookingBreakdown(b);
+                const amt = getCategoryAmount(bd, billingCategoryFilter, b);
+                return amt > 0;
+              });
+
+              // 5. KPI aggregates: aligned with category selection if a specific category is active
+              const isSpecificCategory = billingCategoryFilter !== 'all';
+              const totalRevenue = isSpecificCategory
+                ? (categoryTotals[billingCategoryFilter]?.total || 0)
+                : filteredBilling.reduce((sum, b) => sum + (parseFloat(String(b.price || 0)) || 0), 0);
+
+              const totalPaid = isSpecificCategory
+                ? filteredBilling.reduce((sum, b) => {
+                    const isPaid = (b.payment_status || '').toLowerCase() === 'paid';
+                    const bd = getBookingBreakdown(b);
+                    const amt = getCategoryAmount(bd, billingCategoryFilter, b);
+                    return sum + (isPaid ? amt : 0);
+                  }, 0)
+                : filteredBilling.reduce((sum, b) => {
+                    const isPaid = (b.payment_status || '').toLowerCase() === 'paid';
+                    return sum + (isPaid ? (parseFloat(String(b.price || 0)) || 0) : 0);
+                  }, 0);
+
+              const totalPending = Math.max(0, totalRevenue - totalPaid);
+              const billedCount = isSpecificCategory
+                ? (categoryTotals[billingCategoryFilter]?.count || 0)
+                : filteredBilling.filter((b) => (b.price || 0) > 0).length;
 
               const handleExportCSV = () => {
                 const headers = ['Date', 'Time', 'Patient Name', 'Phone', 'Service', 'Doctor / Staff', 'Booking Status', ...billingCategories, 'Total Fee', 'Payment Status', 'Payment Mode'];
@@ -14502,12 +14737,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {(() => {
                                     const prob = matchedCust?.lead_probability || conv.lead_probability;
                                     const rate = matchedCust?.conversion_rate ?? conv.conversion_rate ?? (prob === 'hot' ? 90 : (prob === 'cold' ? 20 : 50));
-                                    const isConvWon = Boolean(matchedCust?.converted || matchedCust?.status === 'converted' || (matchedCust?.conversion_rate != null && matchedCust.conversion_rate >= 99) || (matchedCust?.call_status || '').toLowerCase().includes('confirm') || (matchedCust?.call_status || '').toLowerCase().includes('convert') || conv.converted || conv.customer_status === 'converted' || (conv.conversion_rate != null && conv.conversion_rate >= 99));
+                                    const is100 = matchedCust?.conversion_rate === 100 || conv.conversion_rate === 100 || matchedCust?.status === 'converted' || conv.customer_status === 'converted';
+                                    const is99 = !is100 && Boolean(matchedCust?.converted || matchedCust?.status === 'booked' || (matchedCust?.conversion_rate != null && matchedCust.conversion_rate >= 99) || (matchedCust?.call_status || '').toLowerCase().includes('confirm') || (matchedCust?.call_status || '').toLowerCase().includes('convert') || conv.converted || conv.customer_status === 'booked' || (conv.conversion_rate != null && conv.conversion_rate >= 99));
 
-                                    if (isConvWon) {
+                                    if (is100) {
                                       return (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 inline-flex items-center gap-0.5" title="Booked Appointment (99%)">
-                                          <CheckCircle2 className="w-2.5 h-2.5 stroke-[2.5]" />
+                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-700 shrink-0 inline-flex items-center gap-0.5" title="Converted Lead (100%)">
+                                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 stroke-[2.5]" />
+                                          <span>Converted</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (is99) {
+                                      return (
+                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800 shrink-0 inline-flex items-center gap-0.5" title="Booked Appointment (99%)">
+                                          <CalendarCheck className="w-2.5 h-2.5 text-teal-600 stroke-[2.5]" />
                                           <span>Booked</span>
                                         </span>
                                       );
@@ -14680,76 +14924,56 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </span>
                                   )}
 
-                                  {/* Lead Status Interactive Pill (Hot / Warm / Cold / Converted) */}
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      let targetC = matchedCust;
-                                      if (!targetC && phoneNum) {
-                                        try {
-                                          const created = await crm.createCustomer({
-                                            phone: phoneNum,
-                                            name: selectedConv.contact_name || (phoneNum ? formatDisplayPhone(phoneNum) : 'Customer'),
-                                            lead_probability: 'warm',
-                                            status: 'lead',
-                                            health_concern: selectedConv.health_concern || 'General Consultation',
-                                          });
-                                          if (created && created.id) {
-                                            setCustomers((prev) => [created, ...prev]);
-                                            targetC = created;
+                                  {/* Lead Status Interactive Pill (Hot / Warm / Cold / Booked / Converted) */}
+                                  {(() => {
+                                    const leadStatus = getCustomerLeadStatus({
+                                      conversion_rate: custRate,
+                                      status: matchedCust?.status,
+                                      converted: isConverted,
+                                      lead_probability: custLeadProb,
+                                      call_status: matchedCust?.call_status
+                                    });
+                                    const StatusIcon = leadStatus.icon;
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          let targetC = matchedCust;
+                                          if (!targetC && phoneNum) {
+                                            try {
+                                              const created = await crm.createCustomer({
+                                                phone: phoneNum,
+                                                name: selectedConv.contact_name || (phoneNum ? formatDisplayPhone(phoneNum) : 'Customer'),
+                                                lead_probability: 'warm',
+                                                status: 'lead',
+                                                health_concern: selectedConv.health_concern || 'General Consultation',
+                                              });
+                                              if (created && created.id) {
+                                                setCustomers((prev) => [created, ...prev]);
+                                                targetC = created;
+                                              }
+                                            } catch (err) {
+                                              console.error('Failed to create customer on lead pill click:', err);
+                                            }
                                           }
-                                        } catch (err) {
-                                          console.error('Failed to create customer on lead pill click:', err);
-                                        }
-                                      }
-                                      if (targetC) {
-                                        if (activeRatePopover?.customerId === targetC.id) {
-                                          setActiveRatePopover(null);
-                                        } else {
-                                          openRatePopover(targetC.id, custRate, e.currentTarget);
-                                        }
-                                      }
-                                    }}
-                                    className={`h-6 px-2 rounded-full border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer shrink-0 ${
-                                      isConverted
-                                        ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
-                                        : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
-                                        ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300'
-                                        : custLeadProb === 'cold' || custRate < 40
-                                        ? 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300'
-                                        : 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300'
-                                    }`}
-                                    title={`Lead Status: ${
-                                      isConverted
-                                        ? 'Booked (99%)'
-                                        : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
-                                        ? `Hot Lead (${custRate}%)`
-                                        : custLeadProb === 'cold' || custRate < 40
-                                        ? `Cold Lead (${custRate}%)`
-                                        : `Warm Lead (${custRate}%)`
-                                    } — Click to change status`}
-                                  >
-                                    {isConverted ? (
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
-                                    ) : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75) ? (
-                                      <Flame className="w-3 h-3 text-rose-600 stroke-[2.2]" />
-                                    ) : custLeadProb === 'cold' || custRate < 40 ? (
-                                      <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
-                                    ) : (
-                                      <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
-                                    )}
-                                    <span>
-                                      {isConverted
-                                        ? 'Booked (99%)'
-                                        : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
-                                        ? `Hot (${custRate}%)`
-                                        : custLeadProb === 'cold' || custRate < 40
-                                        ? `Cold (${custRate}%)`
-                                        : `Warm (${custRate}%)`}
-                                    </span>
-                                    <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
-                                  </button>
+                                          if (targetC) {
+                                            if (activeRatePopover?.customerId === targetC.id) {
+                                              setActiveRatePopover(null);
+                                            } else {
+                                              openRatePopover(targetC.id, leadStatus.rate, e.currentTarget);
+                                            }
+                                          }
+                                        }}
+                                        className={`h-6 px-2 rounded-full border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer shrink-0 ${leadStatus.pillClass}`}
+                                        title={`Lead Status: ${leadStatus.label} — Click to change status`}
+                                      >
+                                        <StatusIcon className={`w-3 h-3 ${leadStatus.iconColor} stroke-[2.2]`} />
+                                        <span>{leadStatus.shortLabel}</span>
+                                        <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
+                                      </button>
+                                    );
+                                  })()}
                                 </div>
                                 {phoneNum && (
                                   <div className="flex items-center gap-2 text-[11px] text-text-muted font-mono leading-tight mt-0.5">
@@ -14884,34 +15108,39 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             }
                                           }
                                           if (targetC) {
-                                            openRatePopover(targetC.id, custRate, e.currentTarget);
+                                            const leadStatus = getCustomerLeadStatus({
+                                              conversion_rate: custRate,
+                                              status: matchedCust?.status,
+                                              converted: isConverted,
+                                              lead_probability: custLeadProb,
+                                              call_status: matchedCust?.call_status
+                                            });
+                                            openRatePopover(targetC.id, leadStatus.rate, e.currentTarget);
                                           }
                                         }}
                                         className="w-full text-left px-3 py-2 flex items-center justify-between text-xs hover:bg-surface-subtle text-text-primary transition-colors cursor-pointer"
                                       >
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          {isConverted ? (
-                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                          ) : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75) ? (
-                                            <Flame className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                                          ) : custLeadProb === 'cold' || custRate < 40 ? (
-                                            <Snowflake className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                                          ) : (
-                                            <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                          )}
-                                          <div className="truncate">
-                                            <span className="text-text-muted">Lead Status: </span>
-                                            <span className="font-semibold text-text-primary">
-                                              {isConverted
-                                                ? 'Booked (99%)'
-                                                : custLeadProb === 'hot' || (!custLeadProb && custRate >= 75)
-                                                ? `Hot (${custRate}%)`
-                                                : custLeadProb === 'cold' || custRate < 40
-                                                ? `Cold (${custRate}%)`
-                                                : `Warm (${custRate}%)`}
-                                            </span>
-                                          </div>
-                                        </div>
+                                        {(() => {
+                                          const leadStatus = getCustomerLeadStatus({
+                                            conversion_rate: custRate,
+                                            status: matchedCust?.status,
+                                            converted: isConverted,
+                                            lead_probability: custLeadProb,
+                                            call_status: matchedCust?.call_status
+                                          });
+                                          const StatusIcon = leadStatus.icon;
+                                          return (
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <StatusIcon className={`w-3.5 h-3.5 ${leadStatus.iconColor} shrink-0`} />
+                                              <div className="truncate">
+                                                <span className="text-text-muted">Lead Status: </span>
+                                                <span className="font-semibold text-text-primary">
+                                                  {leadStatus.label}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
                                         <ChevronDown className="w-3 h-3 text-text-muted shrink-0 ml-1" />
                                       </button>
 
@@ -15922,14 +16151,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
                                           {/* Improved Lead Status Pill */}
                                           {(() => {
-                                            const isCustBooked = Boolean(
-                                              cust.converted ||
-                                              cust.status === 'converted' ||
-                                              cust.converted === true ||
-                                              (cust.conversion_rate != null && cust.conversion_rate >= 99) ||
-                                              (cust.call_status || '').toLowerCase().includes('confirm') ||
-                                              (cust.call_status || '').toLowerCase().includes('convert')
-                                            );
+                                            const leadStatus = getCustomerLeadStatus(cust);
+                                            const StatusIcon = leadStatus.icon;
                                             return (
                                               <button
                                                 type="button"
@@ -15938,38 +16161,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   if (activeRatePopover?.customerId === cust.id) {
                                                     setActiveRatePopover(null);
                                                   } else {
-                                                    openRatePopover(cust.id, isCustBooked ? 99 : rate, e.currentTarget);
+                                                    openRatePopover(cust.id, leadStatus.rate, e.currentTarget);
                                                   }
                                                 }}
-                                                className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
-                                                  isCustBooked
-                                                    ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
-                                                    : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
-                                                    ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300'
-                                                    : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40)
-                                                    ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300'
-                                                    : 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300'
-                                                }`}
-                                                title={`Lead Status: ${isCustBooked ? 'Booked (99%)' : cust.lead_probability ? cust.lead_probability.charAt(0).toUpperCase() + cust.lead_probability.slice(1) : 'Unknown'} (${isCustBooked ? 99 : rate}%) — Click to change`}
+                                                className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${leadStatus.pillClass}`}
+                                                title={`Lead Status: ${leadStatus.label} — Click to change`}
                                               >
-                                                {isCustBooked ? (
-                                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
-                                                ) : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75) ? (
-                                                  <Flame className="w-3 h-3 text-rose-600 stroke-[2.2]" />
-                                                ) : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40) ? (
-                                                  <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
-                                                ) : (
-                                                  <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
-                                                )}
-                                                <span>
-                                                  {isCustBooked
-                                                    ? 'Booked (99%)'
-                                                    : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
-                                                    ? `Hot (${rate}%)`
-                                                    : cust.lead_probability === 'warm' || (!cust.lead_probability && rate >= 40)
-                                                    ? `Warm (${rate}%)`
-                                                    : `Cold (${rate}%)`}
-                                                </span>
+                                                <StatusIcon className={`w-3 h-3 ${leadStatus.iconColor} stroke-[2.2]`} />
+                                                <span>{leadStatus.shortLabel}</span>
                                                 <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
                                               </button>
                                             );
@@ -25543,13 +25742,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <ChevronDown className="w-2.5 h-2.5 opacity-60" />
                               </button>
                             )}
-                            {/* Booked (99%) Badge */}
-                            {(selectedCustomer.converted || selectedCustomer.status === 'converted' || (selectedCustomer.conversion_rate != null && selectedCustomer.conversion_rate >= 99) || (selectedCustomer.call_status || '').toLowerCase().includes('confirm') || (selectedCustomer.call_status || '').toLowerCase().includes('convert')) ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                <span>Booked (99%)</span>
-                              </span>
-                            ) : null}
+                            {/* Lead Status Badge */}
+                            {(() => {
+                              const leadStatus = getCustomerLeadStatus(selectedCustomer);
+                              if (leadStatus.type === 'converted') {
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-700">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>Converted (100%)</span>
+                                  </span>
+                                );
+                              }
+                              if (leadStatus.type === 'booked') {
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800">
+                                    <CalendarCheck className="w-3 h-3 text-teal-600" />
+                                    <span>Booked (99%)</span>
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                             {(selectedCustomer.source === 'website_form' || selectedCustomer.metadata?.source === 'website_form' || selectedCustomer.metadata?.booked_via === 'website_form') && (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800" title="Booked from Website Form">
                                 <Globe className="w-3 h-3 text-indigo-600" />

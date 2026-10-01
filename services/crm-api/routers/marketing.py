@@ -670,7 +670,7 @@ async def _fetch_analytics_slice(conn, is_all: bool, actual_tenant_uuid: Optiona
              AND service IS NOT NULL AND TRIM(service) != ''
            GROUP BY service
            ORDER BY revenue DESC, booking_count DESC
-           LIMIT 6""",
+           LIMIT 25""",
         is_all, actual_tenant_uuid, since, until
     )
     top_services = [
@@ -1488,7 +1488,10 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
 
 @router.get("/templates/meta-status")
 @router.get("/api/v1/crm/templates/meta-status")
-async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
+async def get_meta_templates_status(
+    tenant_id: str = Depends(get_tenant_id),
+    force_refresh: bool = False
+):
     """Inspect Meta Graph API to report live status of all essential system templates."""
     async with database.db_pool.acquire() as conn:
         cred_row = await conn.fetchrow(
@@ -1538,8 +1541,10 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
         }
 
     now_ts = time.monotonic()
+    if force_refresh:
+        _META_TEMPLATES_CACHE.pop(tenant_id, None)
     cached = _META_TEMPLATES_CACHE.get(tenant_id)
-    if cached and (now_ts - cached["ts"]) < _META_TEMPLATES_CACHE_TTL:
+    if cached and not force_refresh and (now_ts - cached["ts"]) < _META_TEMPLATES_CACHE_TTL:
         return cached["data"]
 
     meta_templates_map = {}
@@ -1914,6 +1919,7 @@ async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
         )
 
     await utils.invalidate_tenant_cache(tenant_id)
+    _META_TEMPLATES_CACHE.pop(tenant_id, None)
 
     return {
         "success": True,

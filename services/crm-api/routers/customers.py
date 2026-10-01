@@ -1299,16 +1299,28 @@ async def update_customer(
         params.append(cr)
         idx += 1
         if payload.lead_probability is None:
-            legacy_lp = "hot" if cr >= 75 else ("cold" if cr <= 35 else "warm")
+            legacy_lp = "converted" if cr == 100 else ("booked" if cr == 99 else ("hot" if cr >= 75 else ("cold" if cr <= 35 else "warm")))
             updates.append(f"lead_probability = ${idx}")
             params.append(legacy_lp)
             idx += 1
-        if cr >= 99 and payload.converted is None:
-            updates.append(f"converted = ${idx}")
-            params.append(True)
-            idx += 1
-            if payload.status is None:
-                updates.append("status = 'converted'")
+        if payload.converted is None:
+            if cr >= 99:
+                updates.append(f"converted = ${idx}")
+                params.append(True)
+                idx += 1
+                if payload.status is None:
+                    new_status = "converted" if cr == 100 else "booked"
+                    updates.append(f"status = ${idx}")
+                    params.append(new_status)
+                    idx += 1
+            else:
+                updates.append(f"converted = ${idx}")
+                params.append(False)
+                idx += 1
+                if payload.status is None:
+                    updates.append(f"status = ${idx}")
+                    params.append("lead")
+                    idx += 1
 
     if payload.call_status is not None:
         cs = payload.call_status.strip()

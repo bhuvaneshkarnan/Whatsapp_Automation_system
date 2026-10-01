@@ -994,15 +994,20 @@ async def update_booking_status(
                 payload.status, booking_id, tenant_id
             )
 
-        # Update customer last_visited_at if booking is completed or attended
+        # Update customer last_visited_at and automatically mark as Converted (100%) if booking is completed or attended
         if payload.status in ("completed", "attended"):
             try:
                 b_phone = booking.get("phone")
                 b_st = booking.get("start_time")
-                if b_phone and b_st:
+                if b_phone:
                     await conn.execute("""
                         UPDATE customers 
-                        SET last_visited_at = GREATEST(COALESCE(last_visited_at, $1), $1), updated_at = now()
+                        SET last_visited_at = GREATEST(COALESCE(last_visited_at, $1), $1),
+                            converted = true,
+                            conversion_rate = 100,
+                            status = 'converted',
+                            lead_probability = 'converted',
+                            updated_at = now()
                         WHERE tenant_id = $2::uuid 
                           AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10))
                     """, b_st, tenant_id, b_phone)
