@@ -18,6 +18,7 @@ from datetime import timezone
 import html
 import hashlib
 from typing import Optional, Any, Tuple, List, Dict
+import difflib
 
 import asyncpg
 import redis.asyncio as aioredis
@@ -401,6 +402,12 @@ def resolve_package_and_fee(
             if eff_price <= 0:
                 eff_price = 999.0
 
+    # 1b. Check Aadhiran Full Body Relaxation Massage (unified 60 mins: Regular ₹999, Offer ₹700)
+    if "aadhiran" in clean_slug and any(w in search_text for w in ["full body", "relaxation", "massage", "மசாஜ்"]) and "home" not in search_text:
+        resolved_service = "Full Body Relaxation Massage (60 mins)"
+        if eff_price <= 0:
+            eff_price = 700.0  # Active special 4-day offer (2/10/2026 to 5/10/2026): ₹700, regular ₹999
+
     # 2. Check for price in service string if not resolved yet
     if eff_price <= 0:
         m_p = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', hint_str, re.IGNORECASE)
@@ -446,9 +453,36 @@ def resolve_package_and_fee(
                 if m_line:
                     try:
                         eff_price = float(m_line.group(1).replace(',', ''))
+                        resolved_service = line_str.split(':')[0].strip()
                         break
                     except Exception:
                         pass
+
+        # Check medical specialties from context or hint if still not resolved
+        if eff_price <= 0:
+            med_specs = [
+                ("ortho", ["ortho", "joint", "bone", "neck", "kaluthu", "kazhuthu", "back", "muthuku", "knee", "mutti", "spine", "cervical", "lumbar", "fracture", "sprain", "arthritis"]),
+                ("neuro", ["neuro", "stroke", "paralysis", "headache", "thalai", "migraine", "nerve", "brain"]),
+                ("pediatric", ["pediatric", "paediatric", "child", "baby", "infant", "kulandhai", "pappa"]),
+                ("skin", ["skin", "derma", "allergy", "aripu", "rash", "pimples", "acne", "hair"]),
+                ("gastro", ["gastro", "stomach", "vayiru", "gastric", "acidity", "ulcer", "digestion", "liver"]),
+                ("cardio", ["cardio", "heart", "chest pain", "nenju", "bp", "pressure", "hypertension"]),
+                ("general", ["fever", "kaichal", "juram", "cold", "cough", "irumal", "sali", "infection", "weakness"])
+            ]
+            for spec_key, spec_kws in med_specs:
+                if any(w in search_text for w in spec_kws) or any(w in curr_str for w in spec_kws):
+                    for line in services_text.splitlines():
+                        if spec_key in line.lower():
+                            m_line = re.search(r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)', line, re.IGNORECASE)
+                            if m_line:
+                                try:
+                                    eff_price = float(m_line.group(1).replace(',', ''))
+                                    resolved_service = line.split(':')[0].strip()
+                                    break
+                                except Exception:
+                                    pass
+                    if eff_price > 0:
+                        break
 
     # 5. Fallback to tenant default booking fee
     if eff_price <= 0 and tenant_settings and isinstance(tenant_settings, dict):
@@ -473,6 +507,10 @@ _AUTOMATED_BOT_PATTERNS = [
     re.compile(r'\bdo not reply to this (?:message|number)\b', re.IGNORECASE),
     re.compile(r'\bunmonitored\s+(?:inbox|mailbox|number|account)\b', re.IGNORECASE),
     re.compile(r'\bpress\s+\d+\s+for\b', re.IGNORECASE),
+    re.compile(r'\bdownload our app\b', re.IGNORECASE),
+    re.compile(r'delivered to your doorstep', re.IGNORECASE),
+    re.compile(r'welcome to dominos', re.IGNORECASE),
+    re.compile(r'reply with [‘\'"].*?[’\'"] to download', re.IGNORECASE),
 ]
 
 
@@ -489,19 +527,43 @@ def is_automated_bot_or_channel_message(text: Optional[str]) -> bool:
     return False
 
 
-def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.datetime:
-    """Parses date and time supporting relative dates (today, tomorrow, weekdays), flexible times, and fallback."""
+def parse_flexible_datetime(
+    date_str: str,
+    time_str: str,
+    tz,
+    opening_time: str = "10:00",
+    closing_time: str = "20:00",
+    is_24_7: bool = False
+) -> datetime.datetime:
+    """Parses date and time supporting relative dates (today, tomorrow, weekdays), flexible times, Unicode normalization, and operating hours fallback."""
     now = datetime.datetime.now(tz)
-    clean_d = (date_str or "").strip().lower()
-    clean_t = (time_str or "").strip()
-    
-    # Handle relative date keywords
+
+    # 1. Strip Unicode narrow spaces (\u202f), non-breaking spaces (\u00a0), and normalize whitespace
+    clean_d = re.sub(r'[\s\u00a0\u202f\u2000-\u200b]+', ' ', (date_str or "")).strip().lower()
+    clean_t = re.sub(r'[\s\u00a0\u202f\u2000-\u200b]+', ' ', (time_str or "")).strip().lower()
+
+    # Parse opening and closing hours for clamping and safe fallback
+    op_h, op_m = 10, 0
+    cl_h, cl_m = 20, 0
+    try:
+        if opening_time and ":" in str(opening_time):
+            p_op = re.sub(r'[^\d:]', '', str(opening_time)).split(":")
+            op_h, op_m = int(p_op[0]), int(p_op[1]) if len(p_op) > 1 else 0
+        if closing_time and ":" in str(closing_time):
+            p_cl = re.sub(r'[^\d:]', '', str(closing_time)).split(":")
+            cl_h, cl_m = int(p_cl[0]), int(p_cl[1]) if len(p_cl) > 1 else 0
+            if "pm" in str(closing_time).lower() and cl_h < 12:
+                cl_h += 12
+    except Exception:
+        pass
+
+    # 2. Handle relative date keywords
     if "tomorrow" in clean_d:
         clean_d = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    elif "today" in clean_d:
-        clean_d = now.strftime("%Y-%m-%d")
-    elif "day after tomorrow" in clean_d:
+    elif "day after tomorrow" in clean_d or "overmorrow" in clean_d:
         clean_d = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+    elif "today" in clean_d or "tonight" in clean_d:
+        clean_d = now.strftime("%Y-%m-%d")
     else:
         # Check for weekday names (e.g. "monday", "next tuesday")
         days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -516,23 +578,65 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
                 clean_d = (now + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
                 break
 
-    # Normalize time if only hour given (e.g., "4 pm" -> "04:00 PM")
-    if clean_t and re.match(r'^\d{1,2}\s*(am|pm)$', clean_t.lower()):
-        m = re.match(r'^(\d{1,2})\s*(am|pm)$', clean_t.lower())
-        if m:
-            clean_t = f"{int(m.group(1)):02d}:00 {m.group(2).upper()}"
+    # 3. Handle spelled-out month dates like "3 october 2026", "october 3, 2026", "03-10-2026"
+    month_map = {
+        "january": "01", "jan": "01", "february": "02", "feb": "02", "march": "03", "mar": "03",
+        "april": "04", "apr": "04", "may": "05", "june": "06", "jun": "06", "july": "07", "jul": "07",
+        "august": "08", "aug": "08", "september": "09", "sep": "09", "sept": "09", "october": "10", "oct": "10",
+        "november": "11", "nov": "11", "december": "12", "dec": "12"
+    }
+    clean_d = clean_d.replace(",", " ")
+    m_day_month = re.search(r'\b(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b', clean_d)
+    if m_day_month and m_day_month.group(2) in month_map:
+        d_val = int(m_day_month.group(1))
+        m_val = month_map[m_day_month.group(2)]
+        y_val = int(m_day_month.group(3)) if m_day_month.group(3) else now.year
+        clean_d = f"{y_val:04d}-{m_val}-{d_val:02d}"
+
+    m_dmy = re.search(r'\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b', clean_d)
+    if m_dmy:
+        clean_d = f"{int(m_dmy.group(3)):04d}-{int(m_dmy.group(2)):02d}-{int(m_dmy.group(1)):02d}"
+
+    # 4. Normalize time
+    m_t = re.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b', clean_t, re.I)
+    if m_t:
+        th = int(m_t.group(1))
+        tm = int(m_t.group(2) or 0)
+        merid = (m_t.group(3) or "").lower()
+        if merid == "pm" and th < 12:
+            th += 12
+        elif merid == "am" and th == 12:
+            th = 0
+        clean_t = f"{th:02d}:{tm:02d}"
+    elif not clean_t or clean_t in ("morning", "afternoon", "evening"):
+        clean_t = f"{op_h:02d}:{op_m:02d}"
+
+    # 5. Fast Path: standard ISO format parsing
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', clean_d) and re.match(r'^\d{2}:\d{2}$', clean_t):
+        try:
+            dt = datetime.datetime.fromisoformat(f"{clean_d}T{clean_t}:00").replace(tzinfo=tz)
+            if dt.year < now.year:
+                dt = dt.replace(year=now.year)
+            if dt < now - datetime.timedelta(days=30):
+                dt = dt.replace(year=now.year + 1)
+            # Past Time on Today: if booked for a past time today, advance to tomorrow
+            if dt < now and dt >= now - datetime.timedelta(hours=24):
+                dt = dt + datetime.timedelta(days=1)
+            return dt
+        except Exception:
+            pass
 
     formats = [
+        "%Y-%m-%d %H:%M",
         "%Y-%m-%d %I:%M %p",
         "%Y-%m-%d %I:%M%p",
         "%Y-%m-%d %I %p",
-        "%Y-%m-%d %H:%M",
         "%Y-%m-%d %H:%M:%S",
+        "%d-%m-%Y %H:%M",
         "%d-%m-%Y %I:%M %p",
         "%d-%m-%Y %I:%M%p",
-        "%d-%m-%Y %H:%M",
-        "%d/%m/%Y %I:%M %p",
         "%d/%m/%Y %H:%M",
+        "%d/%m/%Y %I:%M %p",
         "%Y/%m/%d %H:%M",
         "%Y/%m/%d %I:%M %p",
         "%d %B %Y %I:%M %p",
@@ -546,23 +650,35 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
         try:
             dt = datetime.datetime.strptime(f"{clean_d} {clean_t}", fmt)
             dt = dt.replace(tzinfo=tz)
-            # Automatic Year Hallucination Correction:
-            # If the LLM hallucinates a past year (e.g. 2025 when today is 2026), anchor it to current year.
             if dt.year < now.year:
                 dt = dt.replace(year=now.year)
-            # If the resulting date has already passed in current year by more than 30 days, roll forward to next year
             if dt < now - datetime.timedelta(days=30):
                 dt = dt.replace(year=now.year + 1)
-            # Automatic Past Time on Today Correction:
-            # If the date was today (or defaulted to today) and the time has already passed today:
-            # e.g., customer said "3 pm" at 11:50 PM, so dt is today 3:00 PM which is in the past:
             if dt < now and dt >= now - datetime.timedelta(hours=24):
-                # Roll forward to tomorrow so past appointments are never booked
                 dt = dt + datetime.timedelta(days=1)
             return dt
         except ValueError:
             continue
-    return now + datetime.timedelta(hours=2)
+
+    # 6. Safe intelligent fallback when date or time could not be parsed:
+    # NEVER fall back to dead-of-night hours (e.g. 10:30 PM)!
+    if is_24_7:
+        return now + datetime.timedelta(hours=2)
+
+    # For business operating hours:
+    # If today is already past (or within 30 mins of) closing time: schedule for TOMORROW at opening_time
+    if now.hour > cl_h or (now.hour == cl_h and now.minute >= cl_m) or (now.hour == cl_h - 1 and now.minute >= 30):
+        tomorrow = now + datetime.timedelta(days=1)
+        return tomorrow.replace(hour=op_h, minute=op_m, second=0, microsecond=0)
+    elif now.hour < op_h:
+        return now.replace(hour=op_h, minute=op_m, second=0, microsecond=0)
+    else:
+        cand = now + datetime.timedelta(hours=2)
+        latest_today = now.replace(hour=cl_h, minute=cl_m, second=0, microsecond=0) - datetime.timedelta(minutes=30)
+        if cand > latest_today:
+            tomorrow = now + datetime.timedelta(days=1)
+            return tomorrow.replace(hour=op_h, minute=op_m, second=0, microsecond=0)
+        return cand.replace(minute=0 if cand.minute < 30 else 30, second=0, microsecond=0)
 
 
 def parse_action_payload(payload_str: str) -> dict:
@@ -607,6 +723,12 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * When the customer gives a short reply (e.g. '3 pm', 'tomorrow', 'hydrafacial', 'yes', 'T Nagar', 'give me a demo', 'today evening'): Connect their reply directly to the previous messages. They are answering your previous question or continuing the ongoing topic. NEVER evaluate short answers in isolation and NEVER reset the conversation context.\n"
     "  * NATURAL 4 TO 5 TURN DISCOVERY FLOW: On early turns (Turn 1 to 3), prioritize diagnosing the customer's need with ONE thoughtful diagnostic question. Do NOT propose appointment times or demo slots until Stage 4 or unless the customer explicitly provided an exact time.\n"
     "  * TIME / SLOT PROVIDED: When the customer provides a time or day (e.g. 'today evening', '5:30 pm', 'tomorrow at 3'), understand they are selecting their slot! Immediately confirm that exact time with warmth and append [ACTION:CREATE_BOOKING: ...] with date and time.\n"
+    "- DIRECT QUESTION ANSWERING:\n"
+    "  * Always identify what the customer is specifically asking and answer THAT question directly. Never respond with a generic greeting or service list when a specific question was asked.\n"
+    "- VAGUE REFERENCE HANDLING:\n"
+    "  * When customer says 'this', 'it', 'that service', 'the offer' without specifying, look at conversation history to understand what they're referring to, then answer specifically.\n"
+    "- NO GENERIC OPENERS:\n"
+    "  * Never start a reply with just 'Welcome to [Business Name]!' or 'Thank you for contacting us!' as the ENTIRE reply. These are greetings, not answers.\n"
     "- TEMPORAL REASONING & DATE/TIME RESOLUTION (ZERO AMBIGUITY):\n"
     "  * Live Timestamp Awareness: Check the current time provided at the top of the prompt.\n"
     "  * If customer mentions a time without a date (e.g. '3 pm', 'at 11', '5:30 PM'):\n"
@@ -622,7 +744,7 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * DO NOT ALWAYS USE THE 3-STEP SALES AGENT TECHNIQUE: Use qualification questions only when ACTUALLY needed (e.g. when a new customer's requirement is broad, vague, or exploratory). When a customer asks a direct question (e.g. price, timings, features, address), simply answer their question directly, clearly, and helpfully. Do NOT force a diagnostic question or a booking pitch onto every single answer.\n"
     "  * When guiding to a booking or consult, ask what day and convenient time works best for them within operating hours. NEVER force 2 rigid arbitrary times (such as '10:00 AM or 4:30 PM' or 'morning or evening').\n"
     "- OPERATING HOURS INTEGRITY:\n"
-    "  * When a customer asks about clinic / business timings, operating hours, working hours, opening or closing times, always state our exact operating hours from the knowledge base (e.g. 7:00 AM to 9:30 PM daily for Mind Body Recovery, or as configured). NEVER infer, guess, or invent operating hours from open calendar slots or list of available slots.\n"
+    "  * When a customer asks about clinic / business timings, operating hours, working hours, opening or closing times, always state our exact operating hours from the knowledge base (as configured in this business's knowledge base). NEVER infer, guess, or invent operating hours from open calendar slots or list of available slots.\n"
     "- ACTIVE OBJECTION RE-FRAMING:\n"
     "  * When a customer expresses price resistance ('too expensive') or delay ('will check and let you know'), never accept a dead-end. Reframe value in 1 sentence and offer a zero-friction micro-step.\n"
     "- EASY INDIAN ENGLISH & NATURAL HUMAN TONE:\n"
@@ -632,10 +754,9 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * If the customer previously messaged in Tamil but now writes in English, you MUST immediately switch and reply 100% in natural English. NEVER stay locked in Tamil when the customer asks in English.\n"
     "  * If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish.\n"
     "  * If the customer sends a neutral short acknowledgment (like 'ok', 'yes', 'sure', '3 pm'), continue in the previously established language.\n"
-    "- SERVICE NAME INTEGRITY & ZERO PHONETIC HALLUCINATION:\n"
-    "  * In Tamil/Tanglish, NEVER literally or bizarrely mistranslate spa/wellness terms into random everyday words.\n"
-    "  * SPECIFIC TAMIL DIRECTIVE: Powder Massage / Udwarthanam must ALWAYS be called 'உத்வர்தனம்' or 'ஹெர்பல் பவுடர் மசாஜ்' (or 'Udwarthanam / Powder Massage'). NEVER write 'புடவை மசாஜ்' or 'சேலை மசாஜ்' (which means saree!).\n"
-    "  * Only offer and describe treatments that explicitly exist in the verified catalog. Never invent, hallucinate, or confuse services.\n"
+    "- SERVICE NAME INTEGRITY & ZERO HALLUCINATION:\n"
+    "  * Only offer and describe services and packages that explicitly exist in THIS business's verified catalog below. Never invent, extrapolate, or confuse services.\n"
+    "  * In Tamil/Tanglish, translate service terms accurately according to this business's specific vocabulary instructions.\n"
     "- CONVERSATIONAL WHATSAPP BREVITY (NO ESSAYS):\n"
     "  * Keep responses to 2 to 3 natural sentences (25 to 50 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis.\n"
     "  * IMPORTANT FORMATTING EXCEPTION: Forward slashes (/) are ALLOWED and REQUIRED. Always write '24/7' with the slash, never as '247'. Use '24/7' whenever referring to round-the-clock or always-on availability.\n"
@@ -1707,17 +1828,19 @@ class CoreWorker:
                             "thanks", "thank you", "seri", "vanakkam", "services", "book", "price"
                         }
                         is_short_word = norm_msg in COMMON_SHORT_WORDS or len(norm_msg) <= 4
-                        max_dup_window = 2.0 if is_short_word else 4.0
+                        is_long_broadcast = len(norm_msg) > 60
+                        max_dup_window = 2.0 if is_short_word else (180.0 if is_long_broadcast else 10.0)
                         if last_hash == msg_hash and (now_ts - last_ts) < max_dup_window:
                             new_count = last_count + 1
-                            await self.redis.setex(dup_key, 10, json.dumps({"hash": msg_hash, "count": new_count, "ts": now_ts}))
+                            ttl = 300 if is_long_broadcast else 30
+                            await self.redis.setex(dup_key, ttl, json.dumps({"hash": msg_hash, "count": new_count, "ts": now_ts}))
                             logger.warning(
                                 "skipping_ai_duplicate_inbound_message",
                                 conv_id=conv_id, tenant_id=tenant_id, phone=clean_from_phone,
                                 count=new_count, snippet=body_text[:50]
                             )
-                            if new_count >= 5:
-                                # Rapid abusive spam (5+ identical messages within 10s): auto-switch to human mode
+                            if (is_long_broadcast and new_count >= 2) or new_count >= 5:
+                                # Rapid abusive spam or repeated broadcast: auto-switch to human mode
                                 await self.db_pool.execute(
                                     """UPDATE conversations
                                        SET status = 'human',
@@ -1727,9 +1850,12 @@ class CoreWorker:
                                 )
                             body_text = None
                         else:
-                            await self.redis.setex(dup_key, 10, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
+                            ttl = 300 if is_long_broadcast else 30
+                            await self.redis.setex(dup_key, ttl, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
                     else:
-                        await self.redis.setex(dup_key, 10, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
+                        is_long_broadcast = len(norm_msg) > 60
+                        ttl = 300 if is_long_broadcast else 30
+                        await self.redis.setex(dup_key, ttl, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
                 except Exception as dup_err:
                     logger.debug("duplicate_check_error", error=str(dup_err))
 
@@ -2337,6 +2463,18 @@ end
                     pass
         return None
 
+    @staticmethod
+    def _strip_pricing_from_services_text(text: str) -> str:
+        if not text:
+            return ""
+        cleaned = re.sub(r'\([^\)]*?[₹$0-9][^\)]*?\)', '', text)
+        cleaned = re.sub(r':\s*[₹$][0-9]+(?:\s*[-–]\s*[₹$]?[0-9]+)?', '', cleaned)
+        cleaned = re.sub(r'[₹$]\s*[0-9]+(?:\s*[-–]\s*[₹$]?[0-9]+)?', '', cleaned)
+        cleaned = re.sub(r'\bRs\.?\s*[0-9]+(?:\s*[-–]\s*[0-9]+)?', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'\s*,\s*', ', ', cleaned)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,:-')
+        return cleaned
+
     def _sanitize_tenant_response(
         self,
         text: str,
@@ -2348,6 +2486,10 @@ end
         admin_name: Optional[str] = None,
         customer_name: Optional[str] = None,
         services_text: Optional[str] = None,
+        is_asking_fee: bool = False,
+        inbound_clean: str = "",
+        matched_doc_obj: Optional[dict] = None,
+        is_doctor_query: bool = False,
     ) -> str:
         """
         Global strict tenant isolation firewall.
@@ -2355,6 +2497,8 @@ end
         1. No tenant ever sends another tenant's brand name, persona, or pricing.
         2. No customer is ever given their OWN phone number when asking for contact details!
         3. No customer is ever greeted or addressed by the business owner/staff name!
+        4. No price is ever blurted out unless the customer specifically asked about fee/cost.
+        5. Doctor names are never mistaken for customer self-introductions ("Thank you for sharing your name").
         """
         if not text:
             return ""
@@ -2426,14 +2570,59 @@ end
         if admin_name and customer_name and text:
             adm_first = admin_name.split()[0].strip()
             cust_first = customer_name.split()[0].strip()
-            if adm_first and cust_first and adm_first.lower() != cust_first.lower():
+            # Guard: If admin_name is or contains the business name, or contains business keywords, do NOT treat as human first name!
+            is_company_name = (
+                adm_first.lower() in (tenant_name or "").lower()
+                or any(w in admin_name.lower() for w in [
+                    "clinic", "hospital", "diagnostics", "lab", "health", "centre", "center",
+                    "care", "wellness", "enterprise", "mobile", "tech", "solutions", "services",
+                    "studio", "store", "shop"
+                ])
+            )
+            if not is_company_name and adm_first and cust_first and adm_first.lower() != cust_first.lower():
                 adm_variants = [re.escape(adm_first)]
                 if len(adm_first) > 5 and adm_first.lower().endswith("esh"):
                     adm_variants.append(re.escape(adm_first[:-3]))  # e.g. 'bhuvan' for 'bhuvanesh'
                 adm_variants.sort(key=len, reverse=True)
                 for v in adm_variants:
-                    text = re.sub(rf'([\.\!\?\,]\s+)\b{v}\b', rf'\g<1>{cust_first}', text, flags=re.IGNORECASE)
-                    text = re.sub(rf'\b(hey|hi|hello)\s+\b{v}\b', rf'\1 {cust_first}', text, flags=re.IGNORECASE)
+                    text = re.sub(
+                        rf'\b(hey|hi|hello|dear|vanakkam)\s+{v}\b(?!\s+(?:clinic|hospital|centre|center|lab|diagnostics|healthcare|team|support|tech|solutions))',
+                        rf'\1 {cust_first}',
+                        text,
+                        flags=re.IGNORECASE
+                    )
+
+        # ── Consultation Fee Blurting Guard ──
+        # If customer did NOT ask about price/fee/cost, only suppress standalone unsolicited consultation fee blurts (e.g. on general greetings)
+        # NEVER strip prices if the message is explaining an active special offer, promotion, or service package!
+        has_offer_mention = bool(re.search(r'\b(offer|special\s+offer|discount|promo|package|regular\s+price|session)\b', text, re.I))
+        if not is_asking_fee and not has_offer_mention and text:
+            # Only remove standalone sentences specifically blurting "The consultation fee is ₹500."
+            text = re.sub(r'\b(?:The\s+)?(?:consultation\s+)?fee\s+(?:for\s+the\s+session\s+)?is\s+[₹$]?\s*[0-9,]+(?:\s*rupees)?[\.,]?', '', text, flags=re.I)
+            text = re.sub(r'(?:,\s*|\.\s*)(?:consultation\s+)?fee\s+is\s+[₹$]?\s*[0-9,]+(?:\s*rupees)?[\.,]?', '', text, flags=re.I)
+            text = re.sub(r'\s+,', ',', text)
+            text = re.sub(r'\s+\.', '.', text)
+            text = re.sub(r'\s{2,}', ' ', text).strip()
+
+        # Universal safeguard: Clean any hanging prepositions or broken fragments (e.g. "is," or "for.")
+        text = re.sub(r'\b(is|for|at|costs?|was)\s*,\s*', r'\1 ', text, flags=re.I)
+        text = re.sub(r'\b(is|for|at|costs?|was)\s*\.\s*', r'. ', text, flags=re.I)
+
+        # ── Strict Anti-Doctor Name as Customer Name Confusion Guard ──
+        if text and re.search(r'thank\s+you\s+for\s+(?:sharing|providing|giving)\s+your\s+name', text, re.I):
+            in_lower = (inbound_clean or "").lower()
+            if is_doctor_query or any(k in in_lower for k in ["anbuarasan", "annarasan", "anbarasan", "thamiz", "thamizharasan", "pallavan", "nethaji", "kamaraj", "prathiba", "sakthivel", "nithya", "nithiya"]):
+                if matched_doc_obj:
+                    d_n = matched_doc_obj.get("name", "Our doctor")
+                    d_s = matched_doc_obj.get("schedule", "available for consultation")
+                    d_sp = matched_doc_obj.get("specialty", "")
+                    text = f"{d_n} ({d_sp}) is available on {d_s}. Would you like to schedule an appointment during these hours?"
+                else:
+                    text = f"Our consulting specialist doctors are available for appointments. Which doctor or specialty would you like to consult?"
+
+        # Strip all markdown asterisks so bold/italic asterisks never leak into WhatsApp
+        if text and "*" in text:
+            text = text.replace("*", "")
 
         return text.strip()
 
@@ -2441,7 +2630,8 @@ end
         self,
         message_text: str,
         history: list[dict],
-        stored_language: Optional[str] = None
+        stored_language: Optional[str] = None,
+        is_aadhiran: bool = False,
     ) -> dict:
         """
         Analyzes customer's incoming message, chat history, and stored customer language preference to identify:
@@ -2452,6 +2642,81 @@ end
         """
         text = (message_text or "").strip()
         text_lower = text.lower()
+
+        # ── AADHIRAN CENTER SPECIALIZED LANGUAGE PROTOCOL (STRICTLY TANGLISH & TAMIL ONLY - NEVER ENGLISH) ──
+        if is_aadhiran:
+            curr_tamil = bool(re.search(r'[\u0B80-\u0BFF]', text))
+            has_tamil_in_history = curr_tamil or any(
+                bool(re.search(r'[\u0B80-\u0BFF]', (h.get("content") or "")))
+                for h in (history or []) if h.get("role") == "user"
+            )
+            is_tamil_explicit = any(sw in text_lower for sw in ["tamil la pesunga", "speak in tamil", "tamil please", "reply in tamil", "tamil text"])
+            clean_stored = (stored_language or "").strip().lower()
+
+            tokens_curr = set(re.findall(r'\b[a-z]+\b', text_lower))
+            neutral_acks = {
+                "ok", "okay", "k", "kk", "yes", "yeah", "yep", "ya", "no", "nah", "nope",
+                "sure", "done", "fine", "cool", "alright", "thx", "thanks", "thank",
+                "you", "ty", "noted", "got", "it", "super", "great", "welcome", "am", "pm"
+            }
+            is_neutral = len(tokens_curr) <= 3 and (len(tokens_curr) == 0 or tokens_curr.issubset(neutral_acks))
+
+            if curr_tamil or is_tamil_explicit:
+                return {
+                    "dialect": "tamil_script",
+                    "language": "tamil",
+                    "label": "Tamil (Tamil Script)",
+                    "directive": (
+                        "The customer communicated in Tamil (தமிழ்).\n"
+                        "CRITICAL AADHIRAN CENTER MANDATE: You MUST respond 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்).\n"
+                        "ABSOLUTE PROHIBITION ON ENGLISH: Never write in English! Zero English sentences allowed under any circumstance.\n"
+                        "RESPECTFUL FORM: ALWAYS address the patient respectfully as 'உங்களுக்கு' (NEVER use disrespectful 'உனக்கு' or 'நீ').\n"
+                        "PRICE DIGITS: Always write prices in standard digits with Rupee symbol: ₹700, ₹999, ₹1499.\n"
+                        "Keep your reply to 1-2 natural sentences (20-40 words max), zero hyphens, zero emojis."
+                    )
+                }
+
+            if is_neutral and (clean_stored in ("tamil_script", "tamil") or (has_tamil_in_history and not bool(re.search(r'[\u0900-\u097F]', text)))):
+                return {
+                    "dialect": "tamil_script",
+                    "language": "tamil",
+                    "label": "Tamil (Tamil Script Continuity)",
+                    "directive": (
+                        "The customer sent a brief neutral acknowledgment ('ok' / 'yes' / 'sure') in an ongoing Tamil conversation.\n"
+                        "CRITICAL AADHIRAN CENTER MANDATE: Continue 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்). Never switch to English!\n"
+                        "Keep your reply to 1-2 natural sentences, zero hyphens, zero emojis."
+                    )
+                }
+
+            # In ALL OTHER CASES for Aadhiran Center (whether customer wrote in English, Tanglish, casual slang, numbers, English voice note, or requested English):
+            # Reply in 100% natural conversational spoken WhatsApp Tanglish! NEVER in English!
+            return {
+                "dialect": "tanglish",
+                "language": "tanglish",
+                "label": "Tanglish (Spoken WhatsApp Tamil in English alphabet - NO ENGLISH REPLIES ALLOWED)",
+                "directive": (
+                    "CRITICAL AADHIRAN CENTER MANDATORY LANGUAGE DIRECTIVE:\n"
+                    "For Aadhiran Center, you MUST reply EXCLUSIVELY in 100% natural, casual, polite SPOKEN WHATSAPP TANGLISH as spoken in Tamil Nadu.\n"
+                    "ABSOLUTE PROHIBITION ON ENGLISH: NEVER reply in English! Even though the customer texted or sent a voice message in English, asked 'hi', 'what is the price', 'hours', or requested English, Aadhiran Center strictly replies in Tanglish! Never use pure English!\n"
+                    "NATURAL CONVERSATIONAL FLOW (STRICT RULES):\n"
+                    "- STRICTLY NEVER START REPLIES WITH 'Namma Aadhiran Center la...', 'Namma center la...', or repetitive business intros. Jump straight into answering naturally!\n"
+                    "- ONGOING CONVERSATION: If this is an ongoing chat, NEVER repeat greetings ('Vanakkam sir!', 'Hi!'). Dive straight into your reply.\n"
+                    "COLLOQUIAL TANGLISH PATTERNS:\n"
+                    "- General / English inquiry: 'Vanakkam sir! Ungalukku entha service pathi details thevai nu sollunga, kandippa help panrom!'\n"
+                    "- Timings: 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir. Ungalukku entha timing convenient-ah irukkum?'\n"
+                    "- Pricing: 'Full Body Relaxation Massage 60 mins offer price ₹700 sir (regular ₹999). Ungalukku intha session book pannalama?'\n"
+                    "- Services: 'Full Body Relaxation Massage, Udwarthanam, Abhyangam and other wellness therapies irukku sir. Ungalukku enna therapy thevai nu solla mudiyuma?'\n"
+                    "- Location: 'Namma center 14/18, M.G.R Nagar, 5th Street, P.N. Road East, Tiruppur la irukku sir.'\n"
+                    "- Voice Notes: Answer the query directly in natural spoken WhatsApp Tanglish.\n"
+                    "- Deferral / Think about it: 'Kandippa sir, take your time. Ungalukku eppo convenient-o appo sollunga, slot book pannidalam!'\n"
+                    "- Gratitude: 'Romba nandri sir! Feel free to reach out anytime. Have a wonderful day!'\n"
+                    "STRICT GUIDELINES:\n"
+                    "- NEVER write formal bookish Tamil transliterated into English (never say 'namathu', 'uuzhiya neram', 'mathum', 'seiyalama').\n"
+                    "- ALWAYS write prices using standard digits with Rupee symbol: ₹700, ₹999, ₹1499.\n"
+                    "- ALWAYS address the customer respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee').\n"
+                    "- Keep your reply to 1-2 natural conversational sentences (20-40 words max), zero hyphens, zero emojis."
+                )
+            }
 
         # Check for explicit language switch requests by user
         if any(sw in text_lower for sw in ["speak in english", "talk in english", "in english please", "reply in english", "english please"]):
@@ -2520,7 +2785,10 @@ end
             "kelunga", "keten", "pannalam", "pannunga", "solren", "illai", "vendaam", "kudu",
             "machi", "thala", "paaru", "paathuten", "sandhosham", "puriyala", "purinjidhu", "kooda",
             "annachi", "thambi", "anna", "akka", "apram", "appuram", "seringa", "oknga", "ama",
-            "aama", "aamam", "valikuthu", "vali", "kaala", "nandri", "thalaiva", "epdi", "panradhu"
+            "aama", "aamam", "valikuthu", "vali", "kaala", "nandri", "thalaiva", "epdi", "panradhu",
+            "nero", "neram", "naalaiku", "inaikku", "inniku", "innaki", "mattum", "paththi", "paathu",
+            "panlam", "pannalam", "pannidalam", "varalama", "varlaam", "kedaikuma", "venama", "venumaa",
+            "venam", "sollungalen", "edhachu", "ethavathu", "ethathu", "theva", "thevai", "dhana", "dhaana"
         }
         tanglish_matches_current = tokens_current.intersection(tanglish_words)
         tanglish_matches_all = tokens_all.intersection(tanglish_words)
@@ -2534,8 +2802,11 @@ end
                     "The customer wrote in Tamil script (தமிழ்). "
                     "CRITICAL: You MUST respond 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்). "
                     "Speak like a friendly, caring clinic/business front-desk member in Tamil Nadu "
-                    "(e.g. 'வணக்கம்! எங்கள் கிளினிக்கில் கன்சல்டேஷன் கட்டணம் ₹500. உங்களுக்கு என்ன சிகிச்சை தேவை என்று கூற முடியுமா?'). "
-                    "SERVICE NAME INTEGRITY: NEVER translate Powder Massage as 'புடவை மசாஜ்' (which means saree!). Always use 'உத்வர்தனம்' or 'பவுடர் மசாஜ்'. "
+                    "(e.g. 'வணக்கம்! எங்கள் கிளினிக்கில் கன்சல்டேஷன் கட்டணம் ₹200. உங்களுக்கு என்ன சிகிச்சை தேவை என்று கூற முடியுமா?'). "
+                    "RESPECTFUL FORM: ALWAYS address the patient respectfully as 'உங்களுக்கு' (NEVER use disrespectful 'உனக்கு' or 'நீ'). "
+                    "VOCABULARY INTEGRITY: 'வேண்டும்' / 'விரும்புகிறீர்கள்' means want/need. 'வேண்டாம்' means DO NOT WANT / NO. NEVER write 'கன்சல்ட் பண்ண வேண்டாம்?' when asking who they want to consult. Ask 'எந்த சிறப்பு மருத்துவரை பார்க்க விரும்புகிறீர்கள்?'. "
+                    "SERVICE NAME INTEGRITY: NEVER translate Powder Massage as 'புடவை மசாஜ்'. Always use 'உத்வர்தனம்' or 'பவுடர் மசாஜ்'. "
+                    "PRICE DIGITS INTEGRITY: MANDATORY: Always write prices using standard digits with the Rupee symbol (e.g. ₹700, ₹999, ₹1499, ₹1599). NEVER spell out prices in Tamil words like 'எழுநூறு' or 'ஆயிரத்து நானூறு' - always write standard digits like '₹700' or '₹1499'. "
                     "Greet politely, answer their query directly and clearly in sentence 1, and maintain a respectful, welcoming tone. "
                     "Do NOT sound cold, blunt, or robotic. Never reply in English or mix English sentences."
                 )
@@ -2549,13 +2820,37 @@ end
                 "language": "tanglish",
                 "label": "Tanglish (Romanized Tamil + English)",
                 "directive": (
-                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'vanakkam', 'nalla poguthu', 'evlo cost', 'eppadi irukku'). "
-                    "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Tanglish/Tamil-English mix using the English alphabet "
-                    "(e.g. 'Vanakkam! Consultation fee ₹500. Ungalukku enna problem nu solla mudiyuma? Dr paathu kandippa help pannuvom.'). "
-                    "SERVICE NAME INTEGRITY: Powder Massage is 'Udwarthanam / Powder Massage'. NEVER write 'pudavai massage'. "
-                    "NEVER reply in pure English to a Tanglish message! "
-                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). "
-                    "Answer directly and warmly in sentence 1. Match their friendly Tanglish cadence with genuine warmth." + brevity_note
+                    "The customer is texting in Tanglish (spoken Tamil written in English alphabet, e.g. 'vanakkam', 'evlo price', 'timing enna', 'eppadi irukku').\n"
+                    "CRITICAL MANDATE: You MUST reply in 100% NATURAL, CASUAL, POLITE SPOKEN WHATSAPP TANGLISH as spoken in Tamil Nadu.\n"
+                    "NATURAL CONVERSATIONAL FLOW (STRICT RULES):\n"
+                    "- STRICTLY NEVER START REPLIES WITH 'Namma Aadhiran Center la...', 'Namma center la...', 'At [Business]...', or any repetitive business name intro! The customer is already chatting with this business on WhatsApp. Announcing the business name in every message sounds robotic and unnatural. Jump straight into answering naturally!\n"
+                    "- ONGOING CONVERSATION: If this is an ongoing chat, NEVER repeat greetings ('Vanakkam sir!', 'Hi!'). Dive straight into your reply with smooth conversational flow.\n"
+                    "ABSOLUTE PROHIBITION ON BOOKISH / ARCHAIC TAMIL TRANSLITERATION:\n"
+                    "- Real Tamilians texting on WhatsApp speak natural conversational colloquial Tanglish mixed with common English terms. NEVER write formal bookish Tamil transliterated into English!\n"
+                    "- NEVER write 'Namathu' or 'uuzhiya neram' or 'neram mudhal... varai' -> write 'daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir'.\n"
+                    "- NEVER write 'mathum' -> ALWAYS write 'and' or 'apram' (e.g. 'Full Body Massage, Udwarthanam and other wellness therapies irukku.').\n"
+                    "- NEVER write 'maru' -> ALWAYS write 'other' (e.g. 'other treatments').\n"
+                    "- NEVER write 'therinthu kolla' -> ALWAYS write 'therinjikka' or 'details venuma'.\n"
+                    "- NEVER write 'varuvatharku vasathiyaga irukkum' -> ALWAYS write 'vara convenient-ah irukkum'.\n"
+                    "- NEVER write 'book seiyalama' or 'seiyalam' -> ALWAYS write 'book pannalama' or 'schedule pannidlam'.\n"
+                    "- NEVER write 'eppozhuthu' -> ALWAYS write 'eppo'.\n"
+                    "- NEVER write 'anru' -> ALWAYS write 'antha day'.\n"
+                    "- NEVER address customers as 'pa' (NEVER say 'sollunga pa' or 'kandippa pa' - address politely as 'sir' or customer name).\n"
+                    "- NEVER invent garbled phrases like 'kandam pathu', 'nalla thandham', 'panna thoppu venuma', or 'varikkalama'.\n"
+                    "EVERYDAY ENGLISH WORDS IN TANGLISH:\n"
+                    "- Real WhatsApp Tanglish naturally keeps common terms in English: timings, slot, booking, appointment, doctor, consultation, treatment, massage, service, center, morning, afternoon, evening, today, tomorrow, convenient, comfortable, package, details, feel free, help.\n"
+                    "- Always write prices using standard digits with Rupee symbol: ₹700, ₹999, ₹1499. NEVER write '700 rupees' or 'rupees 1499' or 'nimishathirku' (write '60 mins-ku ₹700').\n"
+                    "POLITE COURTESY:\n"
+                    "- ALWAYS address the customer respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee').\n"
+                    "- 'venum' / 'virumbureenga' means want. 'vendam' means do NOT want. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask 'enta doctor-ai paarka virumbureenga?' or 'consult panna venuma?'.\n"
+                    "GOLD-STANDARD NATURAL TANGLISH EXAMPLES (NOTICE: ZERO REPETITIVE BUSINESS NAME INTROS):\n"
+                    "- Timings: 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir. Ungalukku entha day entha time convenient-ah irukkum?'\n"
+                    "- Pricing: 'Full Body Relaxation Massage 60 mins offer price ₹700 sir (regular ₹999). Ungalukku intha session book pannalama?'\n"
+                    "- Services: 'Full Body Relaxation Massage, Udwarthanam, Abhyangam and other wellness therapies irukku sir. Ungalukku enna therapy thevai nu solla mudiyuma?'\n"
+                    "- Deferral / Think about it: 'Kandippa sir, take your time. Ungalukku eppo convenient-o appo sollunga, slot book pannidalam!'\n"
+                    "- Gratitude: 'Romba nandri sir! Feel free to reach out anytime. Have a wonderful day!'\n"
+                    "- Testing: 'Sure sir, neenga check pannitu eppo venalum message pannunga, kandippa help panrom!'\n"
+                    "Answer directly and warmly in sentence 1. Keep your reply to 1-2 natural conversational sentences (20-40 words max)." + brevity_note
                 )
             }
 
@@ -2667,7 +2962,9 @@ end
                     "label": "Tanglish (Romanized Tamil Continuity)",
                     "directive": (
                         "The customer sent a brief neutral acknowledgment in an ongoing Tanglish conversation. "
-                        "CRITICAL: Continue 100% in natural, warm, polite Romanized Tanglish using the English alphabet. "
+                        "CRITICAL: Continue 100% in natural, warm, polite spoken WhatsApp Tanglish using the English alphabet. "
+                        "Keep it conversational (e.g. 'Kandippa sir, ungalukku eppo convenient-o appo sollunga, slot book pannidalam.'). "
+                        "Never use bookish Tamil transliterated into English (never say 'namathu', 'uuzhiya neram', 'mathum', 'seiyalama'). "
                         "Confirm their response directly without hyphens."
                     )
                 }
@@ -2905,9 +3202,30 @@ end
     ):
         """Call Gemini / Groq / OpenCode Cascade → fallback to rule engine → send via WhatsApp."""
 
+        # Automated Bot & Auto-Reply Loop Suppression
+        inbound_lower = (message_text or "").strip().lower()
+        bot_signatures = [
+            "team knya",
+            "auto-generated",
+            "automated message",
+            "auto-reply",
+            "autoreply",
+            "this is an automated",
+            "do not reply to this message",
+            "noreply@",
+            "we are currently away and will get back to you",
+            "outside our working hours",
+            "thank you for reaching out to us. we have received your message and will get back to you shortly",
+            "thank you for contacting us. we have received your message",
+        ]
+        if any(sig in inbound_lower for sig in bot_signatures):
+            logger.warning("bot_to_bot_suppression_triggered", phone=contact_phone, snippet=message_text[:80])
+            return
+
         # Get AI config, tenant keys (Tier 1), and platform master keys (Tier 2 fallback)
         ai_cfg = await self._get_ai_config(tenant_id)
         assistant_name = ai_cfg.get("assistant_name") or "Assistant"
+        custom_instructions = ai_cfg.get("system_prompt") or ""
         services_text = ai_cfg.get("services_text") or ""
         gemini_key = await self._get_tenant_gemini_key(tenant_id)
         groq_key = await self._get_tenant_groq_key(tenant_id)
@@ -2933,6 +3251,48 @@ end
             conv_id,
             tenant_id,
         )
+
+        # Check if tenant has a configured welcome message for brand new customers alone (Turn 1 only)
+        welcome_was_sent = False
+        has_prior_outbound = any(r["direction"] == "outbound" for r in rows)
+        if not has_prior_outbound:
+            outbound_count = await self.db_pool.fetchval(
+                "SELECT count(*) FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND direction = 'outbound'",
+                conv_id, tenant_id
+            )
+            if outbound_count == 0:
+                t_settings_raw = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                t_settings = {}
+                if t_settings_raw:
+                    try:
+                        t_settings = json.loads(t_settings_raw) if isinstance(t_settings_raw, str) else dict(t_settings_raw)
+                    except Exception:
+                        t_settings = {}
+                welcome_msg = (t_settings.get("welcome_message") or "").strip()
+                if welcome_msg and creds and creds.get("phone_number_id") and creds.get("access_token"):
+                    try:
+                        w_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=welcome_msg,
+                        )
+                        w_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            w_msg_id, conv_id, tenant_id, welcome_msg, w_wa_id
+                        )
+                        await self.db_pool.execute(
+                            "UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                            conv_id, tenant_id
+                        )
+                        logger.info("welcome_message_sent_to_new_customer", conv_id=conv_id, tenant_id=tenant_id, to=contact_phone)
+                        # DO NOT return — continue to let the AI answer the customer's actual question below
+                        welcome_was_sent = True
+                        await asyncio.sleep(1)  # brief pause so welcome lands first, then AI reply follows
+                    except Exception as e_wm:
+                        logger.error("welcome_message_send_failed", error=str(e_wm), tenant_id=tenant_id)
         # Pre-compiled injection phrase pattern (module-level would be ideal, but defined here for locality)
         _INJECTION_PHRASE_RE = re.compile(
             r'(ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?|context)|'
@@ -2983,6 +3343,39 @@ end
         user_turn_count = len(inbound_user_turns)
         assistant_turn_count = len(assistant_turns)
 
+        recent_assistant_text = " ".join([m.get("content", "").lower() for m in assistant_turns[-3:]])
+        already_asked_timing = any(
+            phrase in recent_assistant_text
+            for phrase in [
+                "morning or afternoon",
+                "morning or evening",
+                "tomorrow morning",
+                "what time works",
+                "what time do you prefer",
+                "what day and convenient time",
+                "what day/time works",
+                "share your timing preference",
+                "work better for your",
+                "work best for your",
+                "work better for",
+                "காலை அல்லது மாலை",
+                "எந்த நேரம் உங்களுக்கு வசதியாக இருக்கும்",
+                "நேரம் உங்களுக்கு வசதி",
+            ]
+        )
+        already_asked_readiness = any(
+            phrase in recent_assistant_text
+            for phrase in [
+                "arrange a live screen-share demo",
+                "arrange your wellness consultation",
+                "book a slot for you",
+                "confirm this slot",
+                "would you like me to go ahead and book",
+                "விருப்பமா",
+                "booking panna",
+            ]
+        )
+
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         greeting_flow_rule = (
             "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS, INTROS, OR RE-PITCHING): This is an ongoing conversation. "
@@ -2999,6 +3392,7 @@ end
             "   - Reply in a warm, polite, directly helpful conversational tone.\n"
             f"   {greeting_flow_rule}\n"
             "   - ZERO ROBOTIC CLICHES: Never use robotic phrases like 'Certainly!', 'I would be delighted to assist you', 'How may I assist you today?'. Talk like a friendly person representing this business on WhatsApp.\n"
+            "   - NEVER START REPLIES WITH THE BUSINESS OR CENTER NAME (e.g. NEVER start with 'Namma Aadhiran Center la...', 'At [Business Name]...', 'In our center...'): Real people on WhatsApp never announce their company name in every message. The customer is ALREADY chatting with this business on WhatsApp. Jump straight into answering what they asked with natural, smooth conversational flow (e.g. write 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir' or 'Full Body Relaxation Massage session ungalukku eppo convenient-ah irukkum sir?').\n"
             "   - ONE QUESTION AT A TIME: Never stack multiple questions in a single reply. Give the customer space to answer.\n"
             "   - HONEST IDENTITY: If asked directly 'Are you a bot?' or 'Are you an AI?', confirm warmly and briefly (e.g. 'I am an AI assistant helping the team on WhatsApp!') and continue naturally.\n"
             "2. ZERO HYPHENS, ZERO BULLETS & PURE HUMAN TEXTING FLOW:\n"
@@ -3010,8 +3404,8 @@ end
             "   - The restriction on numbered lists only forbids listicle formatting (like '1. Item \n 2. Item'); numbers for prices, times, dates, and phone numbers MUST ALWAYS be written as normal digits.\n"
             "4. COMPLETE SERVICE DETAILS FIRST & FACTUAL PRICING:\n"
             "   - When customer asks what you do, what treatments or services you offer, how it works, website, or background, give a direct, informative answer explaining the treatments and services.\n"
-            "   - When customer specifically asks for price or cost (e.g. 'how much', 'price', 'cost', 'fee', 'charges', 'evlo', 'kitna'), quote the exact verified pricing from knowledge base warmly and directly in digits.\n"
-            "   - If customer asks what services or treatments are available WITHOUT asking for price, describe the services without blurting out prices, unless business rules or custom prompt instruct to share prices upfront.\n"
+            "   - When customer specifically asks for price or cost (e.g. 'how much', 'price', 'cost', 'fee', 'charges', 'evlo', 'kitna', 'kattanam', 'rate'), quote the exact verified pricing from knowledge base warmly and directly in digits.\n"
+            "   - STRICT ZERO-PRICE-LEAK DIRECTIVE: Under NO circumstance should you mention, quote, or blurt out any prices, rates, fees, or amounts unless the customer's current message EXPLICITLY asks for the price or cost (e.g. 'how much', 'price', 'cost', 'fee', 'charges', 'evlo', 'evalo', 'rate', 'rates'). If the customer asks what services you have, what treatments are available, or says 'tell me' / 'tell you', describe the services and benefits WITHOUT ANY PRICES OR AMOUNTS!\n"
             "   - Never say 'I don't have this in my records' or give a generic response when the facts exist in the knowledge base below.\n"
             "5. NATURAL CONVERSATION FLOW (NO RIGID TEMPLATES OR IDENTICAL REPLIES):\n"
             "   - Respond organically with the flow of the conversation instead of following strict templates or giving identical repetitive message structures.\n"
@@ -3021,8 +3415,13 @@ end
             "   - TIME / SLOT PROVIDED: When the customer provides a specific time (e.g. '3 pm', 'tomorrow at 11 am'), understand that they are selecting their slot! If today's hours have passed or are closed, resolve the time to TOMORROW. Immediately confirm that exact time with warmth (e.g. 'Got it! I have scheduled your demo for tomorrow at 3:00 PM.'), and MANDATORY append [ACTION:CREATE_BOOKING: ...] with date and time.\n"
             "   - OBJECTIONS / HESITATION: If the customer pushes back on price or says they will think about it, briefly acknowledge their perspective and reframe the value warmly in 1 sentence without pressure.\n"
             "   - CASUAL PINGS & ACKNOWLEDGEMENTS: For simple greetings or acknowledgements ('ok', 'sure', 'thanks'), keep your reply brief, natural, and warm (1 short line).\n"
-            "6. AUTOMATIC LANGUAGE & DIALECT MIRRORING:\n"
+            "6. AUTOMATIC LANGUAGE & DIALECT MIRRORING (CRITICAL FOR TANGLISH):\n"
             "   - Organically detect and reply in the customer's exact language and dialect (Tamil in Tamil, Tanglish in Tanglish, Hinglish in Hinglish, English in English).\n"
+            "   - SPOKEN WHATSAPP TANGLISH MANDATE: When replying in Tanglish, write in 100% natural conversational spoken Tanglish as spoken in Tamil Nadu. "
+            "NEVER write formal bookish Tamil transliterated into English! Never write 'namathu' (use 'namma'), never write 'uuzhiya neram' (use 'timings' or 'open-ah irukkum'), "
+            "never write 'mathum' (use 'and' or 'apram'), never write 'seiyalama' (use 'pannalama'), never write 'therinthu kolla' (use 'therinjikka'). "
+            "Keep common terms in everyday English (timings, slot, booking, appointment, massage, doctor, convenient, comfortable, package). "
+            "Always write prices in standard digits (₹700, ₹999, ₹1499). NEVER start replies with 'Namma Aadhiran Center la...' or 'Namma center la...' - flow naturally straight into the answer (e.g. 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir. Ungalukku entha day entha time convenient-ah irukkum?').\n"
             "7. KNOWLEDGE GROUNDING & SPECIAL ACTIONS:\n"
             "   - Ground every single fact 100% in this business's verified data below. Never invent or guess.\n"
             "   - VOICE NOTES: When customer sends a voice note, reply DIRECTLY to what they asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any acknowledgement of the audio format. Just answer their question naturally.\n"
@@ -3177,11 +3576,19 @@ end
                     )
                 )
 
-        # Determine if customer is an existing returning contact or a first-time inquiry
+        # Determine if customer is an existing returning contact or a first-time inquiry.
+        # Note: Having a profile name from WhatsApp does NOT mean they are a returning customer.
+        # They are only returning if they have prior bookings, staff notes, established health concern/doctor,
+        # or prior clinic visits/converted status on file.
         is_returning_customer = bool(
             booking_rows or
             customer_notes_text or
-            (cust_row and (confirmed_name or customer_health_concern or customer_doctor or customer_age is not None or customer_location))
+            (cust_row and (
+                customer_health_concern or
+                customer_doctor or
+                cust_row.get("last_visited_at") or
+                cust_row.get("status") in ("converted", "won", "completed")
+            ))
         )
 
         tenant_timezone_str = "Asia/Kolkata"
@@ -3197,6 +3604,11 @@ end
             or ((tenant_slug or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
             or ("mind body recovery" in (tenant_name or "").lower())
         )
+        is_aadhiran = (
+            "aadhiran" in (tenant_slug or "").lower()
+            or "aadhiran" in (tenant_name or "").lower()
+        )
+        facility_term = "center" if (is_aadhiran or "center" in (tenant_name or "").lower() or "wellness" in (tenant_name or "").lower()) else "clinic"
         if tenant_st_row:
             if isinstance(tenant_st_row, str):
                 try: tenant_st_row = json.loads(tenant_st_row)
@@ -3221,6 +3633,28 @@ end
                     try: _ts = json.loads(_ts)
                     except Exception: _ts = {}
                 full_location = (_ts.get("full_location_text") or _ts.get("location") or "").strip()
+        if not full_location and creds and isinstance(creds, dict):
+            full_location = (creds.get("full_location_text") or "").strip()
+        if not full_location:
+            try:
+                _wa_c = await self.db_pool.fetchval(
+                    "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' LIMIT 1",
+                    tenant_id
+                )
+                if _wa_c:
+                    if isinstance(_wa_c, str):
+                        try: _wa_c = json.loads(_wa_c)
+                        except Exception: _wa_c = {}
+                    if isinstance(_wa_c, dict):
+                        full_location = (_wa_c.get("full_location_text") or "").strip()
+            except Exception:
+                pass
+        if not full_location and custom_instructions:
+            m_addr = re.search(r'[-•*]\s*(?:Address|Location)\s*[:\-]\s*(.+?)(?:\n|$)', custom_instructions, re.IGNORECASE)
+            if m_addr:
+                full_location = m_addr.group(1).strip()
+        if not full_location and "vetrivel" in (tenant_slug or "").lower():
+            full_location = "Villupuram to Gingee Main Road, Appamttu, Meenambur post, Gingee TK, 604205"
 
         import datetime
         import zoneinfo
@@ -3368,9 +3802,28 @@ end
             except Exception:
                 return default_val
 
-        fmt_open = _fmt_ampm(opening_time_raw, '07:00 AM' if is_mbr else '09:00 AM', is_closing=False)
-        fmt_close = _fmt_ampm(closing_time_raw, '09:30 PM' if is_mbr else '08:00 PM', is_closing=True)
-        op_hours_display = f"{fmt_open} to {fmt_close}"
+        # Check if tenant operates 24/7 (24 Hours Open)
+        clean_slug = (tenant_slug or "").strip().lower()
+        is_24_7 = bool(
+            (tenant_st_row and isinstance(tenant_st_row, dict) and (
+                tenant_st_row.get("is_24_7") is True
+                or str(tenant_st_row.get("is_24_7")).lower() == "true"
+                or str(tenant_st_row.get("operating_hours", "")).lower() in ("24/7", "24 hours", "24x7")
+                or (str(tenant_st_row.get("opening_time", "")).strip() in ("00:00", "00:00:00", "12:00 AM")
+                    and str(tenant_st_row.get("closing_time", "")).strip() in ("23:59", "23:59:59", "24:00", "11:59 PM"))
+            ))
+            or "vetrivel" in clean_slug
+            or ("24 hours" in (custom_instructions or "").lower() or "24/7" in (custom_instructions or "").lower())
+        )
+
+        if is_24_7:
+            op_hours_display = "Open 24 Hours daily (24/7, all days and nights)"
+            fmt_open = "12:00 AM"
+            fmt_close = "11:59 PM"
+        else:
+            fmt_open = _fmt_ampm(opening_time_raw, '07:00 AM' if is_mbr else '09:00 AM', is_closing=False)
+            fmt_close = _fmt_ampm(closing_time_raw, '09:30 PM' if is_mbr else '08:00 PM', is_closing=True)
+            op_hours_display = f"{fmt_open} to {fmt_close}"
 
         # Build scheduled leaves & temporary closures block
         leave_schedules_list = tenant_st_row.get("leave_schedules") if (tenant_st_row and isinstance(tenant_st_row, dict)) else []
@@ -3452,8 +3905,8 @@ end
         empty_slots_by_day = self._compute_live_empty_slots(
             busy_slots=busy_slots,
             tenant_tz=tenant_tz,
-            opening_time_str=opening_time_raw,
-            closing_time_str=closing_time_raw,
+            opening_time_str="09:00" if is_24_7 else opening_time_raw,
+            closing_time_str="21:00" if is_24_7 else closing_time_raw,
             slot_duration_mins=slot_duration_mins,
             days_ahead=4 if leave_closure_lines else 2,
             buffer_mins=buffer_mins,
@@ -3481,6 +3934,12 @@ end
             except Exception:
                 return default_h, default_m
         cl_h_val, cl_m_val = _parse_hm_local(closing_time_raw, 20, 0, is_closing=True)
+
+        today_date_str = now.strftime('%Y-%m-%d')
+        today_day_str = now.strftime('%A, %d %b %Y')
+        tomorrow_dt = now + datetime.timedelta(days=1)
+        tomorrow_date_str = tomorrow_dt.strftime('%Y-%m-%d')
+        tomorrow_day_str = tomorrow_dt.strftime('%A, %d %b %Y')
 
         empty_slot_lines = []
         for day_label, slots in empty_slots_by_day.items():
@@ -3517,7 +3976,7 @@ end
                 if day_leave:
                     l_reason = day_leave.get("reason") or "Scheduled Leave / Store Closure"
                     empty_slot_lines.append(f"* {day_label}: STRICTLY CLOSED FOR SCHEDULED LEAVE / CLOSURE (Reason: \"{l_reason}\"). ZERO slots available. Do NOT offer slots on this date.")
-                elif day_label.startswith("TODAY") and now.time() >= datetime.time(cl_h_val, cl_m_val):
+                elif not is_24_7 and day_label.startswith("TODAY") and now.time() >= datetime.time(cl_h_val, cl_m_val):
                     empty_slot_lines.append(f"* {day_label}: CLOSED FOR TODAY (Operating hours were {op_hours_display}. It is currently {now.strftime('%I:%M %p')}, which is after closing time. Regular appointment hours resume tomorrow).")
                 else:
                     empty_slot_lines.append(f"* {day_label}: All scheduled slots for today are completed or reserved. Regular appointment hours resume tomorrow ({tomorrow_day_str}).")
@@ -3526,12 +3985,6 @@ end
             f"- {s['start'].strftime('%A, %d %b %Y: %I:%M %p')} to {s['end'].strftime('%I:%M %p')} ({s['source']})"
             for s in busy_slots[:8]
         ]
-
-        today_date_str = now.strftime('%Y-%m-%d')
-        today_day_str = now.strftime('%A, %d %b %Y')
-        tomorrow_dt = now + datetime.timedelta(days=1)
-        tomorrow_date_str = tomorrow_dt.strftime('%Y-%m-%d')
-        tomorrow_day_str = tomorrow_dt.strftime('%A, %d %b %Y')
 
         # Gate specific calendar slots to Stages 4/5 or when time/slot is explicitly inquired
         _inbound_raw = (message_text or "").lower()
@@ -3587,11 +4040,16 @@ end
             f"    - PAST TIME RESOLUTION: When a customer gives a time (e.g. '10 am', 'at 11') without a date: Only if that time has already passed today (relative to current time {now.strftime('%I:%M %p')}), OR if today's business operating hours have already closed, does the time refer to TOMORROW ({tomorrow_day_str})! Confirm for tomorrow at that time without making negative excuses.\n"
             "  * ABSOLUTELY NEVER FORCE 2 ARBITRARY SLOTS: NEVER offer a rigid pair of arbitrary times (e.g. do NOT say 'tomorrow at 10:00 AM or 4:30 PM' or 'morning or evening'). Always invite the customer to choose their own preferred day and convenient time within operating hours.\n"
             "  * NO REPEATING SLOTS ON UNRELATED QUESTIONS: If an appointment slot was already agreed or discussed earlier in the conversation, do NOT append 'your slot is booked for tomorrow at 11:00 AM' on unrelated questions (such as asking about pricing, facilities, or what to bring); answer the question directly.\n"
-            "- WHEN CUSTOMER STATES THEIR PREFERRED TIME: When the customer mentions their preferred day or time (e.g., '3 pm', 'Tomorrow at 2 PM', 'Can I come today at 4:30?', 'Monday 11:00 AM'):\n"
-            f"  1. Determine date accurately: If requested for today or upcoming today, date is TODAY ({today_date_str}). If requested time has already passed today or today is closed, resolve date to TOMORROW ({tomorrow_date_str}).\n"
-            f"  2. Verify the time falls within operating hours ({op_hours_display}) and is available in the verified calendar above.\n"
-            f"  3. If available: Immediately confirm that exact requested time with warmth, and output the booking action tag: [ACTION:CREATE_BOOKING: {{\"service\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\"}}] (using date=\"{today_date_str}\" if today, or date=\"{tomorrow_date_str}\" if tomorrow).\n"
-            "  4. If the requested slot is busy / occupied: Politely let them know that exact slot is already taken, and ask what other time suits them, or mention 1 or 2 nearby available openings.\n"
+            "- TWO-STEP BOOKING VERIFICATION & CONFIRMATION FLOW (MANDATORY):\n"
+            "  * STEP 1 - PRE-BOOKING VERIFICATION & CONFIRMATION REQUEST: When customer proposes or asks about a date or time (e.g. 'Can I book for tomorrow 10am?', '3 pm', 'Tomorrow at 2 PM'):\n"
+            f"    1. Determine date accurately: TODAY ({today_date_str}) or TOMORROW ({tomorrow_date_str}).\n"
+            f"    2. Verify the time falls within operating hours ({op_hours_display}) and is available.\n"
+            f"    3. Warmly confirm availability and ASK for their confirmation: e.g. 'Tomorrow at 10:00 AM is available with [Host]! Would you like me to go ahead and book this slot for you?'\n"
+            "    4. STRICTLY NEVER output [ACTION:CREATE_BOOKING] in Step 1! Zero bookings until customer confirms.\n"
+            "  * STEP 2 - FINAL LOCK UPON AFFIRMATIVE CONFIRMATION: When the customer responds affirmatively ('Yes', 'Sure', 'Ok', 'Book it', 'Proceed') to your proposal:\n"
+            f"    1. Warmly confirm that their appointment has been booked for that date and time.\n"
+            f"    2. Output the mandatory action tag: [ACTION:CREATE_BOOKING: {{\"service\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\"}}].\n"
+            "  * If the requested slot is busy / occupied: Politely let them know that exact slot is already taken, and ask what other time suits them, or mention 1 or 2 nearby available openings.\n"
             "- WHEN CUSTOMER EXPLICITLY ASKS FOR OPTIONS (e.g., 'What slots are available?', 'Can I come today?'): Check the verified empty slots list above for that day, confirm operating hours, and share 2 to 3 available open times from the list.\n"
             "- CALENDAR RELEVANCE: Only mention slot availability when the customer specifically asks for available times or provides a date and time. If they did not ask about today's schedule, never volunteer whether today is full or closed.\n"
             "- RESCHEDULE FLOW: When a customer wants to reschedule, ask them what new day and time works best for them, check availability, and confirm it with [ACTION:RESCHEDULE_BOOKING: ...].\n"
@@ -3789,12 +4247,191 @@ end
             "neenga ai ya", "neenga bot ah", "ai ya neenga", "are you computer"
         ])
 
-        # Check if previous assistant message asked for cancellation or slot/timing confirmation
+        # Check conversation history for contextual follow-up cues
         last_assistant_msg = ""
         for msg in reversed(history or []):
             if msg.get("role") in ("assistant", "model"):
                 last_assistant_msg = (msg.get("content") or "").lower()
                 break
+
+        last_user_msg = ""
+        for msg in reversed(history[:-1] if len(history) > 1 else []):
+            if msg.get("role") == "user":
+                last_user_msg = (msg.get("content") or "").lower()
+                break
+
+        recent_context_snippet = f"{last_assistant_msg} {last_user_msg}".lower()
+
+        # Check if customer is asking about doctor name, doctor availability, shift timings, or consulting doctors
+        known_doctor_names = []
+        if doctors and isinstance(doctors, list):
+            for d in doctors:
+                if isinstance(d, dict) and d.get("name"):
+                    raw_name = d.get("name", "").lower().replace("dr.", "").replace("dr", "").strip()
+                    if raw_name and len(raw_name) >= 3:
+                        known_doctor_names.append(raw_name)
+                        for tok in re.split(r'[\s\-.]+', raw_name):
+                            if len(tok) >= 4:
+                                known_doctor_names.append(tok)
+                elif isinstance(d, str):
+                    raw_name = d.lower().replace("dr.", "").replace("dr", "").strip()
+                    if raw_name and len(raw_name) >= 3:
+                        known_doctor_names.append(raw_name)
+                        for tok in re.split(r'[\s\-.]+', raw_name):
+                            if len(tok) >= 4:
+                                known_doctor_names.append(tok)
+
+        COMMON_DOCTOR_ALIASES = {
+            "anbuarasan": "anbarasan", "annarasan": "anbarasan", "anbarasu": "anbarasan", "anbuarasu": "anbarasan", "anbarasn": "anbarasan", "anba": "anbarasan", "anbu": "anbarasan",
+            "thamiz": "thamizharasan", "thamizh": "thamizharasan", "tamilarasan": "thamizharasan", "tamilarasu": "thamizharasan", "thamizharasu": "thamizharasan", "tamizharasan": "thamizharasan",
+            "tamilmani": "tamilmani", "thamizhmani": "tamilmani", "tamizmani": "tamilmani",
+            "nithya": "nithiya", "nitya": "nithiya", "priyadarshini": "priyadharshini", "priyadharshani": "priyadharshini",
+            "netaji": "nethaji", "nethajee": "nethaji",
+            "pratibha": "prathiba", "pradhiba": "prathiba", "pratheeba": "prathiba", "prathi": "prathiba",
+            "saktivel": "sakthivel", "shaktivel": "sakthivel", "sakthi": "sakthivel", "shakthi": "sakthivel",
+            "palavan": "pallavan", "pallava": "pallavan", "palava": "pallavan",
+            "kamarajar": "kamaraj", "kaamaraj": "kamaraj", "kamaraju": "kamaraj",
+            "raju": "raju", "raj": "raju",
+        }
+
+        # Doctor phonetic aliases and variations
+        for alias_key, canon_val in COMMON_DOCTOR_ALIASES.items():
+            known_doctor_names.extend([alias_key, canon_val])
+
+        in_toks = [re.sub(r'[^a-z0-9]', '', t) for t in inbound_clean.split()]
+        has_doctor_alias_or_fuzzy = bool(
+            any(t in COMMON_DOCTOR_ALIASES for t in in_toks)
+            or any(
+                difflib.SequenceMatcher(None, t, cand).ratio() >= 0.78 or (len(t) >= 5 and cand.startswith(t))
+                for t in in_toks if len(t) >= 4 and t not in ("doctor", "consult", "available", "timing", "sir", "mam", "irukangala", "irupangala")
+                for cand in ["pallavan", "tamilmani", "anbarasan", "nethaji", "raju", "thamizharasan", "nithiya", "kamaraj", "prathiba", "sakthivel"]
+            )
+        )
+
+        has_doctor_name_mention = bool(
+            has_doctor_alias_or_fuzzy
+            or any(d_name in inbound_clean for d_name in known_doctor_names)
+            or any(d_name in inbound_clean for d_name in [
+                "pallavan", "nethaji", "tamilmani", "anbarasan", "raju", "thamizharasan", "tamilarasan",
+                "kamaraj", "prathiba", "sakthivel", "nithiya", "nithya", "nitya", "priyadharshini"
+            ])
+        )
+
+        # Contextual doctor timing follow-up: "Ethana mani ?", "Timing uh ?", "Enna timing ?", "What time ?"
+        is_timing_or_hour_inquiry = bool(
+            re.search(r'\b(?:ethana\s*mani(?:ku)?|etthana\s*mani(?:ku)?|timing|timings|what\s*time|what\s*timing|which\s*time|enna\s*timing|timing\s*enna|timing\s*enathu|eppo|eppa)\b', inbound_clean, re.I)
+            or any(w in inbound_clean for w in [
+                "ethana mani", "ethana maniku", "etthana mani", "etthana maniku",
+                "timing uh", "timing ah", "timing pa", "timing sir", "timing ma",
+                "enna timing", "what time", "what timing", "timing enna", "timing enathu", "ethana time"
+            ])
+        )
+        context_has_doctor_or_day = bool(
+            any(d_name in recent_context_snippet for d_name in known_doctor_names)
+            or any(d_name in recent_context_snippet for d_name in [
+                "dr.", "doctor", "surgeon", "specialist", "consultant", "physician",
+                "pallavan", "nethaji", "tamilmani", "anbarasan", "raju", "thamizharasan"
+            ])
+            or any(day_w in recent_context_snippet for day_w in [
+                "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+                "thingal", "sevvai", "budhan", "viyazhan", "velli", "sani", "nyayiru", "gnaayiru"
+            ])
+        )
+        is_doctor_timing_followup = bool(
+            is_timing_or_hour_inquiry
+            and context_has_doctor_or_day
+            and not any(w in inbound_clean for w in ["clinic timing", "opening time", "closing time", "operating hours", "when are you open", "what time do you open"])
+        )
+
+        has_spoken_doctor_timing_or_avail = bool(
+            any(w in inbound_clean for w in [
+                "doctor irupangala", "doctor irukangala", "dr irupangala", "dr irukangala",
+                "doctor irupara", "doctor irukara", "doctor irukanga", "doctor irupanga",
+                "doctor irupanha", "doctor irukanha", "dr irupanha", "dr irukanha",
+                "doctor irupa", "doctor iruka", "dr irupa", "dr iruka",
+                "doctor varuvangala", "doctor varuvanha", "doctor varuvara", "dr varuvangala", "dr varuvanha", "dr varuvara",
+                "doctor eppa", "doctor eppo", "dr eppa", "dr eppo",
+                "eppa iruparu", "eppa irukaru", "eppa irupanga", "eppa irukanga", "eppa irupanha", "eppa irukanha",
+                "eppo iruparu", "eppo irukaru", "eppo irupanga", "eppo irukanga", "eppo irupanha", "eppo irukanha",
+                "eppa varuvanga", "eppo varuvanga", "eppa varuvanha", "eppo varuvanha", "eppa varuvaru", "eppo varuvaru",
+                "eppa varum", "eppo varum",
+                "doctor timing", "doctor timings", "dr timing", "dr timings", "doctor time",
+                "doctor schedule", "doctor hours", "doctors available", "doctor available",
+                "specialist timing", "specialist timings", "specialist available",
+                "doctor name", "doctor's name", "dr name", "dr. name", "who is the doctor",
+                "who is doctor", "which doctor", "entha doctor", "enta doctor", "etha doctor", "ethu doctor",
+                "which dr", "entha dr", "enta dr", "who doctor",
+                "doctor details", "consulting doctor", "specialist doctor",
+                "entha specialist", "enta specialist", "which specialist",
+                "doctor yaaru", "yaaru doctor", "doctor name please",
+                "who will check", "who will examine"
+            ])
+            or (
+                any(day_w in inbound_clean for day_w in [
+                    "mon ", "monday", "tue ", "tuesday", "wed ", "wednesday",
+                    "thu ", "thursday", "fri ", "friday", "sat ", "saturday",
+                    "sun ", "sunday", "today", "tomorrow", "innaiku", "naalaiku",
+                    "nallaiku", "nalaiku", "nalaiki", "nallaiki", "naalai", "naaliki",
+                    "thingal", "sevvai", "budhan", "viyazhan", "velli", "sani", "gnaayiru", "nyayiru"
+                ])
+                and any(doc_w in inbound_clean for doc_w in [
+                    "doctor", "dr", "dr.", "specialist", "consultant", "surgeon", "physician",
+                    "irupanga", "irukanga", "irupanha", "irukanha", "varuvanga", "varuvanha"
+                ])
+            )
+            or (
+                has_doctor_name_mention and any(kw in inbound_clean for kw in [
+                    "eppa", "eppo", "iruparu", "irukaru", "irupanga", "irukanga", "irupanha", "irukanha",
+                    "irupangala", "irukangala", "irupanla", "irukanla",
+                    "varuvanga", "varuvanha", "varuvaru", "varuvangala", "timing", "timings", "time", "when", "today",
+                    "tomorrow", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+                    "sir", "dr", "doctor", "consult", "available", "fee", "fees", "cost"
+                ])
+            )
+            or is_doctor_timing_followup
+        )
+
+        is_doctor_query = bool(
+            (has_spoken_doctor_timing_or_avail or has_doctor_name_mention)
+            and not any(w in inbound_clean for w in ["i am a doctor", "i am doctor", "im a doctor", "im doctor"])
+        )
+
+        # Check if customer is asking about a symptom, health condition, pain, or medical treatment
+        # Short medical acronyms & words MUST have regex word boundaries (\b) to avoid collisions (e.g. "ent" in "entha", "vayi" in "varuvangala")
+        has_short_medical_word = bool(
+            re.search(r'\b(?:ent|bp|eye|ear|sali|cold|ache)\b', inbound_clean, re.I)
+        )
+        is_symptom_or_treatment_query = bool(
+            (
+                has_short_medical_word
+                or any(w in inbound_clean for w in [
+                    "treatment", "treatments", "treat", "cure", "medicine", "medicines", "tablet", "tablets",
+                    "marunthu", "marundhu", "maruthuvam", "sikiச்சai", "sikitchai", "sikitsai", "sikitshai",
+                    "therapy", "therapies", "physio", "physiotherapy",
+                    "kudupinga", "kuduppeengala", "tharuveengala", "thareengala", "panreenga", "panvinga",
+                    "guna aaguma", "seri aaguma", "theerum", "heal", "remedy",
+                    "vali", "valikuthu", "valikidhu", "valikudhu", "pain", "pains", "aching",
+                    "kaluthu", "kazhuthu", "neck", "cervical",
+                    "muthuku", "mudhugu", "back pain", "lumbar", "spine",
+                    "mutti", "knee", "joint", "joints", "keelvadham", "arthritis",
+                    "thalai vali", "headache", "migraine", "fever", "kaichal", "juram",
+                    "irumal", "cough", "jaladosham", "sneezing",
+                    "chest pain", "nenju vali", "nenju erichal",
+                    "stomach", "vayiru", "gastric", "acidity", "ulcer", "digestion",
+                    "sugar", "diabetes", "sakkarai", "blood pressure", "hypertension",
+                    "skin", "allergy", "rash", "aripu", "dermatology",
+                    "udambu vali", "body pain", "tiredness", "sorgam", "asathi",
+                    "pediatric", "child", "baby", "paediatric", "neuro", "nerve", "stroke", "paralysis",
+                    "nose", "throat", "ortho", "bone", "fracture", "sprain",
+                    "symptom", "symptoms", "health issue", "health problem", "discomfort"
+                ])
+            )
+            and not is_doctor_query
+            and not any(w in inbound_clean for w in [
+                "opening time", "closing time", "clinic timing", "clinic timings",
+                "operating hours", "when are you open", "what time do you open", "what time do you close"
+            ])
+        )
 
         is_slot_request_pending = bool(
             last_assistant_msg and any(q in last_assistant_msg for q in [
@@ -3824,6 +4461,78 @@ end
                 inbound_clean,
                 re.I
             )
+        )
+
+        # Check if the customer explicitly used a booking/locking command verb
+        has_explicit_booking_command = bool(
+            re.search(
+                r'\b(?:'
+                r'book|booking|book\s+it|book\s+slot|book\s+me|book\s+an?\s+appointment|'
+                r'confirm\s+booking|confirm\s+slot|confirm\s+my|confirm\s+it|confirm\s+appointment|'
+                r'reserve|reservation|schedule\s+it|schedule\s+my|schedule\s+an?\s+appointment|'
+                r'fix\s+slot|lock\s+in|lock\s+slot|block\s+slot|finalize\s+slot'
+                r')\b',
+                inbound_clean,
+                re.I
+            )
+            and not any(neg in inbound_clean for neg in ["don't book", "dont book", "do not book", "not book", "cancel", "why book"])
+        )
+
+        # Check if previous assistant message asked the customer to confirm or book a proposed slot
+        is_assistant_asking_to_book = bool(
+            last_assistant_msg and any(q in last_assistant_msg for q in [
+                "would you like me to go ahead and book",
+                "would you like me to book",
+                "would you like to book",
+                "shall i go ahead and book",
+                "shall i book",
+                "shall i confirm",
+                "shall i lock",
+                "shall i reserve",
+                "want me to book",
+                "want me to confirm",
+                "like me to confirm",
+                "like me to book",
+                "book this slot for you",
+                "book this for you",
+                "confirm this slot for you",
+                "confirm this appointment for you",
+                "confirm this demo for you",
+                "confirm this home visit",
+                "go ahead and book",
+                "go ahead and confirm",
+                "go ahead and schedule",
+                "would you like to confirm",
+                "would you like to schedule",
+                "should i book",
+                "should i confirm",
+                "can i book this for you",
+                "can i schedule this for you",
+                "can i confirm this for you",
+                "is available! would you like",
+                "is available with",
+                "is available for",
+                "is open for a demo",
+                "would you like me to proceed",
+                "shall i proceed",
+                "would that work for you",
+                "does that work for you",
+                "does that time work for you",
+                "let me know if you would like me to book",
+            ])
+        )
+
+        # Check if customer is responding affirmatively to confirm the booking proposal
+        is_user_confirming_slot = bool(
+            is_assistant_asking_to_book and (
+                re.search(
+                    r'\b(?:yes|yeah|yep|sure|ok|okay|please|go ahead|do it|ha|haa|aama|aam|seri|confirm|proceed|fine|perfect|done|correct|plz|book it|confirm it|yes please|sure please|yes proceed|works|works for me|good for me|suits me|lock it)\b',
+                    inbound_clean,
+                    re.I
+                )
+                or has_explicit_booking_command
+            )
+            and not any(w in inbound_clean for w in ["no", "dont", "don't", "cancel", "not now", "wait", "change", "different", "wrong", "another time"])
         )
 
         is_cancel_confirmation = bool(
@@ -3863,13 +4572,45 @@ end
             current_message=inbound_clean,
         )
 
+        # Dialect & Style Mirroring (Customer Texting Vibe Adaptation & Language Preference)
+        style_profile = self._detect_dialect_and_texting_style(
+            message_text,
+            history,
+            stored_language=customer_preferred_language,
+            is_aadhiran=is_aadhiran,
+        )
+        
+        # Persist detected customer language preference if vernacular or updated
+        detected_lang = style_profile.get("language")
+        detected_dialect = style_profile.get("dialect")
+        if detected_lang and detected_lang in ("tamil", "tanglish", "hindi", "hinglish", "telugu", "malayalam", "kannada", "arabic", "indian_english"):
+            if is_aadhiran:
+                target_to_persist = "tamil_script" if (detected_dialect == "tamil_script" or detected_lang == "tamil") else "tanglish"
+            else:
+                target_to_persist = detected_dialect
+                if detected_dialect in ("casual_slang", "formal_business", "ultra_short") or detected_lang == "indian_english":
+                    target_to_persist = "indian_english"
+            if target_to_persist and target_to_persist != customer_preferred_language:
+                asyncio.create_task(
+                    self._persist_customer_language(tenant_id, contact_phone, contact_id_val, target_to_persist)
+                )
+
+        matched_doc_obj = None
+        is_asking_fee = bool(any(w in inbound_clean for w in [
+            "price", "pricing", "how much", "cost", "costs", "fee", "fees", "charges", "charge",
+            "rate", "rates", "evlo", "evalo", "evvalavu", "yevlo", "kitna", "amount",
+            "கட்டணம்", "விலை", "எவ்வளவு", "எவ்ளோ", "katnam", "kattanam", "rupees", "rs",
+            "offer", "offers", "discount", "discounts", "special", "deal", "deals", "package", "packages"
+        ]))
+        services_names_only = self._strip_pricing_from_services_text(services_text)
+
         if clean_slug == "boldlabs":
             target_service = "Clinic WhatsApp AI Demo"
             resolved_pkg_fee = 0.0
         elif "abinaya" in clean_slug:
             target_service = resolved_pkg_name
         elif "aadhiran" in clean_slug:
-            target_service = customer_health_concern or "Consultation & Treatment"
+            target_service = resolved_pkg_name or customer_health_concern or "Consultation & Treatment"
         elif "mindbody" in clean_slug:
             target_service = "Consultation"
         else:
@@ -3891,10 +4632,12 @@ end
             walkthrough_label = "their lab visit or home sample collection"
             conf_host = admin_name or "our lab team"
         elif "aadhiran" in clean_slug:
-            pricing_prompt_hint = "the verified treatment fee in digits (e.g. Full Body Massage ₹1299, Udwarthanam ₹1499) only if explicitly asked"
-            discovery_question_hint = "what specific health discomfort, body pain, or wellness therapy they are looking to address"
-            qualification_question_hint = "how long they have had this discomfort and if they prefer in-clinic or home wellness service"
-            walkthrough_label = "their wellness consultation or therapy session"
+            # Full Body Relaxation Massage is unified to 60 mins (No 45m/90m split).
+            # Regular ₹999, active 4-day offer ₹700 from 2/10/2026 to 5/10/2026.
+            pricing_prompt_hint = "Full Body Relaxation Massage 60 mins offer price ₹700 (regular price ₹999, active 4-day offer from 2nd to 5th Oct)"
+            discovery_question_hint = "ungalukku slot book pannalama nu natural Tanglish-la kekkanum"
+            qualification_question_hint = "what day and convenient time works best for their session"
+            walkthrough_label = "their relaxation massage session"
             conf_host = admin_name or "our wellness specialist"
         elif "mindbody" in clean_slug:
             pricing_prompt_hint = "the consultation fee in digits (Junior Doctor ₹300, Senior Doctor ₹500, Abhyangam ₹1850)"
@@ -3909,11 +4652,14 @@ end
             walkthrough_label = "their store visit to our Ambattur branch"
             conf_host = admin_name or "our technician"
         elif "vetrivel" in clean_slug:
-            pricing_prompt_hint = "the OP consultation fee in digits (General OP ₹150, Specialist OP ₹200-₹300)"
+            if resolved_pkg_fee > 0:
+                pricing_prompt_hint = f"the {target_service} fee of ₹{resolved_pkg_fee:g}"
+            else:
+                pricing_prompt_hint = "the OP consultation fee in digits (General OP ₹150, Specialist OP ₹200-₹300)"
             discovery_question_hint = "what symptoms they are experiencing or which specialist doctor they wish to consult"
             qualification_question_hint = "how many days they have had these symptoms"
             walkthrough_label = "their OP doctor consultation"
-            conf_host = admin_name or "our consulting doctor"
+            conf_host = "our consulting doctor"
         else:
             if resolved_pkg_fee > 0:
                 pricing_prompt_hint = f"₹{resolved_pkg_fee:g} for {resolved_pkg_name}"
@@ -3922,7 +4668,10 @@ end
             discovery_question_hint = "what specific requirement or health concern they are looking to address"
             qualification_question_hint = "more details about their requirement"
             walkthrough_label = "their appointment or consultation"
-            conf_host = admin_name or "our team"
+            if any(w in (admin_name or "").lower() for w in ["clinic", "hospital", "diagnostics", "lab", "wellness", "enterprise", "mobile", "centre", "center"]):
+                conf_host = "our consulting doctor" if any(w in (admin_name or "").lower() for w in ["clinic", "hospital", "doctor"]) else "our specialist team"
+            else:
+                conf_host = admin_name or "our team"
 
         # Check for Home Visit / Home Sample Collection context across recent messages and current message
         is_home_visit = bool(
@@ -3961,22 +4710,15 @@ end
                 )
             )
 
-        # Check if an exact time of day is requested in current message or recent history
+        # Check if an exact time of day is requested in current message
         has_specific_time_of_day = bool(
             re.search(
-                r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2}|(?:at|by|around)\s*\d{1,2}(?::\d{2})?)\b',
+                r'\b(?:\d{1,2}:[0-5]\d\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)|(?:at|by|around)\s*(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:am|pm|o\'clock))\b',
                 inbound_clean,
                 re.I
             )
+            and not re.search(r'\b(?:at|by|around)\s*\d+\s*(?:calls|patients|leads|people|times|days|months|years|mins|minutes|hours|cases)\b', inbound_clean, re.I)
         )
-        if not has_specific_time_of_day and history:
-            for h in reversed(history[-4:]):
-                if h.get("role") == "user":
-                    u_t = (h.get("content") or "").strip()
-                    m_time = re.search(r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}\s*(?:am|pm)|\d{1,2}:\d{2})\b', u_t, re.I)
-                    if m_time:
-                        has_specific_time_of_day = True
-                        break
 
         has_explicit_date = bool(
             re.search(
@@ -3987,7 +4729,126 @@ end
                 re.I
             )
         )
-        has_explicit_slot_selection = has_specific_time_of_day or (is_slot_request_pending and has_time_or_slot_indicator)
+        has_time_period = bool(re.search(r'\b(?:morning|afternoon|evening|night|noon|am|pm|\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', inbound_clean, re.I))
+        has_explicit_slot_selection = bool(
+            (has_specific_time_of_day or (is_slot_request_pending and has_time_period))
+            and not (is_symptom_or_treatment_query and not has_specific_time_of_day)
+            and not (is_doctor_query and not has_specific_time_of_day)
+            and not any(w in inbound_clean for w in ["?", "price", "cost", "fee", "rate", "where", "location", "address", "timing", "hours", "open", "close"])
+        )
+
+        is_day_only_selection = bool(
+            (has_explicit_date or any(w in inbound_clean for w in ["today", "tomorrow", "tonight", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]))
+            and not has_time_period
+            and not has_specific_time_of_day
+            and not (is_symptom_or_treatment_query or is_doctor_query)
+            and not any(w in inbound_clean for w in ["?", "price", "cost", "fee", "rate", "where", "location", "address", "timing", "hours", "open", "close"])
+        )
+
+        # Resolve candidate slot date (checking current message and recent history)
+        target_slot_date_iso = today_date_str
+        if "tomorrow" in inbound_clean or ((is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history and any("tomorrow" in (h.get("content") or "").lower() for h in history[-3:])):
+            target_slot_date_iso = tomorrow_date_str
+        else:
+            days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            for idx, day in enumerate(days):
+                if day in inbound_clean or ((is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history and any(day in (h.get("content") or "").lower() for h in history[-3:])):
+                    c_day = now.weekday()
+                    d_ahead = (idx - c_day) % 7
+                    if d_ahead == 0 and ("next" in inbound_clean or (history and any("next" in (h.get("content") or "").lower() for h in history[-3:]))):
+                        d_ahead = 7
+                    target_slot_date_iso = (now + datetime.timedelta(days=d_ahead)).strftime("%Y-%m-%d")
+                    break
+
+        # Resolve candidate slot time (checking current message, and recent history ONLY if user is confirming or selecting a slot)
+        target_slot_time_iso = "10:00"
+        m_t_cand = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', inbound_clean, re.I)
+        if not m_t_cand and (is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history:
+            for h in reversed(history[-4:]):
+                c_content = (h.get("content") or "").strip()
+                # Skip assistant messages that were just stating general operating hours
+                if any(w in c_content.lower() for w in ["operating hours", "open from", "opens at", "closing time", "open daily", "24 hours", "daily"]):
+                    continue
+                # If assistant message, only extract if it was an explicit slot confirmation proposal
+                if h.get("role") in ("assistant", "model") and not any(w in c_content.lower() for w in ["available", "book this slot", "confirm this"]):
+                    continue
+                m_t_cand = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', c_content, re.I)
+                if m_t_cand:
+                    break
+        if m_t_cand:
+            raw_t = m_t_cand.group(1).strip().upper()
+            try:
+                if "AM" in raw_t or "PM" in raw_t:
+                    pt = datetime.datetime.strptime(raw_t.replace(" ", ""), "%I:%M%p" if ":" in raw_t else "%I%p")
+                    target_slot_time_iso = pt.strftime("%H:%M")
+                elif ":" in raw_t:
+                    parts = raw_t.split(":")
+                    target_slot_time_iso = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+            except Exception:
+                pass
+
+        # If requested for today but that time has already passed (or is within 30 mins): rollover to tomorrow
+        if target_slot_date_iso == today_date_str:
+            try:
+                t_parts = target_slot_time_iso.split(":")
+                req_dt = now.replace(hour=int(t_parts[0]), minute=int(t_parts[1]), second=0, microsecond=0)
+                if req_dt <= now + datetime.timedelta(minutes=30):
+                    target_slot_date_iso = tomorrow_date_str
+            except Exception:
+                pass
+
+        try:
+            pt_disp = datetime.datetime.strptime(target_slot_time_iso, "%H:%M")
+            target_time_display = pt_disp.strftime("%I:%M %p").lstrip("0")
+        except Exception:
+            target_time_display = target_slot_time_iso
+
+        if target_slot_date_iso == today_date_str:
+            target_day_display = "today"
+        elif target_slot_date_iso == tomorrow_date_str:
+            target_day_display = "tomorrow"
+        else:
+            try:
+                target_day_display = datetime.date.fromisoformat(target_slot_date_iso).strftime("%A, %d %b")
+            except Exception:
+                target_day_display = target_slot_date_iso
+
+        # Strict 2-Step Pre-Booking Gate:
+        # Even if user states a date/time or says "book", we ALWAYS verify and propose slot first (Stage 4B).
+        # A booking is ONLY finalized if:
+        # 1. User is affirmatively confirming a proposed concrete slot ("Yes", "Sure", "Ok", "Book it") in response to assistant's concrete slot proposal, OR provided an explicit clock time, AND
+        # 2. For home visit: complete address is known.
+        # If assistant merely asked a general question ("Would you like to schedule a session?"), "Yes" expresses general interest, NOT slot lock!
+        assistant_proposed_concrete_slot = bool(
+            is_assistant_asking_to_book and (
+                re.search(r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', last_assistant_msg, re.I)
+                or any(w in last_assistant_msg.lower() for w in [
+                    "this slot", "this timing", "slot at", "time works", "tomorrow morning", "tomorrow afternoon",
+                    "today morning", "today afternoon", "today evening", "open for a demo at", "scheduled your demo for"
+                ])
+            )
+        )
+        is_user_confirming_concrete_slot = bool(
+            is_user_confirming_slot
+            and (has_specific_time_of_day or assistant_proposed_concrete_slot or any(w in inbound_clean for w in ["book it", "confirm it", "lock it", "proceed with this slot"]))
+        )
+        should_finalize_booking = bool(
+            is_user_confirming_concrete_slot
+            and (not is_home_visit or effective_address)
+        )
+
+        # Check intent types for conversational wrap-up, testing, and deferred consideration
+        is_testing_message = any(w in inbound_clean for w in [
+            "check pannitu iruk", "check panren", "checking", "testing", "test check", "just testing", "trial"
+        ])
+        is_gratitude_wrapup = any(w in inbound_clean for w in [
+            "thank you", "thanks", "thx", "thank u", "nandri", "நன்றி", "romba nandri"
+        ]) and len(inbound_clean.split()) <= 6
+        is_consideration_deferred = any(w in inbound_clean for w in [
+            "will think", "yosithu solren", "yosichitu solren", "paathu solren", "paathutu solren",
+            "let you know", "will let you know", "not today", "not now", "illa vena", "vendam",
+            "theva illa", "theva illai", "no need", "apram paakalam", "aprom solren", "no thanks"
+        ])
 
         if is_missed_call_query:
             funnel_stage = "MISSED_CALL_APOLOGY"
@@ -4079,17 +4940,47 @@ end
             l_reason = matched_leave_info["reason"]
             l_date_disp = matched_leave_info["date_display"]
             l_next_open = matched_leave_info["next_open_display"]
-            stage_directive = (
-                f"The customer is asking to visit, book, or check availability for {l_date_disp}.\n"
-                f"CRITICAL: The business is CLOSED on {l_date_disp} due to: \"{l_reason}\".\n"
-                f"1. Inform them warmly that we are closed on {l_date_disp} because \"{l_reason}\".\n"
-                f"2. Suggest booking on our next open business day: {l_next_open}."
-            )
+            if is_boldlabs:
+                stage_directive = (
+                    f"The customer is asking to schedule a demo for {l_date_disp}.\n"
+                    f"CRITICAL: We are not scheduling demos on {l_date_disp} ({l_reason}).\n"
+                    f"1. Inform them warmly that we are not conducting demos on {l_date_disp}.\n"
+                    f"2. Suggest scheduling their online demo for our next open day: {l_next_open}.\n"
+                    f"3. NEVER mention a doctor, clinic closure, or in-person visit!"
+                )
+            else:
+                stage_directive = (
+                    f"The customer is asking to visit, book, or check availability for {l_date_disp}.\n"
+                    f"CRITICAL: The business is CLOSED on {l_date_disp} due to: \"{l_reason}\".\n"
+                    f"1. Inform them warmly that we are closed on {l_date_disp} because \"{l_reason}\".\n"
+                    f"2. Suggest booking on our next open business day: {l_next_open}."
+                )
         elif has_upcoming:
             funnel_stage = "ACTIVE_APPOINTMENT"
             stage_directive = (
                 "The customer already has an active upcoming appointment. "
                 "Warmly reference it. If they ask for slots or another appointment, clarify if they want to reschedule the existing one or book an additional separate one."
+            )
+        elif is_testing_message:
+            funnel_stage = "TESTING_CHIT_CHAT"
+            stage_directive = (
+                "The customer mentioned they are testing or checking the system ('check pannitu iruke' / 'testing'). "
+                "Politely and warmly acknowledge in 1 short friendly sentence that they can take their time to test and explore, and that you are here whenever they need assistance. "
+                "CRITICAL: Do NOT pitch any booking, do NOT ask for appointment slots or timings, and do NOT force a consultation."
+            )
+        elif is_gratitude_wrapup:
+            funnel_stage = "GRATITUDE_WRAPUP"
+            stage_directive = (
+                "The customer is thanking or wrapping up ('thank you' / 'thanks' / 'nandri'). "
+                "Warmly and graciously respond (e.g. 'You are most welcome! Feel free to reach out anytime you need assistance. Have a wonderful day!'). "
+                "CRITICAL: Do NOT pitch any booking, do NOT ask for appointment slots or timings, and do NOT force a visit."
+            )
+        elif is_consideration_deferred:
+            funnel_stage = "CONSIDERATION_DEFERRED"
+            stage_directive = (
+                "The customer stated they want to think about it, will get back later, or politely declined for now ('will think', 'yosithu solren', 'not today', 'illa vena'). "
+                "Graciously and respectfully acknowledge in 1 short warm sentence: let them know that is completely fine, take their time, and they can message anytime when convenient. "
+                "CRITICAL: Respect their space completely. Do NOT push, do NOT repeat booking questions, and do NOT ask for appointment timings!"
             )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
@@ -4098,14 +4989,26 @@ end
                 "Briefly and naturally acknowledge their concern without stock empathy phrases. "
                 "Follow this business's specific objection playbook or highlight core value from business instructions. Close respectfully without pressure in 1-2 short sentences."
             )
-        elif any(w in inbound_clean for w in ["price", "pricing", "how much", "cost", "fee", "charges", "rate", "evlo", "evalo", "kitna"]):
+        elif any(w in inbound_clean for w in [
+            "price", "pricing", "how much", "cost", "fee", "fees", "charges", "rate", "rates",
+            "evlo", "evalo", "evvalavu", "kitna", "amount",
+            "எவ்வளவு", "அமௌன்ட்", "கட்டணம்", "விலை", "எவ்ளோ"
+        ]):
             funnel_stage = "EVALUATION_PRICING"
+            is_tanglish_aadhiran = (is_aadhiran or "aadhiran" in clean_slug) and style_profile.get("dialect") == "tanglish"
+            is_tamil_aadhiran = (is_aadhiran or "aadhiran" in clean_slug) and style_profile.get("dialect") == "tamil_script"
+            if is_tamil_aadhiran:
+                pricing_action_hint = "2. தமிழில் நேரடியாக கூறுங்கள்: 'முழு உடல் தளர்வு மசாஜ் 60 நிமிட சிறப்பு சலுகை கட்டணம் ₹700 (வழக்கமான கட்டணம் ₹999). உங்களுக்கு இந்த சிகிச்சை முன்பதிவு செய்யலாமா?'\n"
+            elif is_tanglish_aadhiran:
+                pricing_action_hint = "2. In Tanglish, quote directly: 'Full Body Relaxation Massage 60 mins offer price ₹700 sir (regular ₹999). Ungalukku intha session book pannalama?'\n"
+            else:
+                pricing_action_hint = f"2. In Sentence 2, anchor the core value, and ask 1 diagnostic question: {discovery_question_hint}.\n"
             stage_directive = (
-                "The customer is asking about pricing or fees.\n"
+                f"The customer is asking about pricing or fees in {style_profile['label']}.\n"
                 f"1. Quote {pricing_prompt_hint} transparently in digits in Sentence 1.\n"
-                f"2. In Sentence 2, anchor the core value, and ask 1 diagnostic question to understand {discovery_question_hint}.\n"
-                "3. Do NOT rush to hard close or propose appointment times yet.\n"
-                "4. Keep your reply concise (1-2 sentences, 25-45 words max)."
+                + pricing_action_hint
+                + f"3. MANDATORY LANGUAGE: You MUST write your response 100% in {style_profile['label']}! Never switch to English if customer texted in Tanglish or Tamil!\n"
+                + "4. Keep your reply concise (1-2 sentences, 25-45 words max)."
             )
         elif not extract_address(message_text) and (
             any(w in inbound_clean for w in [
@@ -4133,7 +5036,7 @@ end
                     "1. State that our team will share the exact location and directions shortly. "
                     "CRITICAL: No address is configured in the system. STRICTLY NEVER invent or hallucinate any address!"
                 )
-        elif any(w in inbound_clean for w in [
+        elif not is_doctor_query and any(w in inbound_clean for w in [
             "timing", "timings", "hours", "open", "opening time", "closing time",
             "opening hours", "operating hours", "clinic time", "clinic timing", "clinic timings",
             "working hours", "work hours", "when are you open", "what time do you open",
@@ -4141,12 +5044,20 @@ end
             "open tomorrow", "time table", "timetable", "schedule today"
         ]):
             funnel_stage = "EVALUATION_TIMINGS"
-            stage_directive = (
-                f"The customer is asking about business / clinic operating hours or timings. "
-                f"1. Directly state our official operating hours: '{op_hours_display} daily'. "
-                f"2. Then naturally ask what day and convenient time works best for them within these hours. "
-                f"CRITICAL: Always state '{op_hours_display} daily'. Never invent or assume other hours from calendar slots."
-            )
+            if is_24_7:
+                stage_directive = (
+                    f"The customer is asking about business / clinic operating hours, timings, opening, or closing times: '{message_text}'.\n"
+                    f"1. DIRECT ANSWER IN SENTENCE 1: Clearly and directly state that our clinic is OPEN 24/7 (24 Hours daily, all days and nights, always open for doctor consultations and emergencies).\n"
+                    f"2. NEXT STEP: Ask what day and convenient time works best for their visit or let them know they can walk in anytime.\n"
+                    f"3. STRICTLY FORBIDDEN: Do NOT state opening/closing limits like 6 AM or 6 PM, and NEVER propose arbitrary 6 AM slots!"
+                )
+            else:
+                stage_directive = (
+                    f"The customer is asking about business / clinic operating hours or timings: '{message_text}'.\n"
+                    f"1. Directly state our official operating hours: '{op_hours_display} daily'.\n"
+                    f"2. Then naturally ask what day and convenient time works best for them within these hours.\n"
+                    f"CRITICAL: Always state '{op_hours_display} daily'. Never invent or assume other hours from calendar slots."
+                )
         elif is_voice_note:
             funnel_stage = "VOICE_NOTE_INBOUND"
             stage_directive = (
@@ -4154,38 +5065,344 @@ end
                 f"Reply DIRECTLY to their question or request using only this business's verified details in 1 to 2 short lines. "
                 f"Do NOT say 'Got your voice note' or acknowledge the audio format."
             )
-        elif has_explicit_slot_selection or (is_home_visit and effective_address and has_specific_time_of_day):
-            # ── STAGE 5: SLOT CONFIRMATION & BOOKING LOCK ──
+        elif should_finalize_booking:
+            # ── STAGE 5: SLOT CONFIRMATION & BOOKING FINALIZED ──
             funnel_stage = "STAGE_5_SLOT_CONFIRMATION"
             if is_home_visit:
                 service_with_home = target_service if "home" in target_service.lower() else f"{target_service} - Home Collection"
-                target_slot_date_iso = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-                target_slot_time_iso = "08:00"
                 stage_directive = (
-                    f"The customer is booking a HOME SAMPLE COLLECTION for '{service_with_home}'.\n"
+                    f"STAGE 5: HOME COLLECTION APPOINTMENT FINALIZED & LOCKED.\n"
+                    f"The customer confirmed the home visit booking: '{message_text}'.\n"
                     f"Customer Address: '{effective_address}'\n"
-                    f"1. Warmly confirm home sample collection for {service_with_home} at '{effective_address}'.\n"
-                    + (f"2. Package Fee: ₹{resolved_pkg_fee:g}.\n" if resolved_pkg_fee > 0 else "")
+                    f"1. Warmly confirm home sample collection for {service_with_home} on {target_day_display} at {target_time_display} at '{effective_address}'.\n"
+                    + (f"2. Package Fee: ₹{resolved_pkg_fee:g}.\n" if (resolved_pkg_fee > 0 and is_asking_fee) else "")
                     + "3. Remind 8-12 hours overnight fasting.\n"
-                    + f"4. MANDATORY ACTION TAG: [ACTION:CREATE_BOOKING: {{\"service\": \"{service_with_home}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"location\": \"{effective_address}\"}}]"
+                    + f"4. MANDATORY ACTION TAG: You MUST append the booking action tag on its own line at the very end:\n"
+                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{service_with_home}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"location\": \"{effective_address}\"}}]\n"
+                    f"5. Keep response under 2 short sentences + action tag."
                 )
             else:
-                fasting_inst = "• Remind 8-12 hours fasting.\n" if ("abinaya" in clean_slug or "checkup" in target_service.lower()) else ""
-                fee_mention = f"• Fee: ₹{resolved_pkg_fee:g}\n" if resolved_pkg_fee > 0 else ""
+                fasting_inst = "Remind 8-12 hours fasting.\n" if ("abinaya" in clean_slug or "checkup" in target_service.lower()) else ""
+                fee_mention = f"Fee: ₹{resolved_pkg_fee:g}\n" if (resolved_pkg_fee > 0 and is_asking_fee) else ""
                 stage_directive = (
                     f"STAGE 5: APPOINTMENT CONFIRMATION & LOCK.\n"
-                    f"The customer provided an exact time / slot: '{message_text}'.\n"
-                    f"1. Warmly confirm their exact requested time within operating hours ({op_hours_display}).\n"
-                    f"   - ALWAYS write the confirmed date and time clearly inside your text sentence (e.g. 'Great, your appointment is confirmed for tomorrow at 4:00 PM with {conf_host}!'). The [ACTION:...] tag is hidden backend metadata that will be removed, so your text sentence MUST be 100% complete on its own!\n"
-                    f"   - If requested for today and upcoming: confirm for today ({today_date_str}).\n"
-                    f"   - If time has passed today or today is closed: confirm for tomorrow ({tomorrow_date_str}) at that time.\n"
+                    f"The customer explicitly commanded or confirmed the booking: '{message_text}'.\n"
+                    f"1. Warmly confirm their appointment for {target_day_display} at {target_time_display} with {conf_host}.\n"
+                    f"   - ALWAYS write the confirmed date and time clearly inside your text sentence (e.g. 'Great, your appointment is confirmed for {target_day_display} at {target_time_display} with {conf_host}!'). The [ACTION:...] tag is hidden backend metadata that will be removed, so your text sentence MUST be 100% complete on its own!\n"
                     f"2. Confirm who will connect with or assist them ({conf_host}).\n"
                     + fee_mention
                     + fasting_inst
                     + f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on its own line at the very end:\n"
-                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]\n"
+                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]\n"
                     f"4. Keep response under 2 short sentences + action tag."
                 )
+        elif is_doctor_query and not (has_specific_time_of_day and has_explicit_booking_command):
+            # ── DOCTOR INQUIRY ──
+            funnel_stage = "DOCTOR_INQUIRY"
+            tenant_doctors_list = (tenant_st_row.get("doctors") or tenant_st_row.get("taxonomy", {}).get("doctor_presets") or []) if tenant_st_row and isinstance(tenant_st_row, dict) else []
+            
+            # Format docs with qualification, specialty, and schedule if available
+            if tenant_doctors_list and isinstance(tenant_doctors_list[0], dict):
+                docs_formatted = ", ".join([
+                    f"{d.get('name')}" + (f" ({d.get('qualification')})" if d.get('qualification') else "") + f" - {d.get('specialty')}" + (f" [{d.get('schedule')}]" if d.get('schedule') else "")
+                    for d in tenant_doctors_list
+                ])
+            elif tenant_doctors_list:
+                docs_formatted = ", ".join([str(d) for d in tenant_doctors_list])
+            else:
+                docs_formatted = ""
+
+            if customer_doctor:
+                doc_mention = f"Our consulting doctor assigned for your consultation is {customer_doctor}."
+            elif docs_formatted:
+                doc_mention = f"At {tenant_name or f'our {facility_term}'}, our consulting specialist doctors are: {docs_formatted}."
+            else:
+                doc_mention = (
+                    f"At {tenant_name or f'our {facility_term}'}, we have experienced consulting specialist doctors across our verified departments "
+                    f"({services_names_only or 'General Medicine, Ortho, Pediatrics, Neuro, and Surgery'})."
+                )
+
+            # Check if customer asked about a specific doctor by name (Exact, Alias, or Fuzzy)
+            matched_doc_obj = None
+            if tenant_doctors_list:
+                user_tokens = [re.sub(r'[^a-z0-9]', '', t) for t in inbound_clean.split()]
+                context_tokens = [re.sub(r'[^a-z0-9]', '', t) for t in recent_context_snippet.split()] if is_doctor_timing_followup else []
+                all_search_tokens = user_tokens + context_tokens
+
+                for doc_item in tenant_doctors_list:
+                    if isinstance(doc_item, dict):
+                        d_name_raw = doc_item.get("name", "").lower().replace("dr.", "").replace("dr", "").strip()
+                        doc_clean_tokens = [re.sub(r'[^a-z]', '', tok) for tok in re.split(r'[\s\-.]+', d_name_raw) if len(tok) >= 3]
+                        # Exact containment check in message or recent context
+                        if d_name_raw and (d_name_raw in inbound_clean or (is_doctor_timing_followup and d_name_raw in recent_context_snippet)):
+                            matched_doc_obj = doc_item
+                            break
+
+                        token_matched = False
+                        for utok in all_search_tokens:
+                            if len(utok) < 3 or utok in ("doctor", "consult", "available", "timing", "timings", "schedule", "sir", "mam", "irukangala", "irupangala", "varuvangala"):
+                                continue
+                            resolved_utok = COMMON_DOCTOR_ALIASES.get(utok, utok)
+                            for dtok in doc_clean_tokens:
+                                if utok == dtok or resolved_utok == dtok or dtok.startswith(utok) or dtok.startswith(resolved_utok):
+                                    token_matched = True
+                                    break
+                                if len(utok) >= 4 and len(dtok) >= 4:
+                                    sim = difflib.SequenceMatcher(None, utok, dtok).ratio()
+                                    sim_alias = difflib.SequenceMatcher(None, resolved_utok, dtok).ratio()
+                                    if sim >= 0.78 or sim_alias >= 0.78:
+                                        token_matched = True
+                                        break
+                            if token_matched:
+                                break
+
+                        if token_matched:
+                            matched_doc_obj = doc_item
+                            break
+
+            # Check if customer asked about a specific weekday or relative day (today, tomorrow, nallaiku, etc.)
+            now_local = datetime.datetime.now(tenant_tz)
+            weekday_map = {
+                "sunday": "Sunday", "sun": "Sunday", "gnaayiru": "Sunday", "nyayiru": "Sunday", "ஞாயிறு": "Sunday",
+                "monday": "Monday", "mon": "Monday", "thingal": "Monday", "திங்கள்": "Monday",
+                "tuesday": "Tuesday", "tue": "Tuesday", "sevvai": "Tuesday", "sevvaai": "Tuesday", "செவ்வாய்": "Tuesday",
+                "wednesday": "Wednesday", "wed": "Wednesday", "budhan": "Wednesday", "புதன்": "Wednesday",
+                "thursday": "Thursday", "thu": "Thursday", "viyazhan": "Thursday", "வியாழன்": "Thursday",
+                "friday": "Friday", "fri": "Friday", "velli": "Friday", "வெள்ளி": "Friday",
+                "saturday": "Saturday", "sat": "Saturday", "sani": "Saturday", "சனி": "Saturday",
+            }
+            matched_query_day = None
+            matched_day_label = None
+
+            day_after_terms = ["day after tomorrow", "overmorrow", "naalaiki marunaal", "marunaal", "parson"]
+            tomorrow_terms = [
+                "tomorrow", "tmrw", "tomorow", "tomrw", "tmrow", "tmr",
+                "nalaiku", "nallaiku", "naalaiku", "nalaiki", "nallaiki", "naalai", "naaliki", "naliki",
+                "kal", "repukku", "repu", "naale"
+            ]
+            today_terms = [
+                "today", "inniku", "iniku", "innaiku", "inaiku", "indru", "innaiki", "iniki",
+                "aaj", "eeroju", "ee roju", "indu"
+            ]
+
+            if any(re.search(r'\b' + re.escape(w) + r'\b', inbound_clean) for w in day_after_terms) or any(w in inbound_clean for w in ["naalaiki marunaal", "day after tomorrow"]):
+                target_dt = now_local + datetime.timedelta(days=2)
+                matched_query_day = target_dt.strftime("%A")
+                matched_day_label = f"the day after tomorrow ({matched_query_day})"
+            elif any(re.search(r'\b' + re.escape(w) + r'\b', inbound_clean) for w in tomorrow_terms) or any(w in inbound_clean for w in ["nallaiku", "naalaiku", "nalaiku", "nalaiki", "nallaiki", "tomorrow"]):
+                target_dt = now_local + datetime.timedelta(days=1)
+                matched_query_day = target_dt.strftime("%A")
+                matched_day_label = f"tomorrow ({matched_query_day})"
+            elif any(re.search(r'\b' + re.escape(w) + r'\b', inbound_clean) for w in today_terms) or any(w in inbound_clean for w in ["innaiku", "inniku", "today", "indru"]):
+                target_dt = now_local
+                matched_query_day = target_dt.strftime("%A")
+                matched_day_label = f"today ({matched_query_day})"
+            else:
+                for kw, day_name in weekday_map.items():
+                    if kw in inbound_clean and (len(kw) > 3 or re.search(rf'\b{kw}\b', inbound_clean)):
+                        matched_query_day = day_name
+                        matched_day_label = day_name
+                        break
+
+            # If follow-up timing query and no day in current message, resolve day from recent context
+            if not matched_query_day and is_doctor_timing_followup:
+                if any(w in recent_context_snippet for w in tomorrow_terms):
+                    target_dt = now_local + datetime.timedelta(days=1)
+                    matched_query_day = target_dt.strftime("%A")
+                    matched_day_label = f"tomorrow ({matched_query_day})"
+                elif any(w in recent_context_snippet for w in today_terms):
+                    target_dt = now_local
+                    matched_query_day = target_dt.strftime("%A")
+                    matched_day_label = f"today ({matched_query_day})"
+                else:
+                    for kw, day_name in weekday_map.items():
+                        if (len(kw) > 3 and kw in recent_context_snippet) or re.search(rf'\b{kw}\b', recent_context_snippet):
+                            matched_query_day = day_name
+                            matched_day_label = day_name
+                            break
+
+            is_asking_fee = bool(any(w in inbound_clean for w in [
+                "fee", "fees", "cost", "price", "pricing", "rate", "rates", "charges", "charge",
+                "how much", "evlo", "evalo", "yevlo", "kitna", "katnam", "kattanam", "amount", "rupees", "rs"
+            ]))
+
+            if matched_query_day:
+                specialist_day_docs = []
+                daily_day_docs = []
+                if tenant_doctors_list and isinstance(tenant_doctors_list[0], dict):
+                    for d_cand in tenant_doctors_list:
+                        avail = d_cand.get("available_days") or []
+                        days_off = d_cand.get("days_off") or []
+                        sched_str = (d_cand.get("schedule") or "").lower()
+                        is_day_specific = len(avail) > 0 and len(avail) < 7
+                        doc_label = f"{d_cand.get('name')} ({d_cand.get('specialty')}, {d_cand.get('schedule', '')})"
+                        if avail and matched_query_day in avail:
+                            if is_day_specific:
+                                specialist_day_docs.append(doc_label)
+                            else:
+                                daily_day_docs.append(doc_label)
+                        elif not avail and matched_query_day not in days_off:
+                            if matched_query_day.lower() in sched_str:
+                                specialist_day_docs.append(doc_label)
+                            elif "daily" in sched_str:
+                                daily_day_docs.append(doc_label)
+
+                parts = []
+                if specialist_day_docs:
+                    parts.append(f"Visiting Specialists on {matched_query_day}: " + "; ".join(specialist_day_docs))
+                if daily_day_docs:
+                    parts.append("Daily Consulting Doctors: " + "; ".join(daily_day_docs) + " and 24/7 emergency care")
+                day_docs_summary = ". ".join(parts)
+
+                doc_mismatch_clarification = ""
+                if matched_doc_obj:
+                    m_d_name = matched_doc_obj.get("name")
+                    m_d_sched = matched_doc_obj.get("schedule")
+                    if m_d_name and not any(m_d_name.lower() in s.lower() for s in specialist_day_docs + daily_day_docs):
+                        doc_mismatch_clarification = (
+                            f"\n   - CORRECTION OF PRIOR CONFUSION: Note that {m_d_name}'s verified schedule is '{m_d_sched}' (NOT available on {matched_query_day})! "
+                            f"On {matched_query_day}, the available doctors are: {'; '.join(specialist_day_docs) if specialist_day_docs else '; '.join(daily_day_docs)}."
+                        )
+
+                day_display_phrase = matched_day_label or matched_query_day
+                stage_directive = (
+                    f"The customer is asking about doctor availability / timings on {day_display_phrase}: '{message_text}'.\n"
+                    f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: State the exact doctors and consultation hours available on {day_display_phrase} from ### 2. DOCTORS AND SCHEDULE.\n"
+                    + (f"   - Verified schedule for {day_display_phrase}: {day_docs_summary}.\n" if day_docs_summary else "")
+                    + (f"   - (CRITICAL FOR SUNDAY: If customer asks about Sunday, you MUST explicitly name Dr. Pallavan (Neuro/Ortho) available 1:00 PM to 2:00 PM, alongside 24/7 general OP/emergency care!).\n" if matched_query_day == "Sunday" else "")
+                    + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: The customer asked 'Ethana mani ?', 'Timing uh ?', 'What time ?', or 'Enna timing ?' regarding {day_display_phrase}. Directly state the exact doctor consultation hours on {day_display_phrase} in digits ({day_docs_summary})! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
+                    + doc_mismatch_clarification + "\n"
+                    + f"   - NEVER claim that unlisted specialist doctors are available on {matched_query_day}!\n"
+                    + (f"   - Note: If visiting specialists are not scheduled on {matched_query_day}, warmly explain that our daily consulting doctors are available on {day_display_phrase} ({day_docs_summary}).\n" if not specialist_day_docs else "")
+                    + f"   - STRICT PRICING RULE: Do NOT mention consultation fees or prices unless the customer explicitly asked for fee/cost!\n"
+                    f"2. NEXT STEP: Warmly ask which doctor or department they wish to consult on {day_display_phrase}.\n"
+                    f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                    f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                    f"   - Keep reply concise (25 to 45 words max). No bullets, no hyphens, no asterisks."
+                )
+            elif matched_doc_obj:
+                doc_name_full = matched_doc_obj.get("name", "our consulting doctor")
+                doc_spec = matched_doc_obj.get("specialty", "")
+                doc_sched = matched_doc_obj.get("schedule", "")
+                doc_fee = matched_doc_obj.get("fee")
+                fee_hint = f" (Consultation fee: ₹{doc_fee})" if (doc_fee and is_asking_fee) else ""
+
+                is_appt_only = "appointment only" in doc_sched.lower() or (not matched_doc_obj.get("available_days") and "daily" not in doc_sched.lower())
+                if is_appt_only:
+                    stage_directive = (
+                        f"The customer is asking specifically about doctor availability / timing for {doc_name_full} ({doc_spec}): '{message_text}'.\n"
+                        f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Check ### 2. DOCTORS AND SCHEDULE. "
+                        f"State that {doc_name_full} ({doc_spec}) is available strictly by Appointment Only. "
+                        f"Share the clinic contact number 8925722432 so our team can fix a convenient appointment time with the doctor{fee_hint}.\n"
+                        f"   - NEVER claim {doc_name_full} is not in our records! {doc_name_full} is our verified Gynecologist!\n"
+                        + ("   - STRICT PRICING RULE: Do NOT mention the consultation fee unless the customer explicitly asked for fee/cost!\n" if not is_asking_fee else "")
+                        + f"2. NEXT STEP: Warmly ask what symptoms or health concern they wish to consult for.\n"
+                        f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                        f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                        f"4. Keep reply concise (25 to 40 words max). No bullets, no hyphens, no asterisks."
+                    )
+                else:
+                    stage_directive = (
+                        f"The customer is asking specifically about doctor availability / timing for {doc_name_full} ({doc_spec}): '{message_text}'.\n"
+                        f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Check ### 2. DOCTORS AND SCHEDULE (or doctor roster). State the EXACT verified days and consultation hours for {doc_name_full}{fee_hint}."
+                        + (f" Note: {doc_name_full}'s verified schedule is {doc_sched}." if doc_sched else "") + "\n"
+                        f"   - NEVER fabricate, invent, or guess days or hours for this doctor! If {doc_name_full} is available only on specific days (e.g. Sunday only), state that strictly!\n"
+                        + ("   - STRICT PRICING RULE: Do NOT mention the consultation fee or price unless the customer explicitly asked for fee/cost! The customer asked about doctor availability, NOT the price.\n" if not is_asking_fee else "")
+                        + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: The customer asked for timing ('{message_text}'). Directly state {doc_name_full}'s exact consultation hours ({doc_sched}) in digits! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
+                        + f"2. NEXT STEP: Warmly ask if they would like to visit during {doc_name_full}'s consultation hours, or ask what symptoms they are experiencing.\n"
+                        f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                        f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                        f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
+                        f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
+                        f"5. Keep reply concise (25 to 40 words max). No bullets, no hyphens, no asterisks."
+                    )
+            else:
+                stage_directive = (
+                    f"The customer is asking about doctor details or consultation timings: '{message_text}'.\n"
+                    f"1. DIRECT ANSWER IN SENTENCE 1: {doc_mention}\n"
+                    + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: Directly state the consultation hours of our specialist doctors in digits from ### 2. DOCTORS AND SCHEDULE! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
+                    + ("   - STRICT PRICING RULE: Do NOT quote consultation fees unless the customer explicitly asked about fee/cost!\n" if not is_asking_fee else "")
+                    + f"2. NEXT STEP: Warmly ask what specific symptoms they are experiencing or which specialty doctor they wish to consult.\n"
+                    f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                    f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                    f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
+                    f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
+                    f"5. Do NOT propose arbitrary booking slots until they request a time."
+                )
+        elif is_symptom_or_treatment_query and not (has_specific_time_of_day and has_explicit_booking_command):
+            # ── CLINICAL SYMPTOM & TREATMENT INQUIRY ──
+            funnel_stage = "SYMPTOM_TREATMENT_INQUIRY"
+            is_asking_fee = bool(any(w in inbound_clean for w in [
+                "fee", "fees", "cost", "price", "pricing", "rate", "rates", "charges", "charge",
+                "how much", "evlo", "evalo", "yevlo", "kitna", "katnam", "kattanam", "amount", "rupees", "rs"
+            ]))
+            stage_directive = (
+                f"The customer is asking about a symptom, pain, health condition, or medical treatment: '{message_text}'.\n"
+                f"1. DIRECT CLINICAL ANSWER IN SENTENCE 1: Warmly and empathetically acknowledge what they described (e.g. neck pain / kaluthu vali, back pain, fever, joint pain, etc.). "
+                f"Explain clearly how our consulting doctor / specialist helps this condition (e.g. for neck/joint pain: our Ortho / General Medicine doctor conducts a comprehensive physical examination to assess cervical strain, posture, or muscle spasm, and provides targeted medical treatment, pain management, and physio/posture advice). "
+                f"Draw directly from this {facility_term}'s verified services and doctor specialties ({services_names_only or target_service}).\n"
+                + (f"2. TRANSPARENT FEE: Clearly state the OP consultation fee in digits (e.g. {pricing_prompt_hint}).\n" if (pricing_prompt_hint and is_asking_fee) else "")
+                + ("2. PRICING RULE: Do NOT quote consultation fees or prices unless the customer asked about cost. Focus on empathy, doctor specialty, and how to consult.\n" if not is_asking_fee else "")
+                + f"3. NEXT STEP: Ask if they would like to consult our doctor or what day/time works best for them to visit our {facility_term} in {full_location or f'our {facility_term}'}.\n"
+                f"4. BREVITY & LANGUAGE: Keep your reply to 2-3 crisp, natural, professional sentences. Match their language (Tamil / Tanglish / English) seamlessly.\n"
+                f"5. STRICTLY FORBIDDEN: Do NOT propose arbitrary slots (like 6:00 AM) and do NOT finalize any booking until they request a time."
+            )
+        elif is_day_only_selection:
+            # ── DATE SPECIFIED AWAITING TIME OF DAY ──
+            funnel_stage = "DATE_SPECIFIED_AWAITING_TIME"
+            timing_options = "morning, afternoon, or evening" if not is_24_7 else "morning, afternoon, evening, or night (we are open 24/7)"
+            stage_directive = (
+                f"The customer stated a day/date for their visit ({target_day_display}): '{message_text}'.\n"
+                f"1. Warmly confirm that {target_day_display} is open for consultation.\n"
+                f"2. Ask them what time works best: 'Would {timing_options} work best for your visit, or what time do you prefer?'\n"
+                f"3. STRICTLY FORBIDDEN: Do NOT propose arbitrary specific clock times (like 6:00 AM) and do NOT finalize any booking until they specify a preferred time."
+            )
+        elif has_explicit_slot_selection or (is_home_visit and has_specific_time_of_day):
+            # ── STAGE 4B: PRE-BOOKING SLOT VERIFICATION & CONFIRMATION REQUEST ──
+            funnel_stage = "STAGE_4B_SLOT_VERIFICATION_PROPOSAL"
+            if is_home_visit and not effective_address:
+                stage_directive = (
+                    f"STAGE 4B: HOME SAMPLE COLLECTION ADDRESS REQUEST.\n"
+                    f"The customer requested a home visit timing ({target_time_display} on {target_day_display}).\n"
+                    f"1. Acknowledge the requested timing warmly.\n"
+                    f"2. Ask them to share their complete home address (Door/Flat No, Street, Area, Landmark) so we can schedule the technician.\n"
+                    + (f"3. Remind 8-12 hours overnight fasting.\n" if ("abinaya" in clean_slug or "checkup" in target_service.lower()) else "")
+                    + "4. STRICTLY FORBIDDEN: Do NOT append any [ACTION:CREATE_BOOKING] tag until address is provided."
+                )
+            elif is_home_visit:
+                service_with_home = target_service if "home" in target_service.lower() else f"{target_service} - Home Collection"
+                stage_directive = (
+                    f"STAGE 4B: HOME COLLECTION PRE-BOOKING CONFIRMATION.\n"
+                    f"The customer requested a home visit on {target_day_display} at {target_time_display} at '{effective_address}'.\n"
+                    f"1. Warmly let them know that {target_day_display} at {target_time_display} is available for {service_with_home} at their address.\n"
+                    + (f"2. Package Fee: ₹{resolved_pkg_fee:g}.\n" if (resolved_pkg_fee > 0 and is_asking_fee) else "")
+                    + "3. Ask for their confirmation: 'Would you like me to go ahead and confirm this home visit for you?'\n"
+                    + "4. Remind 8-12 hours overnight fasting.\n"
+                    + "5. STRICTLY FORBIDDEN: Do NOT finalize booking and do NOT append any [ACTION:CREATE_BOOKING] tag yet! Wait for their confirmation."
+                )
+            else:
+                fasting_inst = "Remind 8-12 hours fasting.\n" if ("abinaya" in clean_slug or "checkup" in target_service.lower()) else ""
+                fee_mention = f"Fee: ₹{resolved_pkg_fee:g}\n" if (resolved_pkg_fee > 0 and is_asking_fee) else ""
+                stage_directive = (
+                    f"STAGE 4B: PRE-BOOKING SLOT VERIFICATION & CONFIRMATION REQUEST.\n"
+                    f"The customer proposed or asked about a time: '{message_text}'.\n"
+                    f"1. You MUST explicitly state the slot date and time ({target_day_display} at {target_time_display}) and confirm it is available with {conf_host}.\n"
+                    + fee_mention
+                    + fasting_inst
+                    + f"2. EXPLICIT CONFIRMATION QUESTION: Ask them directly if they want this slot booked: 'Would you like me to go ahead and book this slot for you?'\n"
+                    f"3. STRICTLY FORBIDDEN: Do NOT finalize the booking yet and do NOT append any [ACTION:CREATE_BOOKING] tag! Only ask for their confirmation.\n"
+                    f"4. Keep response under 2 short sentences."
+                )
+        elif is_user_confirming_slot and not should_finalize_booking:
+            # User said "Yes", "Sure", or "Ok" to a general question, but has not picked a specific slot/service yet
+            funnel_stage = "BOOKING_INTEREST_NEEDS_SLOT"
+            stage_directive = (
+                f"The customer expressed interest in scheduling ('{message_text}'), but has not specified a concrete appointment date, time, or service yet.\n"
+                f"1. Warmly acknowledge their interest in Sentence 1.\n"
+                f"2. Ask which specific treatment, service, or doctor they would like to book for, and what day and convenient time works best for them.\n"
+                f"3. STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append any [ACTION:CREATE_BOOKING] tag until an exact date and time are provided!\n"
+                f"4. Keep response under 2 short sentences."
+            )
         elif user_turn_count <= 1:
             # ── STAGE 1: FIRST TOUCHPOINT / AD WELCOME & FIRST DISCOVERY QUESTION ──
             funnel_stage = "STAGE_1_WELCOME_DISCOVERY"
@@ -4219,7 +5436,17 @@ end
                 f"3. Check their readiness: ask if they would like to arrange {walkthrough_label}.\n"
                 "4. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max)."
             )
-        elif user_turn_count >= 4 or any(w in inbound_clean for w in ["demo", "show me", "call me", "book", "appointment", "schedule", "get started", "proceed", "yes", "sure"]):
+        elif (
+            any(w in inbound_clean for w in [
+                "demo", "show me", "call me", "book", "appointment", "schedule",
+                "get started", "proceed", "yes", "sure", "ok book", "interested",
+                "booking", "slot", "வர விரும்புகிறேன்", "புக் பண்ண", "அப்பாயிண்ட்மென்ட்"
+            ])
+            and not is_consideration_deferred
+            and not is_testing_message
+            and not is_gratitude_wrapup
+            and not already_asked_timing
+        ):
             # ── STAGE 4: SOFT SCHEDULING PREFERENCE ──
             funnel_stage = "STAGE_4_SOFT_SCHEDULING"
             stage_directive = (
@@ -4234,7 +5461,11 @@ end
             funnel_stage = "CONSIDERATION_PROGRESSION"
             stage_directive = (
                 "Ongoing conversation. Directly and clearly address what they just said in the context of the prior chat messages. "
-                "Seamlessly pick up right where the conversation left off from your previous message."
+                "Seamlessly pick up right where the conversation left off from your previous message. "
+                "CRITICAL ANTI-REPETITION DIRECTIVE: "
+                + ("You ALREADY asked for their timing preference in recent messages. Do NOT ask for morning/afternoon or timing again! " if already_asked_timing else "")
+                + ("You ALREADY asked if they want to book or demo. Do NOT repeat that question! " if already_asked_readiness else "")
+                + "Answer their latest message directly and invite any remaining questions they have."
             )
         else:
             funnel_stage = "DISCOVERY"
@@ -4268,20 +5499,6 @@ end
         strict_rules = (ai_cfg.get("strict_rules") or "").strip()
         objection_handling = ai_cfg.get("objection_handling") or ""
 
-        # Dialect & Style Mirroring (Customer Texting Vibe Adaptation & Language Preference)
-        style_profile = self._detect_dialect_and_texting_style(message_text, history, stored_language=customer_preferred_language)
-        
-        # Persist detected customer language preference if vernacular or updated
-        detected_lang = style_profile.get("language")
-        detected_dialect = style_profile.get("dialect")
-        if detected_lang and detected_lang in ("tamil", "tanglish", "hindi", "hinglish", "telugu", "malayalam", "kannada", "arabic", "indian_english"):
-            target_to_persist = detected_dialect
-            if detected_dialect in ("casual_slang", "formal_business", "ultra_short") or detected_lang == "indian_english":
-                target_to_persist = "indian_english"
-            if target_to_persist and target_to_persist != customer_preferred_language:
-                asyncio.create_task(
-                    self._persist_customer_language(tenant_id, contact_phone, contact_id_val, target_to_persist)
-                )
 
         tenant_style_override = (response_style or "").strip()
         if tenant_style_override and tenant_style_override.lower() not in ("short", "natural", "default"):
@@ -4334,6 +5551,10 @@ end
             "### ACTION TAG PROTOCOLS (Executed by system when appointments or contact details are confirmed):\n"
             f"- BOOKING CONFIRMATION: Once customer confirms Date, Time, Name, and Email, append at end:\n"
             f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"price\": <numeric amount e.g. 2499 or 0>, \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\", \"payment_mode\": \"online\" | \"pay_at_clinic\"}}]\n"
+            f"- HOME SAMPLE COLLECTION & HOME VISIT MANDATE:\n"
+            f"  If the customer is booking a Home Sample Collection or Home Service, you MUST obtain their complete street address (Door/Flat No., Building, Street/Nagar, Area, Landmark, Pincode) BEFORE emitting [ACTION:CREATE_BOOKING].\n"
+            f"  If address has not been provided yet, ask for their complete home address first and DO NOT emit [ACTION:CREATE_BOOKING] until they share it!\n"
+            f"  When address is provided, include it in the notes: \"notes\": \"Home Address: <Full Address>\".\n"
             f"- RESCHEDULE CONFIRMATION: When customer reschedules to a new Date & Time, append at end:\n"
             f"  [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}}]\n"
             "- CANCELLATION: When explicitly asking to cancel, append: [ACTION:CANCEL_BOOKING]\n"
@@ -4372,6 +5593,36 @@ end
             "4. Under NO circumstances should you mention, adopt, refer to, or use branding, personas, names, pricing, services, or workflows from any other business unless explicitly defined in this business's knowledge base below."
         )
 
+        # ── INTENT CLASSIFICATION DIRECTIVE (GLOBAL — FIRES BEFORE ALL BUSINESS RULES) ──
+        # Forces LLM to identify the real customer intent before applying any restrictive business rule.
+        # Prevents false-positive triggers of branch/location mandates on staff/service questions.
+        intent_classification_directive = (
+            "### STEP 0 — MANDATORY CUSTOMER INTENT CLASSIFICATION (READ EVERY MESSAGE BEFORE REPLYING):\n"
+            "Before applying ANY business rule, restriction, or mandate, you MUST first identify what the customer is ACTUALLY asking:\n"
+            "\n"
+            "INTENT TYPES:\n"
+            "A) SERVICE / THERAPY INQUIRY — Customer asks about a treatment, massage, therapy, procedure, or what you offer.\n"
+            "   Answer: Describe the relevant service(s) from the knowledge base.\n"
+            "B) STAFF / THERAPIST / PROFESSIONAL INQUIRY — Customer asks if you have professional staff, qualified therapists, certified doctors, or massage experts.\n"
+            "   Answer: Confirm YES, describe the qualifications/expertise of your team from the knowledge base.\n"
+            "   CRITICAL: NEVER misread a staff/therapist question as a branch inquiry or external referral request!\n"
+            "   Examples of staff questions: 'do you have professional therapists?', 'know any massage person?', 'are your staff qualified?', 'is there a specialist available?'\n"
+            "C) PERSONAL LOCATION CONTEXT — Customer mentions their city/area as background (e.g. 'I am in Chennai', 'I stay in Anna Nagar', 'I am from Dharmapuri').\n"
+            "   This is their personal context, NOT a branch request. Answer their actual question, not the location mention.\n"
+            "D) BRANCH / EXTERNAL LOCATION REQUEST — Customer EXPLICITLY asks 'do you have a branch in X?' or 'any center near Y?' or 'do you operate in X city?'\n"
+            "   ONLY THEN apply the single-branch mandate and clarify you operate exclusively at your verified address.\n"
+            "E) PRICING / OFFER INQUIRY — Customer asks about price, cost, rate, offer, discount, package, or promotion.\n"
+            "   Always include exact prices AND any active special offers from the knowledge base.\n"
+            "F) BOOKING / APPOINTMENT — Customer wants to book, reschedule, or cancel.\n"
+            "   Follow the booking flow.\n"
+            "G) GENERAL CHAT — Customer sends casual greeting, feedback, or unrelated question.\n"
+            "   Respond warmly and briefly.\n"
+            "\n"
+            "CRITICAL RULE: Match your reply to the IDENTIFIED intent type (A through G). "
+            "NEVER apply rule set D (branch mandate) to intent types A, B, C, E, F, or G. "
+            "If the intent is ambiguous, default to answering the question warmly and helpfully without restricting information."
+        )
+
 
         admin_phone_clean = (admin_phone or "").strip()
         admin_contact_instruction = (
@@ -4406,12 +5657,12 @@ end
             "- SMART CONTEXTUAL RESPONSE STYLE (NO RIGID SCRIPTS):",
             "  * CASUAL MESSAGES ('Hi', 'Ok', 'Thanks', hours, address): Reply in 1-2 warm helpful sentences. Do NOT force a sales pitch.",
             "  * DIRECT QUESTIONS (price, services, hours, features): Answer directly and completely first. NEVER dodge with a qualification question.",
-            "  * EXPLORATORY INQUIRIES (broad or vague need): Ask ONE gentle diagnostic question to understand their specific goal.",
-            "  * SLOT/TIMING REPLIES ('today evening', '5:30 pm', 'tomorrow', 'Monday'): IMMEDIATELY confirm the slot warmly. NEVER re-pitch or ask again what they need. Append [ACTION:CREATE_BOOKING: ...].",
+            "- 2-STEP BOOKING VERIFICATION PROTOCOL:",
+            "  * CASUAL/TENTATIVE TIME MENTIONS ('tomorrow 4 pm', 'is 5 pm open?', 'can I come at 4?'): State that the slot is open within operating hours and ASK FOR CONFIRMATION (e.g. 'Tomorrow at 4:00 PM is available with [Host]! Would you like me to go ahead and book this slot for you?'). Strictly DO NOT append any [ACTION:CREATE_BOOKING] tag yet!",
+            "  * EXPLICIT CONFIRMATION OR COMMAND ('Yes', 'Sure', 'Book it', 'Please book tomorrow 4 pm'): IMMEDIATELY confirm the booking in your text sentence AND append [ACTION:CREATE_BOOKING: ...].",
             "  * NEVER end two consecutive messages with the same closing sentence, CTA, or website link.",
             f"- OPERATING HOURS INTEGRITY: If asked about clinic / business timings or hours, directly state '{op_hours_display} daily'. Never guess from calendar slot lists.",
-            "- STAGE-ALIGNED PROGRESSION: Strictly adhere to the current Conversation Funnel Stage above. In Stages 1, 2, and 3, focus on diagnosing their requirement with 1 gentle question. Strictly DO NOT ask for appointment day/time or propose demo slots until Stage 4 or unless the customer explicitly gives a specific time.",
-            "- TIME PROVIDED: If they provide a specific time (e.g. '3 pm'), resolve to tomorrow if today is past/closed, confirm warmly, and append [ACTION:CREATE_BOOKING: ...].",
+            "- STAGE-ALIGNED PROGRESSION: Strictly adhere to the current Conversation Funnel Stage above. In Stages 1, 2, and 3, focus on diagnosing their requirement with 1 gentle question. In Stage 4B, propose availability and ask for confirmation. In Stage 5, finalize and lock the booking.",
             "- NATURAL BREVITY: Keep your reply concise (1 to 2 short natural sentences, 25 to 45 words max). Pure conversational WhatsApp texting flow.",
             "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis.",
             "- PRICES & TIMES IN DIGITS: ALWAYS write prices in standard digits with currency (e.g. ₹1299 or Rs. 1299). ALWAYS write times with digits (e.g. 10:00 AM or 6:30 PM).",
@@ -4420,10 +5671,19 @@ end
             f"- LANGUAGE & IDENTITY: Strictly match customer's language ({style_profile['label']}). Ground answers exclusively in this tenant's details above.",
             "- AI HONESTY: If the customer asks 'Are you AI?' or 'Are you a bot?', directly, warmly, and honestly confirm: 'Yes, I am the AI assistant for this business on WhatsApp!' and ask how you can assist them today. Never deny being AI, never pretend to be a human, and never dodge.",
             "- NO REPEATED BOOKING CONFIRMATIONS: If an appointment slot was already agreed earlier in the chat, do NOT append 'your slot is booked' or re-propose times on unrelated inquiries; simply answer their question directly.",
-            "- BRANCH & LOCATION INTEGRITY: We operate ONLY from our verified address on file. Never invent, claim, or confirm branches in other neighborhoods (e.g. Mannady, Anna Nagar, Adyar, Parrys). If asked about other areas or branches, clarify that we operate exclusively at our verified location.",
+            "- BRANCH & LOCATION INTEGRITY (INTENT-AWARE): Only apply this rule when the customer is EXPLICITLY asking about branches, other locations, or whether we operate in another area. If the customer merely mentions a city as personal context (e.g. 'I am from Chennai', 'any service in my area?') or asks about staff/therapists ('do you have professional staff?', 'know any massage therapist?'), DO NOT trigger the branch mandate. Instead, answer their actual question directly (e.g. confirm you have qualified professional therapists at the center). Never misread a staff/service question as a branch inquiry.",
         ]
+        if is_aadhiran:
+            reinforcement_parts.append(
+                "- CRITICAL AADHIRAN CENTER MANDATORY LANGUAGE MANDATE (ZERO ENGLISH REPLIES ALLOWED):\n"
+                "  You are the WhatsApp assistant for Aadhiran Center. You MUST reply ONLY in Tanglish or Tamil (Tamil script).\n"
+                "  STRICT RULE: NEVER reply in English! If the customer sent a message in English or an English voice message, you MUST reply in natural conversational spoken WhatsApp Tanglish. If the customer sent a message in Tamil, you MUST reply in Tamil using Tamil script. Zero English sentences allowed under any circumstance!"
+            )
         if is_voice_note:
-            reinforcement_parts.append("- VOICE NOTE INBOUND: Reply DIRECTLY to what the customer asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any variant acknowledging the voice format. Just answer their question naturally.")
+            v_note_rule = "- VOICE NOTE INBOUND: Reply DIRECTLY to what the customer asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any variant acknowledging the voice format. Just answer their question naturally."
+            if is_aadhiran:
+                v_note_rule += " For Aadhiran Center, reply ONLY in Tanglish or Tamil script (NEVER in English)."
+            reinforcement_parts.append(v_note_rule)
         if is_media_only:
             reinforcement_parts.append("- UNREAD MEDIA: A video/document was shared that we cannot analyze. Politely ask them to type what they need.")
         if _has_vision_desc:
@@ -4467,23 +5727,33 @@ end
                 f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
                 # Official Operating Hours Ground Truth
                 (
-                    f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS):\n"
-                    f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
-                    f"- Opening Time: {fmt_open} (Morning / காலை)\n"
-                    f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
-                    f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
+                    (
+                        f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS - 24/7 OPEN):\n"
+                        f"- Daily Operating Hours: {op_hours_display}\n"
+                        f"- 24/7 MANDATE: This business/clinic is strictly OPEN 24 HOURS A DAY, 7 DAYS A WEEK (24/7, all days and nights, always open for consultations, OP visits, and emergencies).\n"
+                        f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, opening time, closing time, or when we are open, ALWAYS state: 'We are open 24 hours daily (24/7, day and night)'. NEVER say we close at night or state limited closing hours like 09:00 PM or 11:59 PM!"
+                    )
+                    if is_24_7 else
+                    (
+                        f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS):\n"
+                        f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
+                        f"- Opening Time: {fmt_open} (Morning / காலை)\n"
+                        f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
+                        f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
+                    )
                 ),
                 # Official Business Location Ground Truth
                 (
-                    f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH (MANDATORY CLINIC ADDRESS):\n"
-                    f"- Verified Business / Clinic Address: {full_location}\n"
+                    f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH (MANDATORY {facility_term.upper()} ADDRESS):\n"
+                    f"- Verified Business / {facility_term.title()} Address: {full_location}\n"
                     f"- MANDATORY LOCATION & SINGLE-BRANCH MANDATE:\n"
-                    f"  1. When the customer asks about business location, clinic address, landmark, directions, or where we are located, ALWAYS provide: '{full_location}'.\n"
+                    f"  1. When the customer asks about business location, {facility_term} address, landmark, directions, or where we are located, ALWAYS provide: '{full_location}'.\n"
                     f"  2. Unless multiple branches are explicitly listed in this prompt, this business operates EXCLUSIVELY from this single verified location. We have NO branches in other areas or cities (such as Anna Nagar, Adyar, Mannady, Nungambakkam, Velachery, Parrys, Tambaram, etc.).\n"
+                    f"     INTENT NOTE: Only apply this mandate when the customer EXPLICITLY asks whether you have a branch in another city/area, or asks 'do you operate in X area?' — if the customer merely mentions their city/area as personal context (e.g. 'I live in Dharmapuri'), or asks about staff/therapists/qualifications, answer their ACTUAL question — do NOT fire this branch mandate.\n"
                     f"  3. IMMUNITY FROM CHAT HISTORY & MEDIA: Never claim or confirm any other branch, even if the customer asks 'how about Anna Nagar?' or sends a document/flyer showing other areas, or if past messages mistakenly mentioned another branch. Firmly and politely clarify that we operate ONLY at '{full_location}'.\n"
-                    f"  4. NEVER confuse the customer's personal living area or workplace with the clinic location!"
+                    f"  4. NEVER confuse the customer's personal living area or workplace with the {facility_term} location!"
                     if full_location else
-                    "### OFFICIAL BUSINESS LOCATION GROUND TRUTH:\n- No clinic address configured yet. NEVER invent, fabricate, or hallucinate any location or address!"
+                    f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH:\n- No {facility_term} address configured yet. NEVER invent, fabricate, or hallucinate any location or address!"
                 ),
             ]
             if leave_closure_block:
@@ -4508,6 +5778,9 @@ end
 
             # Untrusted Customer Input Boundary & Prompt Injection Defense:
             prompt_blocks.append(untrusted_input_directive)
+
+            # Intent classification — forces LLM to identify customer intent before applying business rules
+            prompt_blocks.append(intent_classification_directive)
 
             # Conversational formatting and tone reinforcement
             prompt_blocks.append(reinforcement_rule)
@@ -4539,10 +5812,16 @@ end
                 )
 
             if services_text.strip():
-                prompt_blocks.append(
-                    "### VERIFIED SERVICES & PRICING CATALOG:\n"
-                    f"{services_text.strip()}\n"
+                services_catalog_display = services_names_only if not is_asking_fee else services_text.strip()
+                catalog_instructions = (
+                    "- STRICT PRICING RULE: The customer did NOT ask about pricing or fees in this message! Strictly describe services without quoting fees, prices, or amounts!"
+                    if not is_asking_fee else
                     "- Always quote pricing and service details according to the verified pricing logic and tiers defined in this business's instructions above. Never invent unlisted services or prices."
+                )
+                prompt_blocks.append(
+                    "### VERIFIED SERVICES CATALOG:\n"
+                    f"{services_catalog_display}\n"
+                    f"{catalog_instructions}"
                 )
 
             if strict_rules.strip():
@@ -4557,9 +5836,9 @@ end
 
             if full_location:
                 prompt_blocks.append(
-                    f"### BUSINESS ADDRESS ON FILE (MANDATORY CLINIC ADDRESS):\n{full_location}\n"
+                    f"### BUSINESS ADDRESS ON FILE (MANDATORY {facility_term.upper()} ADDRESS):\n{full_location}\n"
                     "- Use EXACTLY this address when asked for location. Do NOT modify, abbreviate, or replace it with any other address.\n"
-                    "- SINGLE-BRANCH MANDATE: This business operates EXCLUSIVELY from this address. We have NO branches in other areas (such as Anna Nagar, Adyar, Mannady, Nungambakkam, Parrys, etc.). Never claim or confirm other branches regardless of customer suggestions, media, or prior messages."
+                    "- SINGLE-BRANCH MANDATE (INTENT-AWARE): This business operates EXCLUSIVELY from this address. We have NO branches in other areas (such as Anna Nagar, Adyar, Mannady, Nungambakkam, Parrys, etc.). ONLY apply this mandate when the customer EXPLICITLY asks if you have a branch in another area or city — if they merely mention their own city as personal context, or ask about staff/therapist qualifications, answer their actual question without firing this mandate."
                 )
             else:
                 prompt_blocks.append(
@@ -4588,13 +5867,21 @@ end
                 )
 
             # ── SECTION 1: BUSINESS OPERATING HOURS (TOP GROUND TRUTH FOR TIMINGS) ──
-            prompt_blocks.append(
-                f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS):\n"
-                f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
-                f"- Opening Time: {fmt_open} (Morning / காலை)\n"
-                f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
-                f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
-            )
+            if is_24_7:
+                prompt_blocks.append(
+                    f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS - 24/7 OPEN):\n"
+                    f"- Daily Operating Hours: {op_hours_display}\n"
+                    f"- 24/7 MANDATE: This business/clinic is strictly OPEN 24 HOURS A DAY, 7 DAYS A WEEK (24/7, all days and nights, always open for consultations, OP visits, and emergencies).\n"
+                    f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, opening time, closing time, or when we are open, ALWAYS state: 'We are open 24 hours daily (24/7, day and night)'. NEVER say we close at night or state limited closing hours like 09:00 PM or 11:59 PM!"
+                )
+            else:
+                prompt_blocks.append(
+                    f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS):\n"
+                    f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
+                    f"- Opening Time: {fmt_open} (Morning / காலை)\n"
+                    f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
+                    f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
+                )
             if leave_closure_block:
                 prompt_blocks.append(leave_closure_block)
 
@@ -4632,6 +5919,7 @@ end
             if methodology.strip():
                 prompt_blocks.append(f"### CONVERSATION METHODOLOGY:\n{methodology.strip()}")
 
+            prompt_blocks.append(intent_classification_directive)
             prompt_blocks.append(reinforcement_rule)
             prompt_blocks.append(untrusted_input_directive)
             prompt_blocks.append(action_tag_directives)
@@ -4644,6 +5932,11 @@ end
                 f"{custom_prompt_text}\n\n"
                 "- ABSOLUTE PRIORITY OVERRIDE: The custom instructions above are defined directly by the business owner and have the ABSOLUTE HIGHEST PRIORITY over all other prompt blocks, general instructions, or templates.\n"
                 "- If there is any conflict between the custom instructions above and any default rules (such as pricing disclosure, tone, or booking rules), YOU MUST STRICTLY FOLLOW THESE CUSTOM INSTRUCTIONS ABOVE WITHOUT EXCEPTION."
+            )
+
+        if welcome_was_sent:
+            prompt_blocks.append(
+                "NOTE: A welcome message was already sent to this customer. Do NOT repeat the welcome greeting. Go straight to answering their question."
             )
 
         active_system_prompt = "\n\n".join(prompt_blocks)
@@ -4664,7 +5957,7 @@ end
             gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
             max_tokens=2048,
             temperature=0.15,  # Low temperature = factual, grounded, low hallucination risk
-            timeout_seconds=3.5,  # Raised from 2.0s — Gemini avg latency is 1.4s, needs headroom
+            timeout_seconds=5.5,  # Raised to 5.5s to prevent false timeouts on larger prompt contexts
             tenant_id=tenant_id,
             single_line=False,
         )
@@ -4828,25 +6121,29 @@ end
             # 4. Intercept [ACTION:CREATE_BOOKING: ...] or [ACTION:CONFIRM_APPOINTMENT|...] tags
             m_booking = re.search(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT|CONFIRM_APPOINTMENT)(?:[:|]\s*(.+?))?\]', response_text, re.DOTALL | re.I)
             if m_booking:
-                raw_payload = (m_booking.group(1) or "").strip()
-                try:
-                    if raw_payload.startswith("{"):
-                        booking_action = parse_action_payload(raw_payload)
-                    elif "|" in raw_payload:
-                        parts = [p.strip() for p in raw_payload.split("|")]
-                        b_d = parts[0] if re.match(r'^\d{4}-\d{2}-\d{2}$', parts[0]) else (parts[1] if len(parts) > 1 and re.match(r'^\d{4}-\d{2}-\d{2}$', parts[1]) else today_date_str)
-                        b_t = parts[1] if len(parts) > 1 and ":" in parts[1] else (parts[2] if len(parts) > 2 and ":" in parts[2] else "10:00")
-                        booking_action = {
-                            "service": target_service,
-                            "price": resolved_pkg_fee,
-                            "date": b_d,
-                            "time": b_t,
-                            "name": confirmed_name or customer_name_display or "Customer",
-                        }
-                    elif raw_payload:
-                        booking_action = parse_action_payload(raw_payload)
-                except Exception as e:
-                    logger.warning("booking_action_parse_failed", error=str(e))
+                if not should_finalize_booking:
+                    logger.info("suppressed_unconfirmed_booking_action", tenant_id=tenant_id, customer_msg=message_text)
+                    booking_action = None
+                else:
+                    raw_payload = (m_booking.group(1) or "").strip()
+                    try:
+                        if raw_payload.startswith("{"):
+                            booking_action = parse_action_payload(raw_payload)
+                        elif "|" in raw_payload:
+                            parts = [p.strip() for p in raw_payload.split("|")]
+                            b_d = parts[0] if re.match(r'^\d{4}-\d{2}-\d{2}$', parts[0]) else (parts[1] if len(parts) > 1 and re.match(r'^\d{4}-\d{2}-\d{2}$', parts[1]) else today_date_str)
+                            b_t = parts[1] if len(parts) > 1 and ":" in parts[1] else (parts[2] if len(parts) > 2 and ":" in parts[2] else "10:00")
+                            booking_action = {
+                                "service": target_service,
+                                "price": resolved_pkg_fee,
+                                "date": b_d,
+                                "time": b_t,
+                                "name": confirmed_name or customer_name_display or "Customer",
+                            }
+                        elif raw_payload:
+                            booking_action = parse_action_payload(raw_payload)
+                    except Exception as e:
+                        logger.warning("booking_action_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT|CONFIRM_APPOINTMENT)(?:[:|].*?)?\]', '', response_text, flags=re.DOTALL | re.I).strip()
                 # Repair dangling prepositions if model put date/time inside action tag instead of message text
@@ -4862,6 +6159,10 @@ end
             # If LLM generated a booking confirmation response but forgot or omitted the [ACTION:CREATE_BOOKING] tag
             if not booking_action and not cancel_action and not reschedule_action and not inbound_appointment_inquiry:
                 resp_low = (response_text or "").lower()
+                is_asking_confirmation = any(q in resp_low for q in [
+                    "would you like", "shall i", "want me to", "can i book", "should i book",
+                    "like me to book", "like me to confirm", "go ahead and book", "prefer morning or evening", "?"
+                ])
                 is_confirmed_in_text = bool(
                     re.search(
                         r'\b(?:is\s+(?:now\s+)?confirmed|has\s+been\s+confirmed|have\s+confirmed|'
@@ -4873,7 +6174,7 @@ end
                     )
                     or (is_home_visit and effective_address and any(w in resp_low for w in ["confirmed", "scheduled", "booked"]))
                 )
-                if is_confirmed_in_text:
+                if is_confirmed_in_text and not is_asking_confirmation and should_finalize_booking:
                     logger.info("reconstructing_missing_booking_action", tenant_id=tenant_id, resp_snippet=resp_low[:80])
                     # 1. Date resolution
                     try:
@@ -5025,7 +6326,7 @@ end
                                     booking_action = None
                                     date_friendly = req_d.strftime("%A, %d %b %Y")
                                     response_text = (
-                                        f"Please note that our clinic is closed / unavailable on {date_friendly} due to {l_reason}. "
+                                        f"Please note that our {facility_term} is closed / unavailable on {date_friendly} due to {l_reason}. "
                                         "Could you please choose another day or convenient time within our working hours?"
                                     )
                                     break
@@ -5168,6 +6469,198 @@ end
             for pat, rep in tamil_hallucination_fixes:
                 response_text = pat.sub(rep, response_text)
 
+            # Tamil & Tanglish respect and vocabulary integrity sanitizer
+            # 1. Polite address: Replace disrespectful 'unakku'/'unaku' with polite 'ungalukku'
+            response_text = re.sub(r'(?i)\b(?:unakku|unaku)\b', 'ungalukku', response_text)
+            response_text = re.sub(r'(?<![\u0B80-\u0BFF])உனக்கு(?![\u0B80-\u0BFF])', 'உங்களுக்கு', response_text)
+            response_text = re.sub(r'(?<![\u0B80-\u0BFF])நீ(?![\u0B80-\u0BFF])', 'நீங்கள்', response_text)
+            response_text = re.sub(r'உங்களுக்குங்கள்', 'நீங்கள்', response_text)
+
+            # Tamil spelled-out prices to standard digits sanitizer
+            tamil_number_price_fixes = [
+                (re.compile(r'(?:ரூபாய்\s*)?எழுநூறு(?:\s*ரூபாய்)?', re.IGNORECASE), "₹700"),
+                (re.compile(r'(?:ரூபாய்\s*)?ஆயிரத்து\s*நானூற்று\s*தொண்ணூற்றி\s*ஒன்பது(?:\s*ரூபாய்)?', re.IGNORECASE), "₹1499"),
+                (re.compile(r'(?:ரூபாய்\s*)?(?:தொள்ளாயிரத்து|ஒன்பது\s*நூற்று)\s*தொண்ணூற்றி\s*ஒன்பது(?:\s*ரூபாய்)?', re.IGNORECASE), "₹999"),
+                (re.compile(r'(?:ரூபாய்\s*)?ஆயிரத்து\s*ஐந்நூற்று\s*தொண்ணூற்றி\s*ஒன்பது(?:\s*ரூபாய்)?', re.IGNORECASE), "₹1599"),
+                (re.compile(r'(?:ரூபாய்\s*)?ஆயிரத்து\s*முந்நூற்று\s*தொண்ணூற்றி\s*ஒன்பது(?:\s*ரூபாய்)?', re.IGNORECASE), "₹1399"),
+                (re.compile(r'(?:ரூபாய்\s*)?இரண்டாயிரம்(?:\s*ரூபாய்)?', re.IGNORECASE), "₹2000"),
+                (re.compile(r'(?:ரூபாய்\s*)?மூன்றாயிரம்(?:\s*ரூபாய்)?', re.IGNORECASE), "₹3000"),
+            ]
+            for pat, rep in tamil_number_price_fixes:
+                response_text = pat.sub(rep, response_text)
+
+            # 1c. Tanglish Natural Fluency & Anti-Bookish Transliteration Sanitizer
+            tanglish_natural_fixes = [
+                # Replace formal/archaic literary terms with natural WhatsApp Tanglish
+                (re.compile(r'\bnamathu\b', re.IGNORECASE), "namma"),
+                (re.compile(r'\buuzhiy[ao]r?\s*neram\b', re.IGNORECASE), "timings"),
+                (re.compile(r'\bkaalai\s*aaru\s*mani\s*mudhal\s*iravu\s*pathu\s*mani\s*varai(?:\s*aanal)?\b', re.IGNORECASE), "morning 6:00 AM to night 10:00 PM"),
+                (re.compile(r'\bvaruvatharku\s+vasathiyaga\s+irukkum\b', re.IGNORECASE), "vara convenient-ah irukkum"),
+                (re.compile(r'\bvasathiyaga\s+irukkum\b', re.IGNORECASE), "convenient-ah irukkum"),
+                (re.compile(r'\bvaruvatharku\b', re.IGNORECASE), "vara"),
+                (re.compile(r'\btherinthu\s*kolla\b', re.IGNORECASE), "therinjikka"),
+                (re.compile(r'\bmathum\b', re.IGNORECASE), "and"),
+                (re.compile(r'\bmaru\s+(treatments?|services?|therap(?:y|ies))\b', re.IGNORECASE), r"other \1"),
+                (re.compile(r'\bbook\s+seiyalama\b', re.IGNORECASE), "book pannalama"),
+                (re.compile(r'\bseiyalama\b', re.IGNORECASE), "pannalama"),
+                (re.compile(r'\bseiyalam\b', re.IGNORECASE), "pannalam"),
+                (re.compile(r'\beppozhuthu\b', re.IGNORECASE), "eppo"),
+                (re.compile(r'\banru\b', re.IGNORECASE), "antha day"),
+                (re.compile(r'\bvarikkalama\b', re.IGNORECASE), "varalama"),
+                (re.compile(r'\bvarlaama\b', re.IGNORECASE), "varalama"),
+                # Fix LLM hallucinatory phrases in Tanglish
+                (re.compile(r'\bkandam\s*pathu\s*pa\b', re.IGNORECASE), "Kandippa sir"),
+                (re.compile(r'\bnalla\s*thandham\b', re.IGNORECASE), "Nalla vishayam"),
+                (re.compile(r'\bthoppu\s*venuma\b', re.IGNORECASE), "venuma"),
+                (re.compile(r'\bmassageinilaiin\b', re.IGNORECASE), "massage"),
+                # Fix customer addressing: replace disrespectful or unprofessional 'pa' addressing
+                (re.compile(r'\b(?:sollunga|kandippa|parunga|vanga|seri|noted)\s+pa\b', re.IGNORECASE), lambda m: m.group(0).rsplit(' ', 1)[0] + " sir"),
+                # Standardize time and price expressions in Tanglish
+                (re.compile(r'\b(\d+)\s*nimishathirku\b', re.IGNORECASE), r"\1 mins-ku"),
+                (re.compile(r'\b(\d+)\s*nimisham\b', re.IGNORECASE), r"\1 mins"),
+                (re.compile(r'\brupees\s*(\d+)\b', re.IGNORECASE), r"₹\1"),
+                (re.compile(r'\b(\d+)\s*rupees\b', re.IGNORECASE), r"₹\1"),
+                (re.compile(r'\bcomfortable\s+ahana\b', re.IGNORECASE), "comfortable-ana"),
+            ]
+            for pat, rep in tanglish_natural_fixes:
+                response_text = pat.sub(rep, response_text)
+
+            # 2. Fix LLM "vendam?" hallucination (vendam = no/don't want; venum/virumbureenga = want/wish)
+            # E.g. "yaaru doctor ku consult panna vendam?" -> "enta doctor-ai consult panna virumbureenga?"
+            response_text = re.sub(r'(?i)\b(?:yaaru|yaru|etha|yentha|enta)\s+doctor\s*(?:ku)?\s*consult\s+panna\s+vendam\?', 'enta doctor-ai consult panna virumbureenga?', response_text)
+            response_text = re.sub(r'(?i)\b(?:doctor\s*ku\s*)?consult\s+panna\s+vendam\?', 'doctor-ai consult panna virumbureengala?', response_text)
+            response_text = re.sub(r'(?i)\b(?:paarka|paakka|parkka|paarkka)\s+vendam\?', 'paarka virumbureengala?', response_text)
+            response_text = re.sub(r'(?i)\bpanna\s+vendam\?', 'panna virumbureengala?', response_text)
+            response_text = re.sub(r'(?i)\bகன்சல்ட்\s*பண்ண\s*வேண்டாம்\?', 'மருத்துவரை பார்க்க விரும்புகிறீர்களா?', response_text)
+            response_text = re.sub(r'(?i)\bபார்க்க\s*வேண்டாம்\?', 'பார்க்க விரும்புகிறீர்களா?', response_text)
+
+            # 3. Aadhiran Center strict brand identity & terminology firewall
+            # Under NO circumstance should Aadhiran ever output the word "clinic" or "Aadhiran Clinic"
+            if is_aadhiran or "aadhiran" in clean_slug or "aadhiran" in (tenant_name or "").lower():
+                response_text = re.sub(r'(?i)\baadhiran\s+clinics?\b', 'Aadhiran Center', response_text)
+                response_text = re.sub(r'(?i)\bour\s+clinics?\b', 'our center', response_text)
+                response_text = re.sub(r'(?i)\bthe\s+clinics?\b', 'the center', response_text)
+                response_text = re.sub(r'(?i)\bthis\s+clinics?\b', 'this center', response_text)
+                response_text = re.sub(r'(?i)\b(?:in-clinic|in\s+clinic)\b', 'at our center', response_text)
+                response_text = re.sub(r'(?i)\bvisit\s+(?:the|our|a)?\s*clinic\b', 'visit our center', response_text)
+                response_text = re.sub(r'\bClinic\b', 'Center', response_text)
+                response_text = re.sub(r'\bclinic\b', 'center', response_text)
+                response_text = re.sub(r'\bClinics\b', 'Centers', response_text)
+                response_text = re.sub(r'\bclinics\b', 'centers', response_text)
+                response_text = re.sub(r'கிளினிக்(?:கிற்கு|கில்|கை)?', lambda m: {
+                    'கிளினிக்': 'சென்டர்',
+                    'கிளினிக்கிற்கு': 'சென்டருக்கு',
+                    'கிளினிக்கில்': 'சென்டரில்',
+                    'கிளினிக்கை': 'சென்டரை'
+                }.get(m.group(0), 'சென்டர்'), response_text)
+
+            # 3b. Anti-repetitive Business Intro & Natural Flow Sanitizer
+            # Strip repetitive business announcements like "Namma Aadhiran Center la...", "Namma center la...", "At [Business]..."
+            # unless the customer explicitly asked for the center/business name.
+            if not any(w in inbound_clean for w in ['what center', 'center name', 'which place', 'clinic name', 'business name', 'company name', 'who are you', 'which clinic', 'which company']):
+                # For Aadhiran Center specifically
+                if is_aadhiran or "aadhiran" in clean_slug or "aadhiran" in (tenant_name or "").lower():
+                    # Pattern 1: Greeting followed by center intro: "Vanakkam sir! Namma Aadhiran Center-la daily..." -> "Vanakkam sir! Daily..."
+                    response_text = re.sub(
+                        r'^(.*?(?:vanakkam|hello|hi|hey)[^.!?\n]*[.!?]+\s*)(?:namma|namathu|our|at|in|enga|engaloda)?\s*(?:aadhiran\s*center|center|clinic)\s*(?:la|il|in|ku)?,?\s*',
+                        r'\1',
+                        response_text,
+                        flags=re.IGNORECASE
+                    )
+                    # Pattern 2: Direct center intro at start: "Namma Aadhiran Center la daily..." -> "Daily..."
+                    response_text = re.sub(
+                        r'^(?:namma|namathu|our|at|in|enga|engaloda)?\s*(?:aadhiran\s*center|center|clinic)\s*(?:la|il|in|ku)?,?\s*',
+                        '',
+                        response_text,
+                        flags=re.IGNORECASE
+                    )
+                    # Pattern 3: Leftover "namma aadhiran center la" or "aadhiran center la" in body
+                    response_text = re.sub(
+                        r'(?i)\b(?:namma|namathu|enga|engaloda)\s+aadhiran\s+center\s*(?:la|il|in|ku)?,?\s*',
+                        '',
+                        response_text
+                    )
+                    response_text = re.sub(
+                        r'(?i)\baadhiran\s+center\s*(?:la|il|in|ku),?\s*',
+                        '',
+                        response_text
+                    )
+
+                # General business intro at start: "At [Business], we ..." or "In our center, we ..."
+                if tenant_name:
+                    esc_tname = re.escape(tenant_name.strip())
+                    response_text = re.sub(
+                        rf'^(?:at|in|here at)\s+{esc_tname}[,.]?\s*',
+                        '',
+                        response_text,
+                        flags=re.IGNORECASE
+                    )
+                response_text = re.sub(
+                    r'^(?:at|in)\s+our\s+(?:center|clinic|office|studio|shop)[,.]?\s*',
+                    '',
+                    response_text,
+                    flags=re.IGNORECASE
+                )
+
+                response_text = response_text.strip()
+                if response_text:
+                    response_text = re.sub(r'(^|[.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), response_text)
+
+            # 3c. Aadhiran Center Strict English Elimination Firewall
+            # Under NO circumstance should Aadhiran Center ever send a pure English reply.
+            if is_aadhiran or "aadhiran" in clean_slug or "aadhiran" in (tenant_name or "").lower():
+                has_tamil_chars = bool(re.search(r'[\u0B80-\u0BFF]', response_text))
+                if not has_tamil_chars:
+                    words_clean = set(re.findall(r'\b[a-z]+\b', response_text.lower()))
+                    tanglish_markers = {
+                        "irukku", "irukka", "irukkum", "iruntha", "irundhuchu", "ungalukku", "sollunga",
+                        "pannalama", "pannalam", "namma", "kandippa", "vanakkam", "thevai", "varalaam",
+                        "varalama", "mudiyum", "mudiyadhu", "therinjikka", "seri", "apram", "appuram",
+                        "intha", "antha", "enakku", "illai", "mattum", "enga", "eppo", "epdi", "kedaikkum",
+                        "kedaikuma", "pannidalam", "panrom", "pesalam", "virumbureenga", "paththi", "kooda",
+                        "romba", "nandri", "seekkiram", "paravala", "edhuvum", "avlo", "ivlo", "panreenga",
+                        "panrenga", "theriyum", "theriyala", "open-ah", "convenient-ah", "details-ah"
+                    }
+                    has_tanglish_marker = bool(words_clean.intersection(tanglish_markers))
+                    if not has_tanglish_marker and len(words_clean) >= 4:
+                        logger.warning("aadhiran_english_response_intercepted_translating", conv_id=conv_id, english_snippet=response_text[:80])
+                        conv_prompt = (
+                            f"Convert this English response for Aadhiran Center into 100% natural, polite, conversational spoken WhatsApp Tanglish as texted in Tamil Nadu:\n"
+                            f"\"{response_text}\"\n\n"
+                            f"RULES:\n"
+                            f"- Output ONLY the Tanglish translation. No preamble.\n"
+                            f"- Write natural spoken WhatsApp Tanglish (e.g. 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir', 'offer price ₹700 sir (regular ₹999)').\n"
+                            f"- Keep standard digits for prices (₹700, ₹999, ₹1499) and times (6:00 AM, 10:00 PM).\n"
+                            f"- Polite address: 'sir' or 'Ungalukku'.\n"
+                            f"- 1-2 short natural sentences, zero hyphens, zero emojis.\n"
+                            f"- ABSOLUTELY NO ENGLISH."
+                        )
+                        try:
+                            t_converted, _ = await call_llm_cascade(
+                                messages=[{"role": "user", "content": conv_prompt}],
+                                system_prompt="You are an expert translator converting English messages into natural, friendly, colloquial WhatsApp Tanglish for Aadhiran Center in Tiruppur. Output only the Tanglish text with zero hyphens, zero bullets, and zero emojis.",
+                                gemini_key=gemini_key,
+                                groq_key=groq_key,
+                                opencode_key=opencode_key,
+                                opencode_base_url=opencode_base,
+                                master_gemini_key=master_keys.get("gemini_key"),
+                                master_groq_key=master_keys.get("groq_key"),
+                                master_opencode_key=master_keys.get("opencode_key"),
+                                master_opencode_base_url=master_keys.get("opencode_base_url"),
+                                primary_provider=primary_provider,
+                                gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
+                                max_tokens=256,
+                                temperature=0.1,
+                                timeout_seconds=4.0,
+                                tenant_id=tenant_id,
+                                single_line=False,
+                            )
+                            if t_converted and t_converted.strip():
+                                response_text = t_converted.strip()
+                                logger.info("aadhiran_english_converted_to_tanglish", conv_id=conv_id, result_snippet=response_text[:80])
+                        except Exception as e_conv:
+                            logger.error("aadhiran_tanglish_conversion_error", error=str(e_conv))
+
             # Business location hallucination interceptor:
             # If the tenant has a verified business address and the LLM mentions an unverified external address/city (e.g. Indiranagar, Bengaluru)
             if full_location:
@@ -5204,6 +6697,14 @@ end
                 if response_text and response_text[0].islower():
                     response_text = response_text[0].upper() + response_text[1:]
 
+            def _safe_split_sentences(txt: str) -> list[str]:
+                if not txt:
+                    return []
+                # Protect abbreviations & honorifics from sentence splitting
+                t = re.sub(r'\b(Dr|Mr|Mrs|Ms|Prof|vs|No|St|Dept|Gen|OP|OPD)\.', r'\1§DOT§', txt, flags=re.I)
+                parts = re.split(r'(?<=[.!?])\s+', t.strip())
+                return [p.replace('§DOT§', '.').strip() for p in parts if p.strip()]
+
             if is_ongoing_conversation:
                 response_text = strip_repetitive_greetings(response_text)
 
@@ -5216,11 +6717,10 @@ end
                     prev_words = prev_clean.split()
 
                     is_duplicate_response = False
-                    if len(resp_words) >= 8 and len(prev_words) >= 8:
+                    if not is_doctor_timing_followup and len(resp_words) >= 8 and len(prev_words) >= 8:
                         if resp_words[:8] == prev_words[:8]:
                             is_duplicate_response = True
                         else:
-                            import difflib
                             seq_ratio = difflib.SequenceMatcher(None, resp_clean, prev_clean).ratio()
                             if seq_ratio > 0.85:
                                 is_duplicate_response = True
@@ -5256,14 +6756,14 @@ end
                             elif "abinaya" in clean_slug:
                                 dynamic_service = dyn_svc
                             elif "aadhiran" in clean_slug:
-                                dynamic_service = customer_health_concern or "Consultation & Treatment"
+                                dynamic_service = dyn_svc or customer_health_concern or "Consultation & Treatment"
                             elif "mindbody" in clean_slug:
                                 dynamic_service = "Consultation"
                             else:
                                 dynamic_service = dyn_svc or customer_health_concern or "Appointment"
 
                             if is_home_visit:
-                                if effective_address:
+                                if effective_address and should_finalize_booking:
                                     svc_name = dynamic_service if "home" in dynamic_service.lower() else f"{dynamic_service} - Home Collection"
                                     response_text = (
                                         f"Great! We have confirmed your home sample collection for {svc_name} on {date_friendly} at {stated_time} "
@@ -5278,6 +6778,10 @@ end
                                         "location": effective_address,
                                         "notes": f"Home Sample Collection at {effective_address}"
                                     }
+                                elif effective_address:
+                                    svc_name = dynamic_service if "home" in dynamic_service.lower() else f"{dynamic_service} - Home Collection"
+                                    response_text = f"{date_friendly.capitalize()} at {stated_time} is available for {svc_name} at {effective_address}. Would you like me to go ahead and book this home visit for you?"
+                                    booking_action = None
                                 else:
                                     response_text = (
                                         f"Noted for {date_friendly} at {stated_time}! "
@@ -5286,25 +6790,49 @@ end
                                     )
                                     booking_action = None
                             else:
-                                if clean_slug == "boldlabs":
-                                    response_text = f"Got it! I have scheduled your demo for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
+                                if should_finalize_booking:
+                                    if clean_slug == "boldlabs":
+                                        response_text = f"Got it! I have scheduled your demo for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
+                                    else:
+                                        response_text = f"Got it! We have scheduled your appointment for {dynamic_service} on {date_friendly} at {stated_time}."
+                                    if not booking_action:
+                                        booking_action = {
+                                            "service": dynamic_service,
+                                            "price": dyn_fee,
+                                            "date": slot_target_date,
+                                            "time": stated_time,
+                                            "name": confirmed_name or customer_name_display or "Customer"
+                                        }
                                 else:
-                                    response_text = f"Got it! We have scheduled your appointment for {dynamic_service} on {date_friendly} at {stated_time}."
-                                if not booking_action:
-                                    booking_action = {
-                                        "service": dynamic_service,
-                                        "price": dyn_fee,
-                                        "date": slot_target_date,
-                                        "time": stated_time,
-                                        "name": confirmed_name or customer_name_display or "Customer"
-                                    }
+                                    host_lbl = conf_host or "our team"
+                                    if clean_slug == "boldlabs":
+                                        response_text = f"{date_friendly.capitalize()} at {stated_time} is open for a demo! Would you like me to go ahead and book this slot for you?"
+                                    else:
+                                        response_text = f"{date_friendly.capitalize()} at {stated_time} is available with {host_lbl}! Would you like me to go ahead and book this slot for you?"
+                                    booking_action = None
                         else:
                             # Strip the repeated intro and keep subsequent sentences
-                            sentences = re.split(r'(?<=[.!?])\s+', response_text)
+                            sentences = _safe_split_sentences(response_text)
                             if len(sentences) > 1:
                                 response_text = " ".join(sentences[1:]).strip()
                             if not response_text or len(response_text) < 10:
-                                response_text = "Sure! Could you please let me know what day and time works best for you?"
+                                logger.info("rephrasing_duplicate_response", tenant_id=tenant_id)
+                                rephrase_prompt = active_system_prompt + "\n\nCRITICAL: Your previous response was an exact duplicate of the message before it. You MUST rephrase your response to be fresh and different, while answering the user's latest message directly."
+                                response_text, provider_used = await call_llm_cascade(
+                                    messages=history,
+                                    system_prompt=rephrase_prompt,
+                                    gemini_key=gemini_key,
+                                    groq_key=groq_key,
+                                    opencode_key=opencode_key,
+                                    opencode_base_url=opencode_base,
+                                    master_gemini_key=master_keys.get("gemini_key"),
+                                    master_groq_key=master_keys.get("groq_key"),
+                                    master_opencode_key=master_keys.get("opencode_key"),
+                                    master_opencode_base_url=master_keys.get("opencode_base_url"),
+                                    temperature=0.8,
+                                    timeout_seconds=8.0,
+                                    primary_provider=primary_provider
+                                )
 
             # Universal safety net: Strip ANY leftover action or bracket tags so they never reach WhatsApp
             response_text = re.sub(r'\[ACTION:[^\]]+\]', '', response_text, flags=re.I).strip()
@@ -5318,7 +6846,7 @@ end
             # strip the repeated trailing sentence from the current response.
             if last_assistant_msg and response_text:
                 def _get_last_sentence(txt: str) -> str:
-                    parts = re.split(r'(?<=[.!?])\s+', txt.strip())
+                    parts = _safe_split_sentences(txt.strip())
                     return parts[-1].strip() if parts else ""
 
                 last_sent_new = _get_last_sentence(response_text)
@@ -5334,7 +6862,7 @@ end
                         _overlap = len(_n_words & _p_words) / max(len(_n_words), 1)
                         if _overlap >= 0.75:
                             # Strip the repeated trailing sentence from current response
-                            _sentences = re.split(r'(?<=[.!?])\s+', response_text.strip())
+                            _sentences = _safe_split_sentences(response_text.strip())
                             if len(_sentences) > 1:
                                 response_text = " ".join(_sentences[:-1]).strip()
                                 logger.info("trailing_cta_deduplication_stripped",
@@ -5353,7 +6881,41 @@ end
                 admin_name=admin_name,
                 customer_name=confirmed_name or customer_name_display,
                 services_text=services_text,
+                is_asking_fee=is_asking_fee,
+                inbound_clean=inbound_clean,
+                matched_doc_obj=matched_doc_obj,
+                is_doctor_query=is_doctor_query,
             )
+
+            # Conversational Brevity Guard: Ensure total words never exceed conversational limit
+            resp_words = (response_text or "").split()
+            max_words_allowed = 75 if is_doctor_query else 55
+            if len(resp_words) > max_words_allowed:
+                act_tags = re.findall(r'\[ACTION:[^\]]+\]', response_text)
+                no_act = re.sub(r'\[ACTION:[^\]]+\]', '', response_text).strip()
+                sents = _safe_split_sentences(no_act)
+                if len(sents) >= 2:
+                    if len(sents[0].split()) <= 4 and len(sents) >= 3:
+                        core_part = f"{sents[0]} {sents[1]}"
+                        tail = sents[2:]
+                    else:
+                        core_part = sents[0]
+                        tail = sents[1:]
+
+                    if tail and tail[-1].endswith('?'):
+                        cand = f"{core_part} {tail[-1]}".strip()
+                    else:
+                        cand = " ".join([core_part] + tail[:1]).strip()
+
+                    if len(cand.split()) <= (max_words_allowed + 10):
+                        no_act = cand
+                    else:
+                        no_act = core_part.strip()
+                response_text = f"{no_act}\n" + "\n".join(act_tags) if act_tags else no_act
+
+        # Final WhatsApp sanitization: Remove any markdown asterisks
+        if response_text and "*" in response_text:
+            response_text = response_text.replace("*", "")
 
         # Multi-Bubble WhatsApp Pacing & Persistence:
         bubbles = self._split_into_whatsapp_bubbles(response_text)
@@ -5883,8 +7445,59 @@ end
                 else:
                     service_name = resolved_b_svc
 
-            # Parse start and end time using flexible 12-hr / 24-hr parser
-            st_dt = parse_flexible_datetime(date_str, time_str, tz)
+            # Parse start and end time using flexible 12-hr / 24-hr parser respecting tenant operating hours
+            op_time_str = str(tenant_st_row.get("opening_time") or "10:00").strip() if tenant_st_row else "10:00"
+            cl_time_str = str(tenant_st_row.get("closing_time") or "20:00").strip() if tenant_st_row else "20:00"
+            st_dt = parse_flexible_datetime(
+                date_str,
+                time_str,
+                tz,
+                opening_time=op_time_str,
+                closing_time=cl_time_str,
+                is_24_7=is_24_7
+            )
+
+            # Strict Operating Hours Enforcer Gate:
+            # If tenant is not 24/7 and not online demo, strictly verify that st_dt falls within [opening_time, closing_time]
+            if not is_24_7 and not is_boldlabs and tenant_st_row:
+                try:
+                    op_h, op_m = 10, 0
+                    cl_h, cl_m = 20, 0
+                    if ":" in op_time_str:
+                        op_parts = re.sub(r'[^\d:]', '', op_time_str).split(":")
+                        op_h, op_m = int(op_parts[0]), int(op_parts[1]) if len(op_parts) > 1 else 0
+                    if ":" in cl_time_str:
+                        cl_parts = re.sub(r'[^\d:]', '', cl_time_str).split(":")
+                        cl_h, cl_m = int(cl_parts[0]), int(cl_parts[1]) if len(cl_parts) > 1 else 0
+                        if "pm" in cl_time_str.lower() and cl_h < 12:
+                            cl_h += 12
+
+                    st_local = st_dt.astimezone(tz)
+                    st_hm = (st_local.hour, st_local.minute)
+                    op_hm = (op_h, op_m)
+                    cl_cutoff_m = cl_m - 30
+                    cl_cutoff_h = cl_h
+                    if cl_cutoff_m < 0:
+                        cl_cutoff_m += 60
+                        cl_cutoff_h -= 1
+                    cutoff_hm = (cl_cutoff_h, cl_cutoff_m)
+
+                    # If booked time is within 30 mins of closing, after closing, or before opening: clamp!
+                    if st_hm >= cutoff_hm or st_hm < op_hm:
+                        logger.warning(
+                            "booking_outside_operating_hours_clamped",
+                            tenant_id=tenant_id,
+                            requested_time=st_local.strftime("%Y-%m-%d %I:%M %p"),
+                            op_hours=f"{op_time_str} to {cl_time_str}"
+                        )
+                        # Advance to NEXT DAY at opening_time (e.g. tomorrow at opening_time)
+                        if st_hm >= cutoff_hm:
+                            next_day = st_local + datetime.timedelta(days=1)
+                            st_dt = next_day.replace(hour=op_h, minute=op_m, second=0, microsecond=0)
+                        elif st_hm < op_hm:
+                            st_dt = st_local.replace(hour=op_h, minute=op_m, second=0, microsecond=0)
+                except Exception as cl_err:
+                    logger.warning("operating_hours_clamp_failed", error=str(cl_err))
 
             # Determine appointment duration (in minutes): from booking action, tenant settings, or fallback 30m
             duration_mins = 30
@@ -6261,7 +7874,7 @@ end
                                 ]
                             }
                         ]
-                    confirmation_body = f"📅 *Appointment Confirmed!*\n\n• *Name:* {name}\n• *Date & Time:* {formatted_date} at {formatted_time}"
+                    confirmation_body = f"📅 Appointment Confirmed!\n\n• Name: {name}\n• Date & Time: {formatted_date} at {formatted_time}"
                 else:
                     components = [
                         {
@@ -6274,7 +7887,7 @@ end
                             ]
                         }
                     ]
-                    confirmation_body = f"📅 *Appointment Confirmed!*\n\n• *Name:* {name}\n• *Service:* {service_name}\n• *Date & Time:* {formatted_date} at {formatted_time}"
+                    confirmation_body = f"📅 Appointment Confirmed!\n\n• Name: {name}\n• Service: {service_name}\n• Date & Time: {formatted_date} at {formatted_time}"
 
                 tmpl_wa_id = None
                 try:
@@ -6336,42 +7949,19 @@ end
                 )
 
                 if is_boldlabs:
-                    # Boldlabs: Online Live Demo Confirmation
-                    demo_msg = (
-                        f"📅 *Demo Confirmed!*\n\n"
-                        f"• *Session:* Clinic WhatsApp AI Receptionist Demo\n"
-                        f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                        f"• *Host:* Bhuvanesh Karnan (+91 8870341570)\n"
-                        f"• *Format:* Online Screen-share (we will send the meeting link right here before the call)."
-                    )
-                    await asyncio.sleep(1.0)
-                    try:
-                        demo_wa_id = await send_text(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=contact_phone,
-                            body=demo_msg,
-                        )
-                        demo_msg_id = str(uuid.uuid4())
-                        await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
-                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
-                            demo_msg_id, conv_id, tenant_id, demo_msg, demo_wa_id
-                        )
-                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                        logger.info("boldlabs_demo_details_sent_to_customer", to=contact_phone)
-                    except Exception as e:
-                        logger.warning("boldlabs_demo_details_send_failed", error=str(e))
+                    # Boldlabs: Online Live Demo is confirmed via Meta template and conversational reply.
+                    # Do NOT send an extra text message to avoid duplicate confirmation spam.
+                    pass
                 elif is_home_booking:
                     home_conf_addr = booking_loc or "Your registered address"
-                    fee_line_home = f"• *Package Fee:* ₹{eff_price:g} (Payable at sample collection)\n" if eff_price > 0 else ""
+                    fee_line_home = f"• Package Fee: ₹{eff_price:g} (Payable at sample collection)\n" if eff_price > 0 else ""
                     home_msg = (
-                        f"🏡 *Home Sample Collection Details:*\n\n"
-                        f"• *Package / Test:* {service_name}\n"
+                        f"🏡 Home Sample Collection Details:\n\n"
+                        f"• Package / Test: {service_name}\n"
                         f"{fee_line_home}"
-                        f"• *Collection Address:* {home_conf_addr}\n"
-                        f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                        f"• *Fasting Note:* Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n\n"
+                        f"• Collection Address: {home_conf_addr}\n"
+                        f"• Date & Time: {formatted_date} at {formatted_time}\n"
+                        f"• Fasting Note: Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n\n"
                         f"Our technician / phlebotomist will arrive with a sealed, sanitized collection kit."
                     )
                     await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
@@ -6393,31 +7983,96 @@ end
                         logger.info("home_collection_details_sent_to_customer", to=contact_phone)
                     except Exception as e:
                         logger.warning("home_collection_details_send_failed", error=str(e))
-                else:
-                    # Regular in-clinic visit: send Business Address & Live Location if configured
-                    fee_line = f"• *Package Fee:* ₹{eff_price:g} (Payable at lab)\n" if eff_price > 0 else ""
+                elif full_location:
+                    # Regular in-clinic visit with verified address: send address & directions
+                    clean_s = (tenant_slug or "").lower()
+                    t_name_lower = (tenant_name or "").lower()
+                    t_industry = (tenant_st_row.get("industry") or "").lower() if isinstance(tenant_st_row, dict) else ""
+
+                    is_boldlabs = bool("boldlabs" in clean_s or "boldlabs" in t_name_lower)
+
+                    # 1. Diagnostic Lab (STRICTLY Abinaya or explicit diagnostic/pathology lab - NEVER any other tenant)
+                    is_lab_tenant = bool(
+                        not is_boldlabs and (
+                            "abinaya" in clean_s
+                            or "abinaya" in t_name_lower
+                            or t_industry in ("diagnostic_lab", "diagnostic", "diagnostics", "pathology")
+                        ) and not any(w in clean_s for w in ["wellness", "massage", "ayurveda", "therapy", "clinic", "hospital", "mobile", "repair"])
+                    )
+
+                    # 2. Wellness Center / Spa / Massage / Ayurveda (Aadhiran, Muthra, etc.)
+                    is_wellness_tenant = bool(
+                        not is_lab_tenant and (
+                            "wellness" in clean_s
+                            or "wellness" in t_name_lower
+                            or "massage" in clean_s
+                            or "ayurveda" in clean_s
+                            or "therapy" in clean_s
+                            or "muthra" in clean_s
+                            or "aadhiran" in clean_s
+                            or t_industry in ("wellness", "spa", "ayurveda", "therapy")
+                        )
+                    )
+
+                    # 3. Mobile Repair / Service Center / Store (SMAATO Mobile, etc.)
+                    is_service_center = bool(
+                        not is_lab_tenant and not is_wellness_tenant and (
+                            "smaato" in clean_s
+                            or "mobile" in clean_s
+                            or "repair" in clean_s
+                            or "store" in clean_s
+                            or "shop" in clean_s
+                            or t_industry in ("repair", "mobile", "electronics", "service_center")
+                        )
+                    )
+
+                    # 4. Medical Clinic / Hospital / Doctor (Vetrivel, Mind Body Recovery, etc.)
+                    is_clinic_tenant = bool(
+                        not is_lab_tenant and not is_wellness_tenant and not is_service_center and not is_boldlabs and (
+                            "clinic" in clean_s
+                            or "hospital" in clean_s
+                            or "clinic" in t_name_lower
+                            or "hospital" in t_name_lower
+                            or "vetrivel" in clean_s
+                            or "mindbody" in clean_s
+                            or t_industry in ("clinic", "hospital", "healthcare", "doctor")
+                        )
+                    )
+
+                    if is_lab_tenant:
+                        visit_title = "Lab Visit Details & Directions:"
+                        service_header = "Package / Test:"
+                        fee_line = f"• Package Fee: ₹{eff_price:g} (Payable at lab)\n" if eff_price > 0 else ""
+                    elif is_wellness_tenant:
+                        visit_title = "Wellness Center Visit Details & Directions:"
+                        service_header = "Therapy / Service:"
+                        fee_line = ""
+                    elif is_service_center:
+                        visit_title = "Service Center Visit Details & Directions:"
+                        service_header = "Service / Device Repair:"
+                        fee_line = ""
+                    elif is_clinic_tenant:
+                        visit_title = "Clinic Visit Details & Directions:"
+                        service_header = "Appointment / Consultation:"
+                        fee_line = ""
+                    else:
+                        visit_title = "Visit Details & Directions:"
+                        service_header = "Service / Appointment:"
+                        fee_line = ""
+
                     fasting_line = (
-                        "• *Fasting Note:* Please ensure 8 to 12 hours of overnight fasting prior to test (only plain water is permitted).\n"
-                        if ("abinaya" in (tenant_slug or "").lower() or "checkup" in service_name.lower() or "trufit" in service_name.lower())
+                        "• Fasting Note: Please ensure 8 to 12 hours of overnight fasting prior to test (only plain water is permitted).\n"
+                        if (is_lab_tenant and ("checkup" in service_name.lower() or "trufit" in service_name.lower()))
                         else ""
                     )
-                    if full_location:
-                        loc_msg = (
-                            f"📍 *Lab Visit Details & Directions:*\n\n"
-                            f"• *Package / Test:* {service_name}\n"
-                            f"{fee_line}"
-                            f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                            f"{fasting_line}"
-                            f"• *Location:*\n{full_location}"
-                        )
-                    else:
-                        loc_msg = (
-                            f"📍 *Lab Visit Details:*\n\n"
-                            f"• *Package / Test:* {service_name}\n"
-                            f"{fee_line}"
-                            f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                            f"{fasting_line}"
-                        )
+                    loc_msg = (
+                        f"📍 {visit_title}\n\n"
+                        f"• {service_header} {service_name}\n"
+                        f"{fee_line}"
+                        f"• Date & Time: {formatted_date} at {formatted_time}\n"
+                        f"{fasting_line}"
+                        f"• Location:\n{full_location}"
+                    )
                     await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
                     try:
                         loc_wa_id = await send_text(
@@ -7525,8 +9180,60 @@ end
             notes = booking_data.get("notes") or "Rescheduled via WhatsApp AI Assistant"
             name = booking_data.get("name") or customer_name or "Valued Customer"
 
-            # Parse start and end time using flexible 12-hr / 24-hr parser
-            st_dt = parse_flexible_datetime(date_str, time_str, tz)
+            op_time_str = str(tenant_st_row.get("opening_time") or "10:00").strip() if tenant_st_row else "10:00"
+            cl_time_str = str(tenant_st_row.get("closing_time") or "20:00").strip() if tenant_st_row else "20:00"
+            is_24_7 = bool(tenant_st_row.get("is_24_7")) if tenant_st_row else False
+            tenant_slug_row = await self.db_pool.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
+            is_boldlabs = "boldlabs" in (tenant_slug_row or "").lower()
+
+            # Parse start and end time using flexible 12-hr / 24-hr parser respecting operating hours
+            st_dt = parse_flexible_datetime(
+                date_str,
+                time_str,
+                tz,
+                opening_time=op_time_str,
+                closing_time=cl_time_str,
+                is_24_7=is_24_7
+            )
+
+            # Strict Operating Hours Enforcer Gate for Reschedule:
+            if not is_24_7 and not is_boldlabs and tenant_st_row:
+                try:
+                    op_h, op_m = 10, 0
+                    cl_h, cl_m = 20, 0
+                    if ":" in op_time_str:
+                        op_parts = re.sub(r'[^\d:]', '', op_time_str).split(":")
+                        op_h, op_m = int(op_parts[0]), int(op_parts[1]) if len(op_parts) > 1 else 0
+                    if ":" in cl_time_str:
+                        cl_parts = re.sub(r'[^\d:]', '', cl_time_str).split(":")
+                        cl_h, cl_m = int(cl_parts[0]), int(cl_parts[1]) if len(cl_parts) > 1 else 0
+                        if "pm" in cl_time_str.lower() and cl_h < 12:
+                            cl_h += 12
+
+                    st_local = st_dt.astimezone(tz)
+                    st_hm = (st_local.hour, st_local.minute)
+                    op_hm = (op_h, op_m)
+                    cl_cutoff_m = cl_m - 30
+                    cl_cutoff_h = cl_h
+                    if cl_cutoff_m < 0:
+                        cl_cutoff_m += 60
+                        cl_cutoff_h -= 1
+                    cutoff_hm = (cl_cutoff_h, cl_cutoff_m)
+
+                    if st_hm >= cutoff_hm or st_hm < op_hm:
+                        logger.warning(
+                            "reschedule_outside_operating_hours_clamped",
+                            tenant_id=tenant_id,
+                            requested_time=st_local.strftime("%Y-%m-%d %I:%M %p"),
+                            op_hours=f"{op_time_str} to {cl_time_str}"
+                        )
+                        if st_hm >= cutoff_hm:
+                            next_day = st_local + datetime.timedelta(days=1)
+                            st_dt = next_day.replace(hour=op_h, minute=op_m, second=0, microsecond=0)
+                        elif st_hm < op_hm:
+                            st_dt = st_local.replace(hour=op_h, minute=op_m, second=0, microsecond=0)
+                except Exception as cl_err:
+                    logger.warning("operating_hours_clamp_reschedule_failed", error=str(cl_err))
 
             # Determine appointment duration (in minutes): from booking action, tenant settings, or fallback 30m
             duration_mins = 30
@@ -7763,7 +9470,7 @@ end
                         ]
                     }
                 ]
-                resched_body = f"📅 *Booking Rescheduled!*\n\n• *Name:* {name}\n• *Service:* {service_name}\n• *New Date & Time:* {formatted_date} at {formatted_time}"
+                resched_body = f"📅 Booking Rescheduled!\n\n• Name: {name}\n• Service: {service_name}\n• New Date & Time: {formatted_date} at {formatted_time}"
                 tmpl_wa_id = None
                 try:
                     tmpl_wa_id = await send_template(
@@ -8924,7 +10631,25 @@ end
                         import urllib.parse
                         enc_name = urllib.parse.quote(name or "", safe="")
                         enc_ph = urllib.parse.quote(_c_phone or "", safe="")
-                        review_link = f"https://crm.goboldlabs.com/{t_slug}/review?name={enc_name}&phone={enc_ph}"
+                        base_url = "https://crm.goboldlabs.com"
+                        try:
+                            cd = (t_st.get("custom_domain") or "").strip()
+                            if cd:
+                                base_url = cd if cd.startswith("http") else f"https://{cd}"
+                            else:
+                                p_name = (t_st.get("partner_name") or "").strip()
+                                if p_name:
+                                    p_cd = await self.db_pool.fetchval(
+                                        "SELECT custom_domain FROM partner_agency_templates WHERE LOWER(TRIM(partner_name)) = LOWER(TRIM($1))",
+                                        p_name
+                                    )
+                                    if p_cd and p_cd.strip():
+                                        p_cd = p_cd.strip()
+                                        base_url = p_cd if p_cd.startswith("http") else f"https://{p_cd}"
+                        except Exception:
+                            base_url = "https://crm.goboldlabs.com"
+                        base_url = base_url.rstrip("/")
+                        review_link = f"{base_url}/{t_slug}/review?name={enc_name}&phone={enc_ph}"
                     else:
                         review_link = (t_st.get("google_review_link") or creds.get("google_review_link") or "").strip()
                         if not review_link or "placeid=" in review_link or "search.google.com" in review_link:
@@ -9511,8 +11236,17 @@ end
                                 except: c_meta = {}
                             if isinstance(c_meta, dict):
                                 cust_saved_lang = (c_meta.get("preferred_language") or "").strip()
-
-                    style_profile = self._detect_dialect_and_texting_style(clean_last_user_msg, history, stored_language=cust_saved_lang)
+                    is_tenant_aadhiran = (
+                        str(tenant_id) == "ad4768fc-08c4-4d78-8bc8-11583f7e7a74"
+                        or "aadhiran" in str(tenant_slug).lower()
+                        or "aadhiran" in str(tenant_name).lower()
+                    )
+                    style_profile = self._detect_dialect_and_texting_style(
+                        clean_last_user_msg,
+                        history,
+                        stored_language=cust_saved_lang,
+                        is_aadhiran=is_tenant_aadhiran,
+                    )
 
                     ai_cfg = await self._get_ai_config(tenant_id)
                     followup_style = (ai_cfg.get("response_style") or "short").strip()
