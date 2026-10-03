@@ -1819,6 +1819,92 @@ function FollowupTimeInput({
   );
 }
 
+
+export function getCustomerLeadStatus(cust?: {
+  conversion_rate?: number | null;
+  status?: string | null;
+  converted?: boolean | null;
+  lead_probability?: string | null;
+  call_status?: string | null;
+  [key: string]: any;
+} | null) {
+  if (!cust) {
+    return {
+      rate: 50,
+      label: 'Warm Lead (50%)',
+      shortLabel: 'Warm (50%)',
+      type: 'warm' as const,
+      icon: Sun,
+      pillClass: 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300',
+      iconColor: 'text-amber-600',
+    };
+  }
+  const is100 = cust.conversion_rate === 100 || (cust.status === 'converted' && cust.conversion_rate !== 99);
+  const is99 = (cust.conversion_rate === 99 || cust.status === 'booked' || cust.converted) && !is100;
+
+  if (is100) {
+    return {
+      rate: 100,
+      label: 'Converted (100%)',
+      shortLabel: 'Converted (100%)',
+      type: 'converted' as const,
+      icon: CheckCircle2,
+      pillClass: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-700 dark:text-emerald-200',
+      iconColor: 'text-emerald-600',
+    };
+  }
+  if (is99) {
+    return {
+      rate: 99,
+      label: 'Booked (99%)',
+      shortLabel: 'Booked (99%)',
+      type: 'booked' as const,
+      icon: CalendarCheck,
+      pillClass: 'bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-700 dark:bg-teal-950 dark:border-teal-800 dark:text-teal-300',
+      iconColor: 'text-teal-600',
+    };
+  }
+  const rate = cust.conversion_rate != null
+    ? cust.conversion_rate
+    : (cust.lead_probability === 'hot' ? 90 : (cust.lead_probability === 'cold' ? 20 : 50));
+
+  if (cust.lead_probability === 'hot' || rate >= 75) {
+    return {
+      rate,
+      label: `Hot Lead (${rate}%)`,
+      shortLabel: `Hot (${rate}%)`,
+      type: 'hot' as const,
+      icon: Flame,
+      pillClass: 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300',
+      iconColor: 'text-rose-600',
+    };
+  }
+  if (cust.lead_probability === 'cold' || rate < 40) {
+    return {
+      rate,
+      label: `Cold Lead (${rate}%)`,
+      shortLabel: `Cold (${rate}%)`,
+      type: 'cold' as const,
+      icon: Snowflake,
+      pillClass: 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300',
+      iconColor: 'text-sky-600',
+    };
+  }
+  return {
+    rate,
+    label: `Warm Lead (${rate}%)`,
+    shortLabel: `Warm (${rate}%)`,
+    type: 'warm' as const,
+    icon: Sun,
+    pillClass: 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300',
+    iconColor: 'text-amber-600',
+  };
+}
+
+export function getLeadRateDisplay(cust?: any) {
+  return getCustomerLeadStatus(cust);
+}
+
 export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}) {
   const router = useRouter();
   const params = useParams();
@@ -4447,74 +4533,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     );
   }
 
-  function getCustomerLeadStatus(cust: {
-    conversion_rate?: number | null;
-    status?: string | null;
-    converted?: boolean | null;
-    lead_probability?: string | null;
-    call_status?: string | null;
-  }) {
-    const is100 = cust.conversion_rate === 100 || (cust.status === 'converted' && cust.conversion_rate !== 99);
-    const is99 = (cust.conversion_rate === 99 || cust.status === 'booked' || cust.converted) && !is100;
 
-    if (is100) {
-      return {
-        rate: 100,
-        label: 'Converted (100%)',
-        shortLabel: 'Converted (100%)',
-        type: 'converted' as const,
-        icon: CheckCircle2,
-        pillClass: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-950 dark:border-emerald-700 dark:text-emerald-200',
-        iconColor: 'text-emerald-600',
-      };
-    }
-    if (is99) {
-      return {
-        rate: 99,
-        label: 'Booked (99%)',
-        shortLabel: 'Booked (99%)',
-        type: 'booked' as const,
-        icon: CalendarCheck,
-        pillClass: 'bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-700 dark:bg-teal-950 dark:border-teal-800 dark:text-teal-300',
-        iconColor: 'text-teal-600',
-      };
-    }
-    const rate = cust.conversion_rate != null
-      ? cust.conversion_rate
-      : (cust.lead_probability === 'hot' ? 90 : (cust.lead_probability === 'cold' ? 20 : 50));
-
-    if (cust.lead_probability === 'hot' || rate >= 75) {
-      return {
-        rate,
-        label: `Hot Lead (${rate}%)`,
-        shortLabel: `Hot (${rate}%)`,
-        type: 'hot' as const,
-        icon: Flame,
-        pillClass: 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300',
-        iconColor: 'text-rose-600',
-      };
-    }
-    if (cust.lead_probability === 'cold' || rate < 40) {
-      return {
-        rate,
-        label: `Cold Lead (${rate}%)`,
-        shortLabel: `Cold (${rate}%)`,
-        type: 'cold' as const,
-        icon: Snowflake,
-        pillClass: 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300',
-        iconColor: 'text-sky-600',
-      };
-    }
-    return {
-      rate,
-      label: `Warm Lead (${rate}%)`,
-      shortLabel: `Warm (${rate}%)`,
-      type: 'warm' as const,
-      icon: Sun,
-      pillClass: 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300',
-      iconColor: 'text-amber-600',
-    };
-  }
 
   function renderLeadRatePopover() {
     if (!activeRatePopover) return null;
@@ -14083,7 +14102,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             openCustomerProfileByPhone(cust.phone, cust.name || undefined);
                                           }}
                                           className={`p-1 rounded-sm border text-left cursor-pointer text-[10px] transition-colors ${disp.pillClass}`}
-                                          title={`[${disp.label} (${disp.rate}%)] Follow-up with ${cust.name || cust.phone} (${tInfo.formatted})`}
+                                          title={`[${disp.label}] Follow-up with ${cust.name || cust.phone} (${tInfo.formatted})`}
                                         >
                                           <div className="flex items-center justify-between gap-1 font-semibold">
                                             <span className="truncate flex items-center gap-1">
@@ -14104,7 +14123,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           </div>
                                           <div className="flex items-center justify-between gap-1 mt-0.5 opacity-90 text-[9px]">
                                             <span className="truncate">{cust.health_concern || 'Follow-up Call'}</span>
-                                            <span className="font-semibold text-[8px] uppercase tracking-wider shrink-0">{disp.label}</span>
+                                            <span className="font-semibold text-[8px] uppercase tracking-wider shrink-0">{disp.shortLabel}</span>
                                           </div>
                                         </div>
                                       );
@@ -14306,7 +14325,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   key={`dadf-${cust.id}`}
                                   onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
                                   className={`p-2.5 rounded-sm border flex items-center justify-between gap-2 cursor-pointer transition-colors ${disp.pillClass}`}
-                                  title={`[${disp.label} (${disp.rate}%)] Follow-up: ${cust.name || cust.phone}`}
+                                  title={`[${disp.label}] Follow-up: ${cust.name || cust.phone}`}
                                 >
                                   <div className="min-w-0 flex-1">
                                     <p className="text-xs font-semibold truncate flex items-center gap-1.5">
@@ -14316,7 +14335,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <div className="flex items-center gap-1.5 mt-0.5 text-[11px] opacity-90">
                                       <span className="truncate">{cust.health_concern || 'Follow-up Call'}</span>
                                       <span>&bull;</span>
-                                      <span className="font-semibold text-[9px] uppercase tracking-wider">{disp.label} ({disp.rate}%)</span>
+                                      <span className="font-semibold text-[9px] uppercase tracking-wider">{disp.shortLabel}</span>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0">
@@ -14545,7 +14564,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             <div className="flex items-center gap-2">
                                               <p className="text-xs font-semibold truncate">{cust.name || cust.phone}</p>
                                               <span className="font-semibold text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/80 dark:bg-black/40 border border-current opacity-85 shrink-0">
-                                                {disp.label} ({disp.rate}%)
+                                                {disp.shortLabel}
                                               </span>
                                             </div>
                                             <p className="text-[11px] opacity-90 truncate mt-0.5">
