@@ -714,6 +714,7 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
   const sId = (stageId || '').toLowerCase().trim();
   const statusLower = (c.status || '').toLowerCase().trim();
   const callStatusLower = (c.call_status || '').toLowerCase().trim();
+  const leadProbLower = (c.lead_probability || '').toLowerCase().trim();
 
   const isBookedOrConverted = (
     statusLower === 'converted' ||
@@ -721,8 +722,8 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
     Boolean(c.converted) ||
     c.conversion_rate === 100 ||
     c.conversion_rate === 99 ||
-    c.lead_probability === 'converted' ||
-    c.lead_probability === 'booked' ||
+    leadProbLower === 'converted' ||
+    leadProbLower === 'booked' ||
     (c.completed_bookings_count ?? 0) > 0 ||
     callStatusLower === 'converted' ||
     callStatusLower === 'confirmed' ||
@@ -733,6 +734,7 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
   const isLostOrCancelled = (
     statusLower === 'lost' ||
     statusLower === 'cancelled' ||
+    leadProbLower === 'cold' ||
     callStatusLower === 'blue flag (lost)' ||
     callStatusLower === 'wrong number' ||
     callStatusLower === 'not interested' ||
@@ -746,7 +748,7 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
     if (sId === 'booked') {
       return (
         statusLower === 'booked' ||
-        c.lead_probability === 'booked' ||
+        leadProbLower === 'booked' ||
         c.conversion_rate === 99 ||
         callStatusLower === 'confirmed' ||
         callStatusLower === 'confirmed via whatsapp' ||
@@ -759,7 +761,7 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
     return isLostOrCancelled;
   }
 
-  // If customer is already booked/converted or lost, do NOT show in other active stages
+  // If customer is already booked/converted or lost/cold, do NOT show in other active stages
   if (isBookedOrConverted || isLostOrCancelled) {
     return false;
   }
@@ -792,10 +794,13 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
 
   if (sId === 'new') {
     return (
-      statusLower === 'new' ||
-      callStatusLower === 'new (fresh)' ||
-      callStatusLower === 'new' ||
-      (!statusLower && !callStatusLower)
+      (statusLower === 'new' ||
+       callStatusLower === 'new (fresh)' ||
+       callStatusLower === 'new' ||
+       (!statusLower && !callStatusLower)) &&
+      leadProbLower !== 'cold' &&
+      !isLostOrCancelled &&
+      !isBookedOrConverted
     );
   }
 
