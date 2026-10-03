@@ -151,18 +151,28 @@ async def get_customer_global_stats(
                 conditions.append(f"""(
                     call_status ILIKE ${idx}
                     OR status = 'converted'
-                    OR COALESCE(converted, false) = true
-                    OR COALESCE(conversion_rate, 0) >= 99
-                    OR call_status ILIKE '%confirm%'
+                    OR COALESCE(conversion_rate, 0) = 100
+                    OR lead_probability = 'converted'
                     OR EXISTS (
                         SELECT 1 FROM bookings b
                         JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                         WHERE b.tenant_id = customers.tenant_id
                           AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                          AND b.status IN ('completed', 'attended')
+                          AND b.status = 'attended'
                     )
                 )""")
                 args.append("%Converted%")
+                idx += 1
+            elif cs_lower in ("booked", "booking"):
+                conditions.append(f"""(
+                    call_status ILIKE ${idx}
+                    OR (
+                        (status = 'booked' OR COALESCE(conversion_rate, 0) = 99 OR lead_probability = 'booked')
+                        AND COALESCE(conversion_rate, 0) < 100
+                        AND status != 'converted'
+                    )
+                )""")
+                args.append("%Booked%")
                 idx += 1
             elif cs_lower in ("blue flag (lost)", "lost"):
                 conditions.append("""(
@@ -183,7 +193,7 @@ async def get_customer_global_stats(
         if status and status != "all":
             status_clean = status.strip()
             status_lower = status_clean.lower()
-            if status_lower in ("new", "contacted", "follow-up", "converted", "lost"):
+            if status_lower in ("new", "contacted", "follow-up", "booked", "booking", "converted", "lost"):
                 if status_lower == "new":
                     conditions.append("""(
                         (call_status ILIKE '%new%' OR (call_status IS NULL AND (status = 'new' OR status IS NULL)))
@@ -217,17 +227,21 @@ async def get_customer_global_stats(
                 elif status_lower == "converted":
                     conditions.append("""(
                         status = 'converted'
-                        OR COALESCE(converted, false) = true
-                        OR COALESCE(conversion_rate, 0) >= 99
-                        OR call_status ILIKE '%convert%'
-                        OR call_status ILIKE '%confirm%'
+                        OR COALESCE(conversion_rate, 0) = 100
+                        OR lead_probability = 'converted'
                         OR EXISTS (
                             SELECT 1 FROM bookings b
                             JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                             WHERE b.tenant_id = customers.tenant_id
                               AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                              AND b.status IN ('completed', 'attended')
+                              AND b.status = 'attended'
                         )
+                    )""")
+                elif status_lower in ("booked", "booking"):
+                    conditions.append("""(
+                        (status = 'booked' OR COALESCE(conversion_rate, 0) = 99 OR lead_probability = 'booked')
+                        AND COALESCE(conversion_rate, 0) < 100
+                        AND status != 'converted'
                     )""")
                 elif status_lower == "follow-up":
                     conditions.append("""(
@@ -285,9 +299,40 @@ async def get_customer_global_stats(
 
         if lead_probability and lead_probability != "all":
             lp_lower = lead_probability.strip().lower()
-            conditions.append(f"LOWER(lead_probability) = LOWER(${idx})")
-            args.append(lp_lower)
-            idx += 1
+            if lp_lower == "converted":
+                conditions.append("""(
+                    COALESCE(conversion_rate, 0) = 100
+                    OR lead_probability = 'converted'
+                    OR status = 'converted'
+                )""")
+            elif lp_lower in ("booked", "booking"):
+                conditions.append("""(
+                    (COALESCE(conversion_rate, 0) = 99 OR lead_probability = 'booked' OR status = 'booked')
+                    AND COALESCE(conversion_rate, 0) < 100
+                    AND status != 'converted'
+                )""")
+            elif lp_lower == "hot":
+                conditions.append("""(
+                    (lead_probability = 'hot' OR COALESCE(conversion_rate, 0) >= 75)
+                    AND COALESCE(conversion_rate, 0) < 99
+                    AND status NOT IN ('converted', 'booked')
+                )""")
+            elif lp_lower == "warm":
+                conditions.append("""(
+                    (lead_probability = 'warm' OR (COALESCE(conversion_rate, 0) >= 40 AND COALESCE(conversion_rate, 0) < 75))
+                    AND COALESCE(conversion_rate, 0) < 99
+                    AND status NOT IN ('converted', 'booked')
+                )""")
+            elif lp_lower == "cold":
+                conditions.append("""(
+                    (lead_probability = 'cold' OR (COALESCE(conversion_rate, 0) < 40 AND lead_probability IS NULL))
+                    AND COALESCE(conversion_rate, 0) < 99
+                    AND status NOT IN ('converted', 'booked')
+                )""")
+            else:
+                conditions.append(f"LOWER(lead_probability) = LOWER(${idx})")
+                args.append(lp_lower)
+                idx += 1
 
         if preferred_doctor and preferred_doctor != "all":
             pref_doc_clean = preferred_doctor.strip()
@@ -389,11 +434,14 @@ async def get_customer_global_stats(
                     AND COALESCE(call_status, '') NOT ILIKE '%confirm%'
                 ) as hot_leads,
                 COUNT(*) FILTER (
+                    WHERE (status = 'booked' OR COALESCE(conversion_rate, 0) = 99 OR lead_probability = 'booked')
+                    AND COALESCE(conversion_rate, 0) < 100
+                    AND status != 'converted'
+                ) as booked,
+                COUNT(*) FILTER (
                     WHERE status = 'converted' 
-                    OR converted = true 
-                    OR COALESCE(conversion_rate, 0) >= 99
-                    OR call_status ILIKE '%convert%' 
-                    OR call_status ILIKE '%confirm%'
+                    OR COALESCE(conversion_rate, 0) = 100
+                    OR lead_probability = 'converted'
                 ) as converted
             FROM customers
             WHERE {where_clause}
@@ -405,6 +453,7 @@ async def get_customer_global_stats(
             "total": row["total"] or 0,
             "pending": row["pending"] or 0,
             "hot_leads": row["hot_leads"] or 0,
+            "booked": row["booked"] or 0,
             "converted": row["converted"] or 0
         }
 
@@ -500,12 +549,28 @@ async def list_customers(
                 conditions.append(f"""(
                     c.call_status ILIKE ${idx}
                     OR c.status = 'converted'
-                    OR COALESCE(c.converted, false) = true
-                    OR COALESCE(c.conversion_rate, 0) >= 99
-                    OR c.call_status ILIKE '%confirm%'
-                    OR COALESCE(b_stats.completed_bookings_count, 0) > 0
+                    OR COALESCE(c.conversion_rate, 0) = 100
+                    OR c.lead_probability = 'converted'
+                    OR EXISTS (
+                        SELECT 1 FROM bookings b
+                        JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
+                        WHERE b.tenant_id = c.tenant_id
+                          AND (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                          AND b.status = 'attended'
+                    )
                 )""")
                 params.append("%Converted%")
+                idx += 1
+            elif cs_lower in ("booked", "booking"):
+                conditions.append(f"""(
+                    c.call_status ILIKE ${idx}
+                    OR (
+                        (c.status = 'booked' OR COALESCE(c.conversion_rate, 0) = 99 OR c.lead_probability = 'booked')
+                        AND COALESCE(c.conversion_rate, 0) < 100
+                        AND c.status != 'converted'
+                    )
+                )""")
+                params.append("%Booked%")
                 idx += 1
             elif cs_lower in ("blue flag (lost)", "lost"):
                 conditions.append("""(
@@ -526,7 +591,7 @@ async def list_customers(
         if status and status != "all":
             status_clean = status.strip()
             status_lower = status_clean.lower()
-            if status_lower in ("new", "contacted", "follow-up", "converted", "lost"):
+            if status_lower in ("new", "contacted", "follow-up", "booked", "booking", "converted", "lost"):
                 if status_lower == "new":
                     conditions.append("""(
                         (c.call_status ILIKE '%new%' OR (c.call_status IS NULL AND (c.status = 'new' OR c.status IS NULL)))
@@ -555,11 +620,21 @@ async def list_customers(
                 elif status_lower == "converted":
                     conditions.append("""(
                         c.status = 'converted'
-                        OR COALESCE(c.converted, false) = true
-                        OR COALESCE(c.conversion_rate, 0) >= 99
-                        OR c.call_status ILIKE '%convert%'
-                        OR c.call_status ILIKE '%confirm%'
-                        OR COALESCE(b_stats.completed_bookings_count, 0) > 0
+                        OR COALESCE(c.conversion_rate, 0) = 100
+                        OR c.lead_probability = 'converted'
+                        OR EXISTS (
+                            SELECT 1 FROM bookings b
+                            JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
+                            WHERE b.tenant_id = c.tenant_id
+                              AND (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                              AND b.status = 'attended'
+                        )
+                    )""")
+                elif status_lower in ("booked", "booking"):
+                    conditions.append("""(
+                        (c.status = 'booked' OR COALESCE(c.conversion_rate, 0) = 99 OR c.lead_probability = 'booked')
+                        AND COALESCE(c.conversion_rate, 0) < 100
+                        AND c.status != 'converted'
                     )""")
                 elif status_lower == "follow-up":
                     conditions.append("""(
@@ -617,9 +692,40 @@ async def list_customers(
 
         if lead_probability and lead_probability != "all":
             lp_lower = lead_probability.strip().lower()
-            conditions.append(f"LOWER(c.lead_probability) = LOWER(${idx})")
-            params.append(lp_lower)
-            idx += 1
+            if lp_lower == "converted":
+                conditions.append("""(
+                    COALESCE(c.conversion_rate, 0) = 100
+                    OR c.lead_probability = 'converted'
+                    OR c.status = 'converted'
+                )""")
+            elif lp_lower in ("booked", "booking"):
+                conditions.append("""(
+                    (COALESCE(c.conversion_rate, 0) = 99 OR c.lead_probability = 'booked' OR c.status = 'booked' OR c.converted = true)
+                    AND COALESCE(c.conversion_rate, 0) < 100
+                    AND c.status != 'converted'
+                )""")
+            elif lp_lower == "hot":
+                conditions.append("""(
+                    (c.lead_probability = 'hot' OR COALESCE(c.conversion_rate, 0) >= 75)
+                    AND COALESCE(c.conversion_rate, 0) < 99
+                    AND c.status NOT IN ('converted', 'booked')
+                )""")
+            elif lp_lower == "warm":
+                conditions.append("""(
+                    (c.lead_probability = 'warm' OR (COALESCE(c.conversion_rate, 0) >= 40 AND COALESCE(c.conversion_rate, 0) < 75))
+                    AND COALESCE(c.conversion_rate, 0) < 99
+                    AND c.status NOT IN ('converted', 'booked')
+                )""")
+            elif lp_lower == "cold":
+                conditions.append("""(
+                    (c.lead_probability = 'cold' OR (COALESCE(c.conversion_rate, 0) < 40 AND c.lead_probability IS NULL))
+                    AND COALESCE(c.conversion_rate, 0) < 99
+                    AND c.status NOT IN ('converted', 'booked')
+                )""")
+            else:
+                conditions.append(f"LOWER(c.lead_probability) = LOWER(${idx})")
+                params.append(lp_lower)
+                idx += 1
 
         if preferred_doctor and preferred_doctor != "all":
             pref_doc_clean = preferred_doctor.strip()
@@ -707,7 +813,7 @@ async def list_customers(
                 COALESCE(NULLIF(to_jsonb(c)->>'source', ''), c.metadata->>'source', 'whatsapp') AS source,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.preferred_language, c.created_at, c.updated_at,
-                COALESCE(c.conversion_rate, CASE WHEN c.converted THEN 100 WHEN c.lead_probability = 'hot' THEN 80 WHEN c.lead_probability = 'cold' THEN 20 ELSE 50 END) AS conversion_rate,
+                COALESCE(c.conversion_rate, CASE WHEN c.status = 'converted' OR c.lead_probability = 'converted' THEN 100 WHEN c.status = 'booked' OR c.lead_probability = 'booked' OR c.converted THEN 99 WHEN c.lead_probability = 'hot' THEN 80 WHEN c.lead_probability = 'cold' THEN 20 ELSE 50 END) AS conversion_rate,
                 COALESCE(c.call_status, c.status, 'New (Fresh)') AS call_status,
                 COALESCE(c.next_action, 'Call Again') AS next_action,
                 COALESCE(c.primary_concerns, CASE WHEN c.health_concern IS NOT NULL AND c.health_concern != '' THEN ARRAY[c.health_concern] ELSE ARRAY[]::text[] END) AS primary_concerns,
@@ -886,8 +992,13 @@ async def create_customer(
 
     concerns_arr = payload.primary_concerns if payload.primary_concerns else ([payload.health_concern] if payload.health_concern else [])
     services_arr = payload.interested_services if payload.interested_services else []
-    conv_rate = payload.conversion_rate if payload.conversion_rate is not None else (100 if payload.converted else (80 if payload.lead_probability == 'hot' else (20 if payload.lead_probability == 'cold' else 50)))
-    call_stat = payload.call_status or ("Converted" if payload.converted else "New (Fresh)")
+    conv_rate = payload.conversion_rate if payload.conversion_rate is not None else (
+        100 if payload.status == 'converted' or payload.lead_probability == 'converted'
+        else (99 if payload.status == 'booked' or payload.lead_probability == 'booked' or payload.converted
+        else (80 if payload.lead_probability == 'hot'
+        else (20 if payload.lead_probability == 'cold' else 50)))
+    )
+    call_stat = payload.call_status or ("Converted" if payload.status == 'converted' else ("Booked" if payload.status == 'booked' or payload.converted else "New (Fresh)"))
     nxt_act = payload.next_action or "Call Again"
 
     async with database.db_pool.acquire() as conn:
@@ -1329,9 +1440,14 @@ async def update_customer(
         idx += 1
         if payload.status is None:
             cs_lower = cs.lower()
-            if "converted" in cs_lower or "confirm" in cs_lower:
+            if "converted" in cs_lower or "attended" in cs_lower:
                 legacy_s = "converted"
                 updates.append("converted = true")
+                updates.append("conversion_rate = 100")
+            elif "booked" in cs_lower or "confirm" in cs_lower:
+                legacy_s = "booked"
+                updates.append("converted = true")
+                updates.append("conversion_rate = 99")
             elif "lost" in cs_lower or "wrong" in cs_lower or "blue flag" in cs_lower:
                 legacy_s = "lost"
             elif cs_lower in ("new", "new (fresh)", "fresh"):
@@ -1956,6 +2072,8 @@ async def get_crm_dropdown_options(tenant_id: str = Depends(get_tenant_id)):
             "Gut issue",
             "Weight"
         ],
+        "next_action_colors": {},
+        "outcome_status_colors": {},
         "pipeline_columns": default_pipeline_columns,
     }
     async with database.db_pool.acquire() as conn:
@@ -1970,6 +2088,10 @@ async def get_crm_dropdown_options(tenant_id: str = Depends(get_tenant_id)):
                 for k in ["outcome_statuses", "next_actions", "services_list", "concerns_list"]:
                     if saved.get(k) and isinstance(saved[k], list) and len(saved[k]) > 0:
                         default_options[k] = saved[k]
+                if saved.get("next_action_colors") and isinstance(saved["next_action_colors"], dict):
+                    default_options["next_action_colors"] = saved["next_action_colors"]
+                if saved.get("outcome_status_colors") and isinstance(saved["outcome_status_colors"], dict):
+                    default_options["outcome_status_colors"] = saved["outcome_status_colors"]
                 # Merge saved pipeline_columns — preserve defaults for any column not in saved list
                 if saved.get("pipeline_columns") and isinstance(saved["pipeline_columns"], list) and len(saved["pipeline_columns"]) > 0:
                     saved_cols = {c["id"]: c for c in saved["pipeline_columns"] if isinstance(c, dict) and "id" in c}
@@ -2044,6 +2166,10 @@ async def update_crm_dropdown_options(
                 {"id": c["id"], "label": str(c.get("label", c["id"])).strip(), "visible": bool(c.get("visible", True))}
                 for c in payload.pipeline_columns if isinstance(c, dict) and "id" in c
             ]
+        if payload.next_action_colors is not None and isinstance(payload.next_action_colors, dict):
+            crm_drops["next_action_colors"] = {str(k).strip(): str(v).strip() for k, v in payload.next_action_colors.items() if k and v}
+        if payload.outcome_status_colors is not None and isinstance(payload.outcome_status_colors, dict):
+            crm_drops["outcome_status_colors"] = {str(k).strip(): str(v).strip() for k, v in payload.outcome_status_colors.items() if k and v}
         settings["crm_dropdowns"] = crm_drops
 
         await conn.execute("UPDATE tenants SET settings = $1 WHERE id = $2::uuid", json.dumps(settings), tenant_id)

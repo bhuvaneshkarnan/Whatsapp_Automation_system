@@ -551,6 +551,8 @@ export interface CrmDropdownOptions {
   services_list: string[];
   concerns_list: string[];
   pipeline_columns?: PipelineColumn[];
+  next_action_colors?: Record<string, string>;
+  outcome_status_colors?: Record<string, string>;
 }
 
 export interface CustomerNote {

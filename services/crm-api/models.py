@@ -90,6 +90,8 @@ class CrmDropdownsUpdatePayload(BaseModel):
     services_list: Optional[List[str]] = None
     concerns_list: Optional[List[str]] = None
     pipeline_columns: Optional[List[dict]] = None
+    next_action_colors: Optional[dict] = None
+    outcome_status_colors: Optional[dict] = None
 
 
 class BookingCreatePayload(BaseModel):
@@ -220,6 +222,9 @@ class TenantSettingsUpdate(BaseModel):
     requirement_presets: Optional[List[str]] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
+    is_24_7: Optional[bool] = None
+    operating_hours: Optional[str] = None
+    services: Optional[List[Dict[str, Any]]] = None
     slot_booking_mode: Optional[str] = None
     max_concurrent_bookings: Optional[int] = None
     leave_schedules: Optional[List[Dict[str, Any]]] = None
@@ -227,6 +232,7 @@ class TenantSettingsUpdate(BaseModel):
     monthly_price: Optional[float] = None
     target_tenant_id: Optional[str] = None
     tenant_id: Optional[str] = None
+    welcome_message: Optional[str] = None
 
     # White-label & Custom Domain
     custom_domain: Optional[str] = None
@@ -289,7 +295,7 @@ class TenantCreate(BaseModel):
     verify_token: Optional[str] = ""
     ai_prompt: Optional[str] = ""
     custom_prompt: Optional[str] = ""
-    ai_model: Optional[str] = "gemini-1.5-flash"
+    ai_model: Optional[str] = "gemini-3.5-flash-lite"
     primary_model_provider: Optional[str] = "gemini"
     gemini_api_key: Optional[str] = ""
     groq_api_key: Optional[str] = ""
@@ -299,6 +305,10 @@ class TenantCreate(BaseModel):
     bot_goal: Optional[str] = ""
     services_text: Optional[str] = ""
     full_location_text: Optional[str] = ""
+    opening_time: Optional[str] = "09:00"
+    closing_time: Optional[str] = "20:00"
+    is_24_7: Optional[bool] = False
+    operating_hours: Optional[str] = ""
     admin_whatsapp_number: Optional[str] = ""
     template_booking_confirmation: Optional[str] = "booking_confirmationn"
     template_admin_notification: Optional[str] = "admin_notification"
@@ -334,6 +344,11 @@ class TenantUpdate(BaseModel):
     bot_goal: Optional[str] = None
     services_text: Optional[str] = None
     full_location_text: Optional[str] = None
+    welcome_message: Optional[str] = None
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
+    is_24_7: Optional[bool] = None
+    operating_hours: Optional[str] = None
     admin_whatsapp_number: Optional[str] = None
     template_booking_confirmation: Optional[str] = None
     template_admin_notification: Optional[str] = None

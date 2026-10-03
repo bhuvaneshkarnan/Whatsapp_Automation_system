@@ -1013,6 +1013,37 @@ export function ModernCustomerView({
     return { bg: 'bg-amber-50 dark:bg-amber-950/40', text: 'text-amber-800 dark:text-amber-200', border: 'border-amber-300 dark:border-amber-700' };
   };
 
+  // Color badge styler for next actions
+  const getActionColorStyle = (actionName?: string | null) => {
+    const custom = crmDropdowns?.next_action_colors?.[(actionName || '').trim()];
+    const paletteMap: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+      amber: { bg: 'bg-amber-50 dark:bg-amber-950/40', text: 'text-amber-800 dark:text-amber-300', border: 'border-amber-300 dark:border-amber-700', dot: 'bg-amber-500' },
+      emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950/40', text: 'text-emerald-800 dark:text-emerald-300', border: 'border-emerald-300 dark:border-emerald-700', dot: 'bg-emerald-500' },
+      rose: { bg: 'bg-rose-50 dark:bg-rose-950/40', text: 'text-rose-800 dark:text-rose-300', border: 'border-rose-300 dark:border-rose-700', dot: 'bg-rose-500' },
+      blue: { bg: 'bg-blue-50 dark:bg-blue-950/40', text: 'text-blue-800 dark:text-blue-300', border: 'border-blue-300 dark:border-blue-700', dot: 'bg-blue-500' },
+      purple: { bg: 'bg-purple-50 dark:bg-purple-950/40', text: 'text-purple-800 dark:text-purple-300', border: 'border-purple-300 dark:border-purple-700', dot: 'bg-purple-500' },
+      indigo: { bg: 'bg-indigo-50 dark:bg-indigo-950/40', text: 'text-indigo-800 dark:text-indigo-300', border: 'border-indigo-300 dark:border-indigo-700', dot: 'bg-indigo-500' },
+      cyan: { bg: 'bg-cyan-50 dark:bg-cyan-950/40', text: 'text-cyan-800 dark:text-cyan-300', border: 'border-cyan-300 dark:border-cyan-700', dot: 'bg-cyan-500' },
+      orange: { bg: 'bg-orange-50 dark:bg-orange-950/40', text: 'text-orange-800 dark:text-orange-300', border: 'border-orange-300 dark:border-orange-700', dot: 'bg-orange-500' },
+      teal: { bg: 'bg-teal-50 dark:bg-teal-950/40', text: 'text-teal-800 dark:text-teal-300', border: 'border-teal-300 dark:border-teal-700', dot: 'bg-teal-500' },
+      slate: { bg: 'bg-slate-100 dark:bg-slate-800/60', text: 'text-slate-800 dark:text-slate-300', border: 'border-slate-300 dark:border-slate-700', dot: 'bg-slate-400' },
+    };
+    if (custom && paletteMap[custom]) {
+      return paletteMap[custom];
+    }
+    const a = (actionName || '').toLowerCase().trim();
+    if (a.includes('whatsapp') || a.includes('chat')) return paletteMap.emerald;
+    if (a.includes('call again') || a.includes('call back') || a.includes('follow-up')) return paletteMap.amber;
+    if (a.includes('final') || a.includes('attempt') || a.includes('urgent') || a.includes('lost')) return paletteMap.rose;
+    if (a.includes('booking') || a.includes('book') || a.includes('meeting') || a.includes('consult')) return paletteMap.purple;
+    if (a.includes('reschedule') || a.includes('shift') || a.includes('postpone')) return paletteMap.indigo;
+    if (a.includes('no-show') || a.includes('missed') || a.includes('not visited')) return paletteMap.orange;
+    if (a.includes('attended') || a.includes('visited') || a.includes('completed') || a.includes('converted')) return paletteMap.teal;
+    if (a.includes('remind') || a.includes('alert')) return paletteMap.cyan;
+    if (a.includes('info') || a.includes('proposal') || a.includes('quote') || a.includes('details')) return paletteMap.blue;
+    return paletteMap.slate;
+  };
+
   // Computed Executive KPI Stats
   const kpis = useMemo(() => {
     const total = customers.length;
@@ -2418,7 +2449,7 @@ export function ModernCustomerView({
                                 value={cust.next_action || (nextActions[0] || 'Call Again')}
                                 onChange={(e) => handleQuickUpdate(cust.id, { next_action: e.target.value })}
                                 disabled={updatingId === cust.id}
-                                className="text-[9.5px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 h-6 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors w-full min-w-[105px] max-w-[125px] truncate shadow-2xs"
+                                className={`text-[9.5px] px-1 py-0.5 h-6 rounded-xs font-semibold cursor-pointer focus:outline-none transition-colors w-full min-w-[105px] max-w-[125px] truncate shadow-2xs border ${getActionColorStyle(cust.next_action).bg} ${getActionColorStyle(cust.next_action).text} ${getActionColorStyle(cust.next_action).border}`}
                                 title="Next Action"
                               >
                                 {cust.next_action && !nextActions.includes(cust.next_action) && (
@@ -2826,7 +2857,7 @@ export function ModernCustomerView({
                                       e.stopPropagation();
                                       handleQuickUpdate(cust.id, { next_action: e.target.value });
                                     }}
-                                    className="text-[8px] text-text-muted bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent flex-1 min-w-0 truncate"
+                                    className={`text-[8px] font-semibold px-1 py-0.5 rounded-xs border cursor-pointer focus:outline-none flex-1 min-w-0 truncate ${getActionColorStyle(cust.next_action).bg} ${getActionColorStyle(cust.next_action).text} ${getActionColorStyle(cust.next_action).border}`}
                                     title="Change Next Action"
                                   >
                                     {cust.next_action && !nextActions.includes(cust.next_action) && (

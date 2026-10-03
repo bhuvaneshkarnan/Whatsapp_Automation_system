@@ -1905,6 +1905,289 @@ export function getLeadRateDisplay(cust?: any) {
   return getCustomerLeadStatus(cust);
 }
 
+
+export type DropdownColorKey =
+  | 'amber'
+  | 'emerald'
+  | 'rose'
+  | 'blue'
+  | 'purple'
+  | 'indigo'
+  | 'cyan'
+  | 'orange'
+  | 'teal'
+  | 'slate';
+
+export const DROPDOWN_COLOR_PALETTES: Record<
+  DropdownColorKey,
+  {
+    name: string;
+    dot: string;
+    badge: string;
+    text: string;
+    border: string;
+    bg: string;
+    hexColor: string;
+  }
+> = {
+  amber: {
+    name: 'Amber',
+    dot: 'bg-amber-500',
+    badge: 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-700',
+    text: 'text-amber-800 dark:text-amber-300',
+    border: 'border-amber-300 dark:border-amber-700',
+    bg: 'bg-amber-50 dark:bg-amber-950/40',
+    hexColor: '#d97706',
+  },
+  emerald: {
+    name: 'Emerald / Green',
+    dot: 'bg-emerald-500',
+    badge: 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-700',
+    text: 'text-emerald-800 dark:text-emerald-300',
+    border: 'border-emerald-300 dark:border-emerald-700',
+    bg: 'bg-emerald-50 dark:bg-emerald-950/40',
+    hexColor: '#059669',
+  },
+  rose: {
+    name: 'Rose / Red',
+    dot: 'bg-rose-500',
+    badge: 'bg-rose-50 text-rose-800 border-rose-300 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-700',
+    text: 'text-rose-800 dark:text-rose-300',
+    border: 'border-rose-300 dark:border-rose-700',
+    bg: 'bg-rose-50 dark:bg-rose-950/40',
+    hexColor: '#e11d48',
+  },
+  blue: {
+    name: 'Blue',
+    dot: 'bg-blue-500',
+    badge: 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-700',
+    text: 'text-blue-800 dark:text-blue-300',
+    border: 'border-blue-300 dark:border-blue-700',
+    bg: 'bg-blue-50 dark:bg-blue-950/40',
+    hexColor: '#2563eb',
+  },
+  purple: {
+    name: 'Purple',
+    dot: 'bg-purple-500',
+    badge: 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-700',
+    text: 'text-purple-800 dark:text-purple-300',
+    border: 'border-purple-300 dark:border-purple-700',
+    bg: 'bg-purple-50 dark:bg-purple-950/40',
+    hexColor: '#7c3aed',
+  },
+  indigo: {
+    name: 'Indigo',
+    dot: 'bg-indigo-500',
+    badge: 'bg-indigo-50 text-indigo-800 border-indigo-300 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-700',
+    text: 'text-indigo-800 dark:text-indigo-300',
+    border: 'border-indigo-300 dark:border-indigo-700',
+    bg: 'bg-indigo-50 dark:bg-indigo-950/40',
+    hexColor: '#4f46e5',
+  },
+  cyan: {
+    name: 'Cyan',
+    dot: 'bg-cyan-500',
+    badge: 'bg-cyan-50 text-cyan-800 border-cyan-300 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-700',
+    text: 'text-cyan-800 dark:text-cyan-300',
+    border: 'border-cyan-300 dark:border-cyan-700',
+    bg: 'bg-cyan-50 dark:bg-cyan-950/40',
+    hexColor: '#0891b2',
+  },
+  orange: {
+    name: 'Orange',
+    dot: 'bg-orange-500',
+    badge: 'bg-orange-50 text-orange-800 border-orange-300 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-700',
+    text: 'text-orange-800 dark:text-orange-300',
+    border: 'border-orange-300 dark:border-orange-700',
+    bg: 'bg-orange-50 dark:bg-orange-950/40',
+    hexColor: '#ea580c',
+  },
+  teal: {
+    name: 'Teal',
+    dot: 'bg-teal-500',
+    badge: 'bg-teal-50 text-teal-800 border-teal-300 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-700',
+    text: 'text-teal-800 dark:text-teal-300',
+    border: 'border-teal-300 dark:border-teal-700',
+    bg: 'bg-teal-50 dark:bg-teal-950/40',
+    hexColor: '#0d9488',
+  },
+  slate: {
+    name: 'Slate / Gray',
+    dot: 'bg-slate-400',
+    badge: 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+    text: 'text-slate-800 dark:text-slate-300',
+    border: 'border-slate-300 dark:border-slate-700',
+    bg: 'bg-slate-100 dark:bg-slate-800/50',
+    hexColor: '#64748b',
+  },
+};
+
+export function getDefaultActionColor(actionName?: string | null): DropdownColorKey {
+  const a = (actionName || '').toLowerCase().trim();
+  if (!a) return 'amber';
+  if (a.includes('whatsapp') || a.includes('chat')) return 'emerald';
+  if (a.includes('call again') || a.includes('call back') || a.includes('follow-up')) return 'amber';
+  if (a.includes('final') || a.includes('attempt') || a.includes('urgent') || a.includes('lost')) return 'rose';
+  if (a.includes('booking') || a.includes('book') || a.includes('meeting') || a.includes('consult')) return 'purple';
+  if (a.includes('reschedule') || a.includes('shift') || a.includes('postpone')) return 'indigo';
+  if (a.includes('no-show') || a.includes('missed') || a.includes('not visited')) return 'orange';
+  if (a.includes('attended') || a.includes('visited') || a.includes('completed') || a.includes('converted')) return 'teal';
+  if (a.includes('remind') || a.includes('alert')) return 'cyan';
+  if (a.includes('info') || a.includes('proposal') || a.includes('quote') || a.includes('details')) return 'blue';
+  if (a.includes('wait') || a.includes('hold') || a.includes('client')) return 'slate';
+
+  const keys: DropdownColorKey[] = ['amber', 'emerald', 'blue', 'purple', 'rose', 'indigo', 'cyan', 'orange', 'teal', 'slate'];
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a.charCodeAt(i);
+  return keys[sum % keys.length];
+}
+
+export function getActionColorStyle(actionName?: string | null, customColors?: Record<string, string>) {
+  const trimmed = (actionName || '').trim();
+  const configuredColor = customColors?.[trimmed] as DropdownColorKey | undefined;
+  const colorKey: DropdownColorKey = (configuredColor && DROPDOWN_COLOR_PALETTES[configuredColor])
+    ? configuredColor
+    : getDefaultActionColor(trimmed);
+
+  return {
+    key: colorKey,
+    ...DROPDOWN_COLOR_PALETTES[colorKey],
+  };
+}
+
+export function FollowupActionPopover({
+  currentAction,
+  options,
+  customColors,
+  onSelectAction,
+  onChangeItemColor,
+  onOpenManageModal,
+  onClose,
+}: {
+  currentAction?: string | null;
+  options: string[];
+  customColors?: Record<string, string>;
+  onSelectAction: (act: string) => void;
+  onChangeItemColor?: (act: string, colorKey: DropdownColorKey) => void;
+  onOpenManageModal?: () => void;
+  onClose: () => void;
+}) {
+  const [colorEditingItem, setColorEditingItem] = useState<string | null>(null);
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        className="absolute left-0 top-full mt-1 z-50 w-72 bg-surface border border-border rounded-lg shadow-xl p-2.5 animate-in fade-in zoom-in-95 duration-100 text-left font-sans"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/80">
+          <span className="text-[10.5px] font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+            <Target className="w-3.5 h-3.5 text-accent stroke-[2]" />
+            <span>Select Next Action</span>
+          </span>
+          {onOpenManageModal && (
+            <button
+              type="button"
+              onClick={onOpenManageModal}
+              className="text-[10px] text-accent hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+              title="Customize CRM dropdown options & colors"
+            >
+              <Sliders className="w-2.5 h-2.5" />
+              <span>Customize</span>
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-1 max-h-60 overflow-y-auto pr-0.5">
+          {options.map((act) => {
+            const isSelected = (currentAction || '').trim().toLowerCase() === act.trim().toLowerCase();
+            const actStyle = getActionColorStyle(act, customColors);
+            const isColorPickerOpen = colorEditingItem === act;
+
+            return (
+              <div
+                key={act}
+                className={`p-1.5 rounded-md border transition-all ${
+                  isSelected
+                    ? `${actStyle.bg} ${actStyle.border}`
+                    : 'bg-surface-subtle/50 hover:bg-surface-subtle border-transparent hover:border-border/60'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectAction(act);
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer"
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${actStyle.dot}`} />
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border truncate ${actStyle.badge}`}>
+                      {act}
+                    </span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-auto stroke-[2.5]" />}
+                  </button>
+
+                  {/* Inline Color Change Palette Trigger */}
+                  {onChangeItemColor && (
+                    <button
+                      type="button"
+                      onClick={() => setColorEditingItem(isColorPickerOpen ? null : act)}
+                      className={`p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface border transition-colors cursor-pointer shrink-0 ${
+                        isColorPickerOpen ? 'border-accent bg-surface text-accent' : 'border-transparent'
+                      }`}
+                      title={`Change color for "${act}"`}
+                    >
+                      <span className={`w-3 h-3 rounded-full block border ${actStyle.dot}`} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Inline color picker swatches if toggled */}
+                {isColorPickerOpen && onChangeItemColor && (
+                  <div className="mt-2 pt-1.5 border-t border-border/70 flex items-center gap-1.5 flex-wrap px-1">
+                    <span className="text-[9.5px] text-text-muted font-medium mr-1">Choose color:</span>
+                    {(Object.keys(DROPDOWN_COLOR_PALETTES) as DropdownColorKey[]).map((cKey) => (
+                      <button
+                        key={cKey}
+                        type="button"
+                        onClick={() => {
+                          onChangeItemColor(act, cKey);
+                          setColorEditingItem(null);
+                        }}
+                        className={`w-4 h-4 rounded-full ${DROPDOWN_COLOR_PALETTES[cKey].dot} border transition-all ${
+                          actStyle.key === cKey ? 'ring-2 ring-accent ring-offset-1 scale-110 shadow-xs' : 'opacity-70 hover:opacity-100 hover:scale-110'
+                        }`}
+                        title={DROPDOWN_COLOR_PALETTES[cKey].name}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {onOpenManageModal && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenManageModal();
+            }}
+            className="w-full mt-2 pt-2 border-t border-border/80 text-[10.5px] text-text-muted hover:text-accent flex items-center justify-center gap-1.5 font-medium transition-colors cursor-pointer"
+          >
+            <Sliders className="w-3 h-3 stroke-[1.8]" />
+            <span>Manage dropdown items & colors</span>
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}) {
   const router = useRouter();
   const params = useParams();
@@ -2687,6 +2970,32 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
   const [editingItemText, setEditingItemText] = useState('');
   const [savingDropdownOptions, setSavingDropdownOptions] = useState(false);
+  const [activeActionPopover, setActiveActionPopover] = useState<{ customerId: string } | null>(null);
+  const [newDropdownItemColor, setNewDropdownItemColor] = useState<DropdownColorKey>('blue');
+
+  const handleQuickUpdateActionColor = async (act: string, colorKey: DropdownColorKey) => {
+    const updatedColors = {
+      ...(crmDropdowns.next_action_colors || {}),
+      [act]: colorKey,
+    };
+    setCrmDropdowns((prev) => ({
+      ...prev,
+      next_action_colors: updatedColors,
+    }));
+    setEditingDropdowns((prev) => ({
+      ...prev,
+      next_action_colors: updatedColors,
+    }));
+    try {
+      await crm.updateCrmDropdownOptions({
+        next_action_colors: updatedColors,
+      });
+      setActionNotice(`Color updated for "${act}".`);
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Failed to update action color:', err);
+    }
+  };
 
   // Overall Notes (all customers combined)
   const [allNotes, setAllNotes] = useState<CustomerNote[]>([]);
@@ -6167,6 +6476,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           next_actions: [...(res.next_actions || [])],
           services_list: [...(res.services_list || [])],
           concerns_list: [...(res.concerns_list || [])],
+          next_action_colors: { ...(res.next_action_colors || crmDropdowns.next_action_colors || {}) },
+          outcome_status_colors: { ...(res.outcome_status_colors || crmDropdowns.outcome_status_colors || {}) },
           pipeline_columns: (res.pipeline_columns && res.pipeline_columns.length > 0)
             ? res.pipeline_columns.map((c) => ({ ...c }))
             : [
@@ -6184,6 +6495,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       next_actions: [...(crmDropdowns.next_actions || [])],
       services_list: [...(crmDropdowns.services_list || [])],
       concerns_list: [...(crmDropdowns.concerns_list || [])],
+      next_action_colors: { ...(crmDropdowns.next_action_colors || {}) },
+      outcome_status_colors: { ...(crmDropdowns.outcome_status_colors || {}) },
       pipeline_columns: (crmDropdowns.pipeline_columns && crmDropdowns.pipeline_columns.length > 0)
         ? crmDropdowns.pipeline_columns.map((c) => ({ ...c }))
         : [
@@ -6209,16 +6522,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setEditingDropdowns((prev) => ({
         ...prev,
         [dropdownActiveTab]: [...(prev[dropdownActiveTab] || []), trimmed],
+        ...(dropdownActiveTab === 'next_actions' ? {
+          next_action_colors: {
+            ...(prev.next_action_colors || {}),
+            [trimmed]: newDropdownItemColor,
+          }
+        } : {})
       }));
     }
     setNewDropdownItemInput('');
   }
 
   function handleRemoveDropdownItem(itemToRemove: string) {
-    setEditingDropdowns((prev) => ({
-      ...prev,
-      [dropdownActiveTab]: (prev[dropdownActiveTab] || []).filter((item) => item !== itemToRemove),
-    }));
+    setEditingDropdowns((prev) => {
+      const updatedColors = { ...(prev.next_action_colors || {}) };
+      delete updatedColors[itemToRemove];
+      return {
+        ...prev,
+        [dropdownActiveTab]: (prev[dropdownActiveTab] || []).filter((item) => item !== itemToRemove),
+        ...(dropdownActiveTab === 'next_actions' ? { next_action_colors: updatedColors } : {}),
+      };
+    });
   }
 
   function handleStartEditItem(index: number, currentVal: string) {
@@ -6231,8 +6555,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (!trimmed) return;
     setEditingDropdowns((prev) => {
       const list = [...(prev[dropdownActiveTab] || [])];
+      const oldVal = list[index];
       list[index] = trimmed;
-      return { ...prev, [dropdownActiveTab]: list };
+      const updatedColors = { ...(prev.next_action_colors || {}) };
+      if (oldVal && updatedColors[oldVal]) {
+        updatedColors[trimmed] = updatedColors[oldVal];
+        if (oldVal !== trimmed) delete updatedColors[oldVal];
+      }
+      return {
+        ...prev,
+        [dropdownActiveTab]: list,
+        ...(dropdownActiveTab === 'next_actions' ? { next_action_colors: updatedColors } : {}),
+      };
     });
     setEditingItemIndex(null);
     setEditingItemText('');
@@ -10112,18 +10446,24 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-[10.5px] font-medium text-text-muted">Next Action</label>
                   </div>
-                  <select
-                    value={selectedCustomer.next_action || (crmDropdowns.next_actions?.[0] || 'Call Again')}
-                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { next_action: e.target.value })}
-                    className="w-full px-2 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent font-medium cursor-pointer truncate shadow-2xs"
-                  >
-                    {selectedCustomer.next_action && !crmDropdowns.next_actions.includes(selectedCustomer.next_action) && (
-                      <option value={selectedCustomer.next_action}>{selectedCustomer.next_action}</option>
-                    )}
-                    {crmDropdowns.next_actions.map((act) => (
-                      <option key={act} value={act}>{act}</option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const curAct = selectedCustomer.next_action || (crmDropdowns.next_actions?.[0] || 'Call Again');
+                    const actStyle = getActionColorStyle(curAct, crmDropdowns.next_action_colors);
+                    return (
+                      <select
+                        value={curAct}
+                        onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { next_action: e.target.value })}
+                        className={`w-full px-2 py-1.5 text-xs border rounded-md font-semibold cursor-pointer truncate shadow-2xs focus:outline-none transition-colors ${actStyle.bg} ${actStyle.text} ${actStyle.border}`}
+                      >
+                        {selectedCustomer.next_action && !crmDropdowns.next_actions.includes(selectedCustomer.next_action) && (
+                          <option value={selectedCustomer.next_action}>{selectedCustomer.next_action}</option>
+                        )}
+                        {crmDropdowns.next_actions.map((act) => (
+                          <option key={act} value={act}>{act}</option>
+                        ))}
+                      </select>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -16553,19 +16893,55 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           </div>
                                         )}
 
-                                        {/* Row 2: Next Action Dropdown */}
-                                        <select
-                                          value={cust.next_action || 'Call Again'}
-                                          onChange={(e) => handleUpdateCustomer(cust.id, { next_action: e.target.value })}
-                                          className="w-full h-7 px-2 py-0.5 rounded-md text-[11px] leading-tight font-semibold bg-surface-subtle border border-border text-text-primary hover:border-border-hover shadow-2xs focus:outline-none focus:ring-1 focus:ring-accent transition-colors table-control cursor-pointer"
-                                        >
-                                          {cust.next_action && !crmDropdowns.next_actions.includes(cust.next_action) && (
-                                            <option key={cust.next_action} value={cust.next_action}>{cust.next_action}</option>
-                                          )}
-                                          {crmDropdowns.next_actions.map((act) => (
-                                            <option key={act} value={act}>{act}</option>
-                                          ))}
-                                        </select>
+                                        {/* Row 2: Next Action Dropdown (Color-coded & Customizable) */}
+                                        {(() => {
+                                          const curAction = cust.next_action || (crmDropdowns.next_actions?.[0] || 'Call Again');
+                                          const actStyle = getActionColorStyle(curAction, crmDropdowns.next_action_colors);
+                                          const isActionOpen = activeActionPopover?.customerId === cust.id;
+
+                                          return (
+                                            <div className="relative w-full">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setActiveCalendarPopover(null);
+                                                  setActiveTimePopover(null);
+                                                  setActiveActionPopover(isActionOpen ? null : { customerId: cust.id });
+                                                }}
+                                                className={`w-full h-7 px-2 py-0.5 rounded-md text-[11px] leading-tight font-semibold border shadow-2xs flex items-center justify-between gap-1.5 transition-all cursor-pointer ${actStyle.bg} ${actStyle.text} ${actStyle.border} hover:opacity-95`}
+                                                title={`Next Action: ${curAction} (Click to change action or customize colors)`}
+                                              >
+                                                <div className="flex items-center gap-1.5 truncate">
+                                                  <span className={`w-2 h-2 rounded-full ${actStyle.dot} shrink-0`} />
+                                                  <span className="truncate">{curAction}</span>
+                                                </div>
+                                                <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0" />
+                                              </button>
+
+                                              {isActionOpen && (
+                                                <FollowupActionPopover
+                                                  currentAction={curAction}
+                                                  options={
+                                                    crmDropdowns.next_actions && crmDropdowns.next_actions.length > 0
+                                                      ? crmDropdowns.next_actions
+                                                      : ['Call Again', 'WhatsApp Follow-up', 'Send Info / Proposal', 'Schedule Meeting / Booking', 'Send Reminder', 'Waiting on Client', 'Final Attempt']
+                                                  }
+                                                  customColors={crmDropdowns.next_action_colors}
+                                                  onSelectAction={(newAction) => {
+                                                    handleUpdateCustomer(cust.id, { next_action: newAction });
+                                                  }}
+                                                  onChangeItemColor={handleQuickUpdateActionColor}
+                                                  onOpenManageModal={() => {
+                                                    setActiveActionPopover(null);
+                                                    openDropdownOptionsModal('next_actions');
+                                                  }}
+                                                  onClose={() => setActiveActionPopover(null)}
+                                                />
+                                              )}
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                     </td>
                                   </tr>
@@ -17527,6 +17903,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <span>Add</span>
                             </button>
                           </div>
+                          {dropdownActiveTab === 'next_actions' && (
+                            <div className="flex items-center gap-1.5 mt-2 px-1">
+                              <span className="text-[10px] text-text-muted font-medium">Color for new action:</span>
+                              {(Object.keys(DROPDOWN_COLOR_PALETTES) as DropdownColorKey[]).map((cKey) => (
+                                <button
+                                  key={cKey}
+                                  type="button"
+                                  onClick={() => setNewDropdownItemColor(cKey)}
+                                  className={`w-3.5 h-3.5 rounded-full ${DROPDOWN_COLOR_PALETTES[cKey].dot} border transition-all ${
+                                    newDropdownItemColor === cKey ? 'ring-2 ring-accent ring-offset-1 scale-115' : 'opacity-50 hover:opacity-100'
+                                  }`}
+                                  title={DROPDOWN_COLOR_PALETTES[cKey].name}
+                                />
+                              ))}
+                              <span className="text-[10px] font-semibold text-text-secondary ml-1">
+                                ({DROPDOWN_COLOR_PALETTES[newDropdownItemColor].name})
+                              </span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Current Items List */}
@@ -17593,10 +17988,51 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </div>
                                   ) : (
                                     <>
-                                      <span className="text-xs font-semibold text-text-primary truncate">
-                                        {item}
-                                      </span>
-                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        {dropdownActiveTab === 'next_actions' ? (
+                                          (() => {
+                                            const itemStyle = getActionColorStyle(item, editingDropdowns.next_action_colors);
+                                            return (
+                                              <>
+                                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border ${itemStyle.badge}`}>
+                                                  <span className={`w-2 h-2 rounded-full ${itemStyle.dot}`} />
+                                                  <span className="truncate">{item}</span>
+                                                </span>
+
+                                                {/* Color Swatch Picker for this item */}
+                                                <div className="flex items-center gap-1 ml-auto mr-2">
+                                                  {(Object.keys(DROPDOWN_COLOR_PALETTES) as DropdownColorKey[]).map((cKey) => (
+                                                    <button
+                                                      key={cKey}
+                                                      type="button"
+                                                      onClick={() => {
+                                                        setEditingDropdowns((prev) => ({
+                                                          ...prev,
+                                                          next_action_colors: {
+                                                            ...(prev.next_action_colors || {}),
+                                                            [item]: cKey,
+                                                          },
+                                                        }));
+                                                      }}
+                                                      className={`w-3.5 h-3.5 rounded-full ${DROPDOWN_COLOR_PALETTES[cKey].dot} border transition-all ${
+                                                        (editingDropdowns.next_action_colors?.[item] || itemStyle.key) === cKey
+                                                          ? 'ring-2 ring-accent ring-offset-1 scale-120 shadow-xs'
+                                                          : 'opacity-40 hover:opacity-100 hover:scale-110'
+                                                      }`}
+                                                      title={`Set "${item}" color to ${DROPDOWN_COLOR_PALETTES[cKey].name}`}
+                                                    />
+                                                  ))}
+                                                </div>
+                                              </>
+                                            );
+                                          })()
+                                        ) : (
+                                          <span className="text-xs font-semibold text-text-primary truncate">
+                                            {item}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity shrink-0">
                                         <button
                                           type="button"
                                           onClick={() => handleStartEditItem(idx, item)}
