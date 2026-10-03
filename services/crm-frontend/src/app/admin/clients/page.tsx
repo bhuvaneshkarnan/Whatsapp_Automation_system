@@ -446,6 +446,12 @@ export default function SuperAdminClients() {
     ai_prompt: string;
     custom_prompt?: string;
     services_text: string;
+    services_list?: Array<{ name: string; duration?: number; price?: number; [key: string]: any }>;
+    opening_time?: string;
+    closing_time?: string;
+    is_24_7?: boolean;
+    operating_hours?: string;
+    full_location_text?: string;
     bot_goal: string;
     strict_rules: string;
     objection_handling: string;
@@ -706,12 +712,12 @@ export default function SuperAdminClients() {
   const [metaTemplatesStatus, setMetaTemplatesStatus] = useState<MetaTemplatesStatusResponse | null>(null);
   const [loadingMetaTemplates, setLoadingMetaTemplates] = useState(false);
 
-  async function loadAdminMetaTemplatesStatus(tenantId?: string) {
+  async function loadAdminMetaTemplatesStatus(tenantId?: string, forceRefresh = false) {
     const tId = tenantId || editingConfigTenant?.id || viewingDbTenant?.id;
     if (!tId) return;
     setLoadingMetaTemplates(true);
     try {
-      const res = await metaTemplatesApi.getStatus(tId);
+      const res = await metaTemplatesApi.getStatus(tId, forceRefresh);
       setMetaTemplatesStatus(res);
     } catch (err) {
       console.warn('Failed to load Meta templates status for admin:', err);
@@ -726,13 +732,15 @@ export default function SuperAdminClients() {
     try {
       const res = await metaTemplatesApi.syncAndProvision(tenantId);
       setMetaSyncResult(res);
-      await loadAdminMetaTemplatesStatus(tenantId);
+      await loadAdminMetaTemplatesStatus(tenantId, true);
       if (viewingDbTenant && viewingDbTenant.id === tenantId) {
         admin.getTenantSettings(tenantId).then(setDbTenantSettings).catch(() => {});
       }
       if (editingConfigTenant && editingConfigTenant.id === tenantId) {
         admin.getTenantSettings(tenantId).then(setConfigForm).catch(() => {});
       }
+      setActionSuccessNotice(`Meta Templates Synced! Verified: ${res.already_present_count}, Provisioned: ${res.created_count}, Failed: ${res.failed_count}`);
+      setTimeout(() => setActionSuccessNotice(null), 5000);
     } catch (err: any) {
       triggerErrorNotice(`Failed to sync Meta templates: ${err?.message || err}`);
     } finally {
@@ -1151,8 +1159,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     verify_token: '',
     ai_prompt: '',
     custom_prompt: '',
-    ai_model: 'gemini-3.1-flash-lite',
-    primary_model_provider: 'groq',
+    ai_model: 'gemini-3.5-flash-lite',
+    primary_model_provider: 'gemini',
     gemini_api_key: '',
     groq_api_key: '',
     opencode_api_key: '',
@@ -1161,6 +1169,10 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     bot_goal: '',
     services_text: '',
     full_location_text: '',
+    opening_time: '09:00',
+    closing_time: '20:00',
+    is_24_7: false,
+    operating_hours: '',
     admin_whatsapp_number: '',
     template_booking_confirmation: 'booking_confirmationn',
     template_admin_notification: 'admin_notification',
@@ -4641,7 +4653,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               <button
                                 type="button"
                                 disabled={loadingMetaTemplates}
-                                onClick={() => loadAdminMetaTemplatesStatus(viewingDbTenant.id)}
+                                onClick={() => loadAdminMetaTemplatesStatus(viewingDbTenant.id, true)}
                                 className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
                                 title="Refresh live status from Meta"
                               >
@@ -5283,8 +5295,10 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                       [
                                         { key: 'assistant_name', label: 'Assistant Name' },
                                         { key: 'custom_prompt', label: 'Custom Instructions (Highest Priority Override)' },
-                                        { key: 'ai_prompt', label: 'AI Instructions & Knowledge Base' },
+                                        { key: 'ai_prompt', label: 'AI Instructions & Knowledge Base (8-Section Unified Architecture)' },
                                         { key: 'services_text', label: 'Services & Pricing' },
+                                        { key: 'operating_hours', label: 'Operating Hours' },
+                                        { key: 'full_location_text', label: 'Physical Address & Location' },
                                         { key: 'bot_goal', label: 'Bot Goal' },
                                         { key: 'strict_rules', label: 'Strict Rules' },
                                         { key: 'objection_handling', label: 'Objection Handling' },
@@ -5330,6 +5344,12 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                           ...(p.strict_rules ? { strict_rules: p.strict_rules } : {}),
                                           ...(p.objection_handling ? { objection_handling: p.objection_handling } : {}),
                                           ...(p.response_style ? { response_style: p.response_style } : {}),
+                                          ...(p.full_location_text ? { full_location_text: p.full_location_text } : {}),
+                                          ...(p.opening_time ? { opening_time: p.opening_time } : {}),
+                                          ...(p.closing_time ? { closing_time: p.closing_time } : {}),
+                                          ...(p.is_24_7 !== undefined ? { is_24_7: p.is_24_7 } : {}),
+                                          ...(p.operating_hours ? { operating_hours: p.operating_hours } : {}),
+                                          ...(p.services_list && p.services_list.length > 0 ? { services: p.services_list } : {}),
                                         }));
                                         setShowOptimizerModal(false);
                                         setOptimizerPreview(null);
@@ -6270,7 +6290,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               <button
                                 type="button"
                                 disabled={loadingMetaTemplates}
-                                onClick={() => loadAdminMetaTemplatesStatus(editingConfigTenant.id)}
+                                onClick={() => loadAdminMetaTemplatesStatus(editingConfigTenant.id, true)}
                                 className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
                                 title="Refresh live status from Meta"
                               >
@@ -6291,6 +6311,25 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           )}
                         </div>
                       </div>
+
+                      {metaSyncResult && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-sm text-xs flex items-start gap-2.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                          <div className="flex-1 space-y-1">
+                            <p className="font-semibold">Meta Template Auto-Sync Completed ({metaSyncResult.industry?.toUpperCase()} Industry Preset)</p>
+                            <p className="text-emerald-700">
+                              <strong>{metaSyncResult.already_present_count}</strong> active in Meta &bull;{' '}
+                              <strong>{metaSyncResult.created_count}</strong> newly provisioned as UTILITY &bull;{' '}
+                              <strong>{metaSyncResult.failed_count}</strong> failed.
+                            </p>
+                            {metaSyncResult.created_count > 0 && (
+                              <p className="text-[11px] text-emerald-600 font-mono">
+                                Newly Created: {metaSyncResult.created.map((c) => c.name).join(', ')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Google Review URL Card */}
                       <div className="p-3 bg-surface-subtle rounded-md border border-border space-y-1.5">

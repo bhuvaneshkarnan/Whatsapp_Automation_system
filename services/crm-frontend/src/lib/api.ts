@@ -171,6 +171,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (k.toLowerCase() === 'x-tenant-id') {
         delete mergedHeaders['X-Tenant-ID'];
         delete mergedHeaders['x-tenant-id'];
+        delete mergedHeaders['X-Tenant-Slug'];
+        delete mergedHeaders['x-tenant-slug'];
       }
       mergedHeaders[k] = v;
     }
@@ -479,9 +481,9 @@ export interface Customer {
   location?: string | null;
   wa_profile_name?: string | null;
   preferred_doctor: string;
-  status: 'new' | 'contacted' | 'follow-up' | 'converted' | 'lost';
+  status: 'new' | 'contacted' | 'follow-up' | 'booked' | 'converted' | 'lost' | string;
   health_concern: string;
-  lead_probability: 'hot' | 'warm' | 'cold';
+  lead_probability: 'hot' | 'warm' | 'cold' | 'booked' | 'converted' | string;
   converted: boolean;
   followup_date?: string | null;
   followup_time?: string | null;
@@ -682,10 +684,10 @@ export const crm = {
       }
     ),
 
-  bookings: (status?: string, limit = 200) =>
+  bookings: (status?: string, limit = 1000) =>
     crm.getBookings(status, limit),
 
-  getBookings: async (status?: string, limit = 200): Promise<Booking[]> => {
+  getBookings: async (status?: string, limit = 1000): Promise<Booking[]> => {
     try {
       const rows = await request<Booking[]>(
         `/api/v1/crm/bookings${status ? `?status=${status}&limit=${limit}` : `?limit=${limit}`}`
@@ -1042,11 +1044,18 @@ export const crm = {
   optimizePrompt: (rawDump: string, customPrompt?: string) =>
     request<{
       success: boolean;
+      provider?: string;
       optimized: {
         assistant_name: string;
         unified_knowledge_base?: string;
         ai_prompt: string;
         services_text: string;
+        services_list?: Array<{ name: string; duration?: number; price?: number; [key: string]: any }>;
+        opening_time?: string;
+        closing_time?: string;
+        is_24_7?: boolean;
+        operating_hours?: string;
+        full_location_text?: string;
         bot_goal: string;
         strict_rules: string;
         objection_handling: string;
@@ -1284,7 +1293,7 @@ getCustomerStats: async (filters?: {
   }) => {
     const params = new URLSearchParams();
     if (filters?.status && filters.status !== 'all') {
-      if (['new', 'follow-up', 'converted', 'lost', 'contacted'].includes(filters.status)) {
+      if (['new', 'follow-up', 'booked', 'converted', 'lost', 'contacted'].includes(filters.status.toLowerCase())) {
         params.set('status', filters.status);
       } else {
         params.set('call_status', filters.status);
@@ -1297,7 +1306,7 @@ getCustomerStats: async (filters?: {
     if (filters?.next_action && filters.next_action !== 'all') params.set('next_action', filters.next_action);
     if (filters?.q) params.set('q', filters.q);
     const qs = params.toString();
-    return request<{total: number, pending: number, hot_leads: number, converted: number}>(`/api/v1/crm/customers/stats${qs ? `?${qs}` : ''}`);
+    return request<{total: number, pending: number, hot_leads: number, booked: number, converted: number}>(`/api/v1/crm/customers/stats${qs ? `?${qs}` : ''}`);
   },
   getCustomers: async (filters?: {
 
@@ -1313,7 +1322,7 @@ getCustomerStats: async (filters?: {
     try {
       const params = new URLSearchParams();
       if (filters?.status && filters.status !== 'all') {
-      if (['new', 'follow-up', 'converted', 'lost', 'contacted'].includes(filters.status)) {
+      if (['new', 'follow-up', 'booked', 'converted', 'lost', 'contacted'].includes(filters.status.toLowerCase())) {
         params.set('status', filters.status);
       } else {
         params.set('call_status', filters.status);
@@ -2005,6 +2014,10 @@ export interface ClientCreatePayload {
   bot_goal?: string;
   services_text?: string;
   full_location_text?: string;
+  opening_time?: string;
+  closing_time?: string;
+  is_24_7?: boolean;
+  operating_hours?: string;
   admin_whatsapp_number?: string;
   template_booking_confirmation?: string;
   template_admin_notification?: string;
@@ -2226,11 +2239,18 @@ export const admin = {
     const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
     return request<{
       success: boolean;
+      provider?: string;
       optimized: {
         assistant_name: string;
         unified_knowledge_base?: string;
         ai_prompt: string;
         services_text: string;
+        services_list?: Array<{ name: string; duration?: number; price?: number; [key: string]: any }>;
+        opening_time?: string;
+        closing_time?: string;
+        is_24_7?: boolean;
+        operating_hours?: string;
+        full_location_text?: string;
         bot_goal: string;
         strict_rules: string;
         objection_handling: string;
@@ -2546,9 +2566,9 @@ export interface MetaTemplatesSyncResponse {
 }
 
 export const metaTemplatesApi = {
-  getStatus: (tenantId?: string) =>
+  getStatus: (tenantId?: string, forceRefresh = false) =>
     request<MetaTemplatesStatusResponse>(
-      '/api/v1/crm/templates/meta-status',
+      `/api/v1/crm/templates/meta-status${forceRefresh ? '?force_refresh=true' : ''}`,
       tenantId ? { headers: { 'x-tenant-id': tenantId } } : undefined
     ),
 

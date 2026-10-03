@@ -47,6 +47,8 @@ import {
   Sparkles,
   FileText,
   Globe,
+  Edit3,
+  ExternalLink,
 } from 'lucide-react';
 import { Customer, FollowupTask, CrmDropdownOptions, DuplicateCustomerGroup, formatDialablePhone, formatDisplayPhone, crm as api } from '@/lib/api';
 
@@ -707,16 +709,16 @@ const STAGE_STYLES: Record<string, { bg: string; text: string; border: string; d
 };
 
 /**
- * Determines whether a customer belongs to a pipeline stage.
- * Handles unified matching for booked/converted, lost/cancelled, follow-up, contacted, and new inquiries.
+ * Strict waterfall priority resolver for customer pipeline stages.
+ * Guaranteed 100% mutual exclusivity so no customer can ever appear in multiple stages.
  */
-export function isCustomerInStage(c: Customer, stageId: string): boolean {
-  const sId = (stageId || '').toLowerCase().trim();
+export function getCustomerStage(c: Customer): 'converted' | 'lost' | 'follow-up' | 'contacted' | 'new' {
   const statusLower = (c.status || '').toLowerCase().trim();
   const callStatusLower = (c.call_status || '').toLowerCase().trim();
   const leadProbLower = (c.lead_probability || '').toLowerCase().trim();
 
-  const isBookedOrConverted = (
+  // 1. Converted / Booked (Highest priority)
+  if (
     statusLower === 'converted' ||
     statusLower === 'booked' ||
     Boolean(c.converted) ||
@@ -729,9 +731,12 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
     callStatusLower === 'confirmed' ||
     callStatusLower === 'confirmed via whatsapp' ||
     callStatusLower === 'booking requested'
-  );
+  ) {
+    return 'converted';
+  }
 
-  const isLostOrCancelled = (
+  // 2. Lost / Inactive / Cold
+  if (
     statusLower === 'lost' ||
     statusLower === 'cancelled' ||
     leadProbLower === 'cold' ||
@@ -739,72 +744,56 @@ export function isCustomerInStage(c: Customer, stageId: string): boolean {
     callStatusLower === 'wrong number' ||
     callStatusLower === 'not interested' ||
     callStatusLower === 'lost'
-  );
-
-  if (sId === 'converted' || sId === 'booked') {
-    if (sId === 'converted') {
-      return isBookedOrConverted;
-    }
-    if (sId === 'booked') {
-      return (
-        statusLower === 'booked' ||
-        leadProbLower === 'booked' ||
-        c.conversion_rate === 99 ||
-        callStatusLower === 'confirmed' ||
-        callStatusLower === 'confirmed via whatsapp' ||
-        callStatusLower === 'booking requested'
-      );
-    }
+  ) {
+    return 'lost';
   }
 
-  if (sId === 'lost') {
-    return isLostOrCancelled;
+  // 3. Follow-up Due (explicit follow-up date scheduled or follow-up status)
+  if (
+    statusLower === 'follow-up' ||
+    statusLower === 'followup' ||
+    callStatusLower === 'follow-up' ||
+    callStatusLower === 'call again' ||
+    callStatusLower === 'no response' ||
+    Boolean(c.followup_date)
+  ) {
+    return 'follow-up';
   }
 
-  // If customer is already booked/converted or lost/cold, do NOT show in other active stages
-  if (isBookedOrConverted || isLostOrCancelled) {
-    return false;
+  // 4. Contacted / In Progress
+  if (
+    statusLower === 'contacted' ||
+    statusLower === 'in_progress' ||
+    callStatusLower === 'info given & taken' ||
+    callStatusLower === 'requirements gathered' ||
+    callStatusLower === 'pricing sent' ||
+    callStatusLower === 'not picked' ||
+    callStatusLower === 'out of service / busy' ||
+    callStatusLower === 'busy' ||
+    callStatusLower === 'missed' ||
+    callStatusLower === 'contacted'
+  ) {
+    return 'contacted';
   }
 
-  if (sId === 'follow-up' || sId === 'followup' || sId === 'action_due') {
-    return (
-      statusLower === 'follow-up' ||
-      statusLower === 'followup' ||
-      callStatusLower === 'follow-up' ||
-      callStatusLower === 'call again' ||
-      callStatusLower === 'no response' ||
-      Boolean(c.followup_date)
-    );
-  }
+  // 5. Default: New Inquiry
+  return 'new';
+}
 
-  if (sId === 'contacted' || sId === 'in_progress') {
-    return (
-      statusLower === 'contacted' ||
-      statusLower === 'in_progress' ||
-      callStatusLower === 'info given & taken' ||
-      callStatusLower === 'requirements gathered' ||
-      callStatusLower === 'pricing sent' ||
-      callStatusLower === 'not picked' ||
-      callStatusLower === 'out of service / busy' ||
-      callStatusLower === 'busy' ||
-      callStatusLower === 'missed' ||
-      callStatusLower === 'contacted'
-    );
-  }
+/**
+ * Determines whether a customer belongs to a pipeline stage.
+ * Strictly uses getCustomerStage to guarantee no duplicates across columns.
+ */
+export function isCustomerInStage(c: Customer, stageId: string): boolean {
+  const sId = (stageId || '').toLowerCase().trim();
+  const canonicalStage = getCustomerStage(c);
 
-  if (sId === 'new') {
-    return (
-      (statusLower === 'new' ||
-       callStatusLower === 'new (fresh)' ||
-       callStatusLower === 'new' ||
-       (!statusLower && !callStatusLower)) &&
-      leadProbLower !== 'cold' &&
-      !isLostOrCancelled &&
-      !isBookedOrConverted
-    );
-  }
+  if (sId === canonicalStage) return true;
+  if ((sId === 'booked' || sId === 'converted') && canonicalStage === 'converted') return true;
+  if ((sId === 'followup' || sId === 'action_due') && canonicalStage === 'follow-up') return true;
+  if (sId === 'in_progress' && canonicalStage === 'contacted') return true;
 
-  return statusLower === sId;
+  return false;
 }
 
 
@@ -2526,11 +2515,10 @@ export function ModernCustomerView({
           </div>
         )}
 
-        {/* KANBAN FUNNEL VIEW - COMPLETE WITH PHASE COLORS & SINGLE-VIEW RESPONSIVENESS */}
+        {/* KANBAN FUNNEL VIEW - COMPLETE WITH PHASE COLORS & SINGLE-VIEW 5-COLUMN GRID */}
         {viewMode === 'kanban' && (
-          <div className="flex-1 min-h-0 flex flex-col space-y-2">
-
-            <div className="flex-1 min-h-0 flex gap-2 pb-1 w-full overflow-x-auto touch-scroll" style={{ display: 'flex' }}>
+          <div className="flex-1 min-h-0 flex flex-col w-full h-full overflow-hidden">
+            <div className="flex-1 min-h-0 grid grid-cols-5 gap-1.5 md:gap-2 pb-1 w-full h-full overflow-hidden">
               {((): Array<{ id: string; label: string; dot: string; topBar: string; colBg: string; headerBg: string; headerBorder: string; headerText: string; border: string; badge: string; cardHover: string }> => {
                 // Style map for each column id
                 const styleMap: Record<string, { dot: string; topBar: string; colBg: string; headerBg: string; headerBorder: string; headerText: string; border: string; badge: string; cardHover: string }> = {
@@ -2590,308 +2578,409 @@ export function ModernCustomerView({
                   .map((c) => ({ id: c.id, label: c.label, ...(styleMap[c.id] || styleMap['new']) }));
               })()
                 .map((col) => {
-
                   const colLeads = filteredCustomers.filter((c) => isCustomerInStage(c, col.id));
-                  const colRevenue = colLeads.reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
                   const isDropTarget = dragOverStage === col.id;
                   return (
                     <div
                       key={col.id}
                       onDragOver={(e) => {
                         e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    if (dragOverStage !== col.id) {
-                      setDragOverStage(col.id);
-                    }
-                  }}
-                  onDragEnter={(e) => {
-                    e.preventDefault();
-                    setDragOverStage(col.id);
-                  }}
-                  onDragLeave={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                      setDragOverStage((current) => (current === col.id ? null : current));
-                    }
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const droppedId = e.dataTransfer.getData('text/plain') || draggedCustomerId;
-                    if (droppedId) {
-                      handleDropLead(col.id, droppedId);
-                    }
-                  }}
-                  className={`w-[260px] shrink-0 md:w-auto md:shrink md:flex-1 md:min-w-[210px] ${col.colBg} border ${
-                    isDropTarget ? 'border-accent ring-2 ring-accent/40 bg-accent/5' : col.border
-                  } rounded-md flex flex-col h-full overflow-hidden shadow-2xs transition-colors`}
-                >
-                  {/* Phase Top Accent Bar */}
-                  <div className={`h-1 w-full ${col.topBar}`} />
+                        e.dataTransfer.dropEffect = 'move';
+                        if (dragOverStage !== col.id) {
+                          setDragOverStage(col.id);
+                        }
+                      }}
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setDragOverStage(col.id);
+                      }}
+                      onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          setDragOverStage((current) => (current === col.id ? null : current));
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const droppedId = e.dataTransfer.getData('text/plain') || draggedCustomerId;
+                        if (droppedId) {
+                          handleDropLead(col.id, droppedId);
+                        }
+                      }}
+                      className={`min-w-0 flex-1 flex flex-col h-full ${col.colBg} border ${
+                        isDropTarget ? 'border-accent ring-2 ring-accent/40 bg-accent/5' : col.border
+                      } rounded-md overflow-hidden shadow-2xs transition-colors`}
+                    >
+                      {/* Phase Top Accent Bar */}
+                      <div className={`h-1 w-full ${col.topBar}`} />
 
-                  {/* Column Header */}
-                  <div className={`p-2 border-b ${col.headerBorder} ${col.headerBg} flex items-center justify-between shrink-0`}>
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`} />
-                      <h4 className={`font-bold text-[11px] ${col.headerText} truncate font-headline`} title={col.label}>
-                        {col.label}
-                      </h4>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0 ml-1">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full font-mono ${col.badge}`}>
-                        {colLeads.length}
-                      </span>
-                    </div>
-                  </div>
+                      {/* Column Header */}
+                      <div className={`p-1.5 sm:p-2 border-b ${col.headerBorder} ${col.headerBg} flex items-center justify-between shrink-0`}>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`} />
+                          <h4 className={`font-bold text-[10px] sm:text-[11px] ${col.headerText} truncate font-headline`} title={col.label}>
+                            {col.label}
+                          </h4>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 ml-1">
+                          <span className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded-full font-mono ${col.badge}`}>
+                            {colLeads.length}
+                          </span>
+                        </div>
+                      </div>
 
-                  {/* Column Card List */}
-                  <div className="p-2 flex-1 overflow-y-auto space-y-2.5 min-h-0 scrollbar-thin">
-                    {/* Active Drop Guide */}
-                    {isDropTarget && draggedCustomerId && !colLeads.some((c) => c.id === draggedCustomerId) && (
-                      <div className="p-2 border-2 border-dashed border-accent/70 bg-accent/10 rounded-sm text-center text-[10px] font-semibold text-accent animate-pulse">
-                        Drop to move here
-                      </div>
-                    )}
-                    {colLeads.length === 0 && (!isDropTarget || !draggedCustomerId) ? (
-                      <div className="p-4 text-center text-text-muted text-[11px] border border-dashed border-border/70 rounded-sm bg-surface/40">
-                        No contacts
-                      </div>
-                    ) : (
-                      colLeads.map((cust) => {
-                        const isSelected = selectedCustomer?.id === cust.id;
-                        const isDragging = draggedCustomerId === cust.id;
-                        const dealVal = getEffectiveDealValue(cust);
-                        const aiSnapshot = getAiSalesSnapshot(cust);
-                        return (
-                          <div
-                            key={cust.id}
-                            draggable
-                            onDragStart={(e) => {
-                              setDraggedCustomerId(cust.id);
-                              e.dataTransfer.setData('text/plain', cust.id);
-                              e.dataTransfer.effectAllowed = 'move';
-                            }}
-                            onDragEnd={() => {
-                              setDraggedCustomerId(null);
-                              setDragOverStage(null);
-                            }}
-                            onClick={() => onSelectCustomer(cust)}
-                            className={`p-2.5 bg-surface dark:bg-surface border border-border/80 hover:border-border-hover rounded-md shadow-xs hover:shadow-sm transition-all cursor-grab active:cursor-grabbing select-none space-y-2 ${
-                              isSelected ? 'ring-2 ring-accent ring-offset-1' : ''
-                            } ${isDragging ? 'opacity-40 border-dashed border-border' : ''}`}
-                          >
-                            {/* Card Header: Drag Handle, Name & Temperature / Deal Value */}
-                            <div className="flex items-start justify-between gap-1">
-                              <div className="flex items-center gap-1 min-w-0 flex-1">
-                                <GripVertical className="w-3 h-3 text-text-muted/50 hover:text-text-muted shrink-0 -ml-0.5 cursor-grab" />
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1 flex-wrap">
-                                    <h5 className="font-bold text-[11px] text-text-primary hover:text-accent transition-colors truncate leading-tight" title={cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'}>
-                                      {cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'}
-                                    </h5>
-                                    {cust.internal_name && (
-                                      <span className="text-[8px] font-bold px-1 py-0.1 bg-purple-50 text-purple-700 border border-purple-200 rounded shrink-0">
-                                        Internal
-                                      </span>
-                                    )}
-                                    {(cust.source === 'website_form' || cust.metadata?.source === 'website_form' || cust.metadata?.booked_via === 'website_form') && (
-                                      <span className="text-[8px] font-bold px-1 py-0.1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded shrink-0 flex items-center gap-0.5" title="Booked from Website Form">
-                                        <Globe className="w-2 h-2" />
-                                        Website Form
-                                      </span>
-                                    )}
+                      {/* Column Card List */}
+                      <div className="p-1 sm:p-1.5 flex-1 overflow-y-auto space-y-1.5 min-h-0 scrollbar-thin">
+                        {/* Active Drop Guide */}
+                        {isDropTarget && draggedCustomerId && !colLeads.some((c) => c.id === draggedCustomerId) && (
+                          <div className="p-2 border-2 border-dashed border-accent/70 bg-accent/10 rounded-sm text-center text-[10px] font-semibold text-accent animate-pulse">
+                            Drop to move here
+                          </div>
+                        )}
+                        {colLeads.length === 0 && (!isDropTarget || !draggedCustomerId) ? (
+                          <div className="p-3 text-center text-text-muted text-[10.5px] border border-dashed border-border/70 rounded-sm bg-surface/40">
+                            No contacts
+                          </div>
+                        ) : (
+                          colLeads.map((cust) => {
+                            const isSelected = selectedCustomer?.id === cust.id;
+                            const isDragging = draggedCustomerId === cust.id;
+                            const isUpdating = updatingId === cust.id;
+                            return (
+                              <div
+                                key={cust.id}
+                                draggable
+                                onDragStart={(e) => {
+                                  setDraggedCustomerId(cust.id);
+                                  e.dataTransfer.setData('text/plain', cust.id);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedCustomerId(null);
+                                  setDragOverStage(null);
+                                }}
+                                onClick={() => onSelectCustomer(cust)}
+                                className={`p-2 bg-surface dark:bg-surface border border-border/80 hover:border-border-hover rounded-md shadow-2xs hover:shadow-xs transition-all cursor-grab active:cursor-grabbing select-none space-y-1.5 ${
+                                  isSelected ? 'ring-2 ring-accent ring-offset-1' : ''
+                                } ${isDragging ? 'opacity-40 border-dashed border-border' : ''} ${isUpdating ? 'opacity-70' : ''}`}
+                              >
+                                {/* Card Header: Drag Handle, Name & Temperature / Intent Badge */}
+                                <div className="flex items-start justify-between gap-1">
+                                  <div className="flex items-center gap-1 min-w-0 flex-1">
+                                    <GripVertical className="w-3 h-3 text-text-muted/50 hover:text-text-muted shrink-0 -ml-0.5 cursor-grab" />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1 flex-wrap">
+                                        <h5
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onSelectCustomer(cust);
+                                          }}
+                                          className="font-bold text-[10.5px] sm:text-[11px] text-text-primary hover:text-accent transition-colors truncate leading-tight cursor-pointer"
+                                          title={`${cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'} (Click to open profile)`}
+                                        >
+                                          {cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'}
+                                        </h5>
+                                        <button
+                                          type="button"
+                                          draggable={false}
+                                          onDragStart={(e) => e.stopPropagation()}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onSelectCustomer(cust);
+                                          }}
+                                          className="p-0.5 text-text-muted hover:text-accent rounded cursor-pointer shrink-0"
+                                          title="Open customer profile drawer"
+                                        >
+                                          <ExternalLink className="w-2.5 h-2.5" />
+                                        </button>
+                                        {cust.internal_name && (
+                                          <span className="text-[7.5px] font-bold px-1 py-0.1 bg-purple-50 text-purple-700 border border-purple-200 rounded shrink-0">
+                                            Internal
+                                          </span>
+                                        )}
+                                        {(cust.source === 'website_form' || cust.metadata?.source === 'website_form' || cust.metadata?.booked_via === 'website_form') && (
+                                          <span className="text-[7.5px] font-bold px-1 py-0.1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded shrink-0 flex items-center gap-0.5" title="Booked from Website Form">
+                                            <Globe className="w-2 h-2" />
+                                            Form
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 mt-0.5" onClick={(e) => e.stopPropagation()}>
+                                        <a
+                                          href={`tel:${formatDialablePhone(cust.phone)}`}
+                                          draggable={false}
+                                          onDragStart={(e) => e.stopPropagation()}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="text-[9px] text-text-muted hover:text-accent hover:underline font-mono leading-none truncate cursor-pointer"
+                                          title={`Click to call ${formatDisplayPhone(cust.phone)}`}
+                                        >
+                                          {formatDisplayPhone(cust.phone)}
+                                        </a>
+                                        {cust.phone && (
+                                          <button
+                                            type="button"
+                                            draggable={false}
+                                            onDragStart={(e) => e.stopPropagation()}
+                                            onClick={(e) => handleCopyPhone(e, cust.phone, `kanban-${cust.id}`)}
+                                            className="p-0.5 text-text-muted hover:text-text-primary rounded cursor-pointer shrink-0"
+                                            title={copiedPhoneId === `kanban-${cust.id}` ? 'Copied!' : 'Copy phone'}
+                                          >
+                                            {copiedPhoneId === `kanban-${cust.id}` ? (
+                                              <Check className="w-2.5 h-2.5 text-emerald-600 stroke-[2.5]" />
+                                            ) : (
+                                              <Copy className="w-2.5 h-2.5 hover:text-accent transition-colors" />
+                                            )}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-1 mt-0.5">
-                                    <a
-                                      href={`tel:${formatDialablePhone(cust.phone)}`}
+                                  <div className="flex flex-col items-end gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <span
+                                      className={`inline-flex items-center gap-0.5 text-[8px] font-bold px-1 py-0.2 rounded-xs uppercase tracking-wider shrink-0 ${
+                                        cust.lead_probability === 'hot'
+                                          ? 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                          : cust.lead_probability === 'cold'
+                                          ? 'bg-sky-50 text-sky-700 border border-sky-200/80 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
+                                          : cust.lead_probability === 'converted' || cust.lead_probability === 'booked' || cust.converted
+                                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                          : 'bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                      }`}
+                                    >
+                                      {cust.lead_probability === 'hot' ? (
+                                        <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
+                                      ) : cust.lead_probability === 'cold' ? (
+                                        <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
+                                      ) : cust.lead_probability === 'converted' || cust.lead_probability === 'booked' || cust.converted ? (
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 stroke-[2] shrink-0" />
+                                      ) : (
+                                        <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
+                                      )}
+                                      <span>
+                                        {cust.lead_probability === 'converted' || cust.converted
+                                          ? 'CONV'
+                                          : cust.lead_probability === 'booked'
+                                          ? 'BOOK'
+                                          : (cust.lead_probability || 'WARM').slice(0, 4)}
+                                      </span>
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Service Selector / Change Service Directly */}
+                                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                  <select
+                                    value={cust.health_concern || ''}
+                                    disabled={updatingId === cust.id}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      const val = e.target.value;
+                                      if (val === '__add_custom__') {
+                                        const customSvc = prompt('Enter manual service or concern:');
+                                        if (customSvc && customSvc.trim()) {
+                                          handleQuickUpdate(cust.id, { health_concern: customSvc.trim() });
+                                        }
+                                      } else {
+                                        handleQuickUpdate(cust.id, { health_concern: val || undefined });
+                                      }
+                                    }}
+                                    className="w-full text-[9px] font-medium text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 hover:border-accent rounded-xs px-1 py-0.5 truncate cursor-pointer transition-colors focus:outline-none focus:border-accent shadow-2xs"
+                                    title="Click to change service"
+                                  >
+                                    <option value="">- Select Service -</option>
+                                    {cust.health_concern && !servicesList.includes(cust.health_concern) && (
+                                      <option value={cust.health_concern}>{cust.health_concern}</option>
+                                    )}
+                                    {servicesList.map((svc) => (
+                                      <option key={svc} value={svc}>{svc}</option>
+                                    ))}
+                                    <option value="__add_custom__">+ Custom Service...</option>
+                                  </select>
+                                </div>
+
+                                {/* Outcome Status & Next Action Dropdowns */}
+                                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                  <select
+                                    value={cust.call_status || 'New (Fresh)'}
+                                    disabled={updatingId === cust.id}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      handleQuickUpdate(cust.id, { call_status: e.target.value });
+                                    }}
+                                    className={`text-[8px] font-semibold px-1 py-0.5 rounded-xs border cursor-pointer focus:outline-none focus:border-accent flex-1 min-w-0 truncate ${getOutcomeStatusStyle(cust.call_status).bg} ${getOutcomeStatusStyle(cust.call_status).text} ${getOutcomeStatusStyle(cust.call_status).border}`}
+                                    title="Change Call Status / Outcome"
+                                  >
+                                    {cust.call_status && !outcomeStatuses.includes(cust.call_status) && (
+                                      <option value={cust.call_status}>{cust.call_status}</option>
+                                    )}
+                                    {outcomeStatuses.map((st) => (
+                                      <option key={st} value={st}>{st}</option>
+                                    ))}
+                                  </select>
+
+                                  <select
+                                    value={cust.next_action || (nextActions[0] || 'Call Again')}
+                                    disabled={updatingId === cust.id}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      handleQuickUpdate(cust.id, { next_action: e.target.value });
+                                    }}
+                                    className="text-[8px] text-text-muted bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent flex-1 min-w-0 truncate"
+                                    title="Change Next Action"
+                                  >
+                                    {cust.next_action && !nextActions.includes(cust.next_action) && (
+                                      <option value={cust.next_action}>{cust.next_action}</option>
+                                    )}
+                                    {nextActions.map((act) => (
+                                      <option key={act} value={act}>{act}</option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                {/* Note Row: Edit Note or Add Note */}
+                                <div onClick={(e) => e.stopPropagation()}>
+                                  {cust.latest_note ? (
+                                    <div
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onOpenQuickNote) {
+                                          onOpenQuickNote(cust);
+                                        } else {
+                                          onOpenDetails(cust);
+                                        }
+                                      }}
+                                      className="group/note flex items-start gap-1 p-1 px-1.5 rounded-xs bg-amber-50/80 hover:bg-amber-100/90 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 border border-amber-200/70 hover:border-amber-300 dark:border-amber-800/40 text-amber-950 dark:text-amber-200 text-[9px] leading-snug cursor-pointer transition-all shadow-2xs"
+                                      title="Staff note (Click to edit note)"
+                                    >
+                                      <StickyNote className="w-2.5 h-2.5 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
+                                      <span className="line-clamp-2 italic flex-1">"{cust.latest_note}"</span>
+                                      <Edit3 className="w-2.5 h-2.5 text-amber-600 opacity-0 group-hover/note:opacity-100 shrink-0 transition-opacity" />
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
                                       draggable={false}
                                       onDragStart={(e) => e.stopPropagation()}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="text-[9.5px] text-text-muted hover:text-accent hover:underline font-mono leading-none truncate cursor-pointer"
-                                      title={`Click to call ${formatDisplayPhone(cust.phone)}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onOpenQuickNote) {
+                                          onOpenQuickNote(cust);
+                                        } else {
+                                          onOpenDetails(cust);
+                                        }
+                                      }}
+                                      className="w-full py-0.5 px-1.5 rounded-xs border border-dashed border-border/80 hover:border-amber-400 text-[8.5px] text-text-muted hover:text-amber-700 hover:bg-amber-50/40 transition-colors flex items-center justify-between cursor-pointer"
+                                      title="Click to add note"
                                     >
-                                      {formatDisplayPhone(cust.phone)}
-                                    </a>
-                                    {cust.phone && (
+                                      <span className="flex items-center gap-1 font-medium">
+                                        <StickyNote className="w-2.5 h-2.5 text-amber-500" />
+                                        <span>+ Add note</span>
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Card Footer: Follow-up, Chat & Call */}
+                                <div
+                                  draggable={false}
+                                  onDragStart={(e) => e.stopPropagation()}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex items-center justify-between pt-1 border-t border-border/50 text-[9px] relative"
+                                >
+                                  <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+                                    {cust.followup_date ? (
                                       <button
                                         type="button"
                                         draggable={false}
                                         onDragStart={(e) => e.stopPropagation()}
-                                        onClick={(e) => handleCopyPhone(e, cust.phone, `kanban-${cust.id}`)}
-                                        className="p-0.5 text-text-muted hover:text-text-primary rounded cursor-pointer shrink-0"
-                                        title={copiedPhoneId === `kanban-${cust.id}` ? 'Copied!' : 'Copy phone'}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
+                                        }}
+                                        className="cursor-pointer hover:opacity-80 truncate block text-[8.5px]"
+                                        title="Click to reschedule follow-up"
                                       >
-                                        {copiedPhoneId === `kanban-${cust.id}` ? (
-                                          <Check className="w-2.5 h-2.5 text-emerald-600 stroke-[2.5]" />
-                                        ) : (
-                                          <Copy className="w-2.5 h-2.5 hover:text-accent transition-colors" />
-                                        )}
+                                        {getFollowupBadge(cust.followup_date)}
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        draggable={false}
+                                        onDragStart={(e) => e.stopPropagation()}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
+                                        }}
+                                        className="inline-flex items-center gap-0.5 text-[8.5px] text-text-muted hover:text-accent font-medium cursor-pointer"
+                                        title="Click to schedule follow-up"
+                                      >
+                                        <CalendarPlus className="w-2.5 h-2.5 text-accent stroke-[1.8]" />
+                                        <span>Schedule</span>
                                       </button>
                                     )}
                                   </div>
+                                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      draggable={false}
+                                      onDragStart={(e) => e.stopPropagation()}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onOpenChat(cust);
+                                      }}
+                                      className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold rounded-xs border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-0.5 shadow-2xs text-[9px] cursor-pointer"
+                                      title="Open live WhatsApp chat in popup"
+                                    >
+                                      <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366]" />
+                                      <span>Chat</span>
+                                    </button>
+                                    {cust.phone && (
+                                      <a
+                                        href={`tel:${formatDialablePhone(cust.phone)}`}
+                                        draggable={false}
+                                        onDragStart={(e) => e.stopPropagation()}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="px-1.5 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 font-semibold rounded-xs border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-0.5 shadow-2xs text-[9px] cursor-pointer"
+                                        title={`Click to call ${formatDisplayPhone(cust.phone)}`}
+                                      >
+                                        <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
+                                        <span>Call</span>
+                                      </a>
+                                    )}
+                                  </div>
+
+                                  {/* Popover inside Kanban card */}
+                                  {schedulingCustomerId === cust.id && (
+                                    <FollowupSchedulerPopover
+                                      currentDate={cust.followup_date}
+                                      currentTime={cust.followup_time}
+                                      onSelect={(newDate, newTime) => {
+                                        handleQuickUpdate(cust.id, {
+                                          followup_date: newDate,
+                                          followup_time: newTime || '10:00 AM',
+                                        });
+                                        setSchedulingCustomerId(null);
+                                      }}
+                                      onClear={() => {
+                                        handleQuickUpdate(cust.id, {
+                                          followup_date: null as any,
+                                          followup_time: null as any,
+                                        });
+                                        setSchedulingCustomerId(null);
+                                      }}
+                                      onClose={() => setSchedulingCustomerId(null)}
+                                    />
+                                  )}
                                 </div>
                               </div>
-                              <div className="flex flex-col items-end gap-1 shrink-0">
-                                <span
-                                  className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1 py-0.2 rounded-xs uppercase tracking-wider shrink-0 ${
-                                    cust.lead_probability === 'hot'
-                                      ? 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
-                                      : cust.lead_probability === 'cold'
-                                      ? 'bg-sky-50 text-sky-700 border border-sky-200/80 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
-                                      : cust.lead_probability === 'converted' || cust.lead_probability === 'booked' || cust.converted
-                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                                      : 'bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                                  }`}
-                                >
-                                  {cust.lead_probability === 'hot' ? (
-                                    <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
-                                  ) : cust.lead_probability === 'cold' ? (
-                                    <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
-                                  ) : cust.lead_probability === 'converted' || cust.lead_probability === 'booked' || cust.converted ? (
-                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 stroke-[2] shrink-0" />
-                                  ) : (
-                                    <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
-                                  )}
-                                  <span>
-                                    {cust.lead_probability === 'converted' || cust.converted
-                                      ? 'CONVERTED'
-                                      : cust.lead_probability === 'booked'
-                                      ? 'BOOKED'
-                                      : cust.lead_probability || 'WARM'}
-                                  </span>
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Service / Inquiry tag */}
-                            {(cust.health_concern || cust.last_visit_service) && (
-                              <p className="text-[9px] text-text-secondary bg-surface-subtle px-1.5 py-0.5 rounded-xs border border-border/50 truncate font-medium block">
-                                {cust.health_concern || cust.last_visit_service}
-                              </p>
-                            )}
-
-                            {/* Outcome Status & Next Action badges */}
-                            {(cust.call_status || cust.next_action) && (
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {cust.call_status && (
-                                  <span className={`text-[8.5px] font-semibold px-1 py-0.2 rounded-xs border ${getOutcomeStatusStyle(cust.call_status).bg} ${getOutcomeStatusStyle(cust.call_status).text} ${getOutcomeStatusStyle(cust.call_status).border}`}>
-                                    {cust.call_status}
-                                  </span>
-                                )}
-                                {cust.next_action && (
-                                  <span className="text-[8.5px] font-medium px-1 py-0.2 rounded-xs bg-surface-subtle text-text-muted border border-border/60">
-                                    {cust.next_action}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Inline Note Snippet */}
-                            {cust.latest_note ? (
-                              <div className="px-1.5 py-1 rounded-xs bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 text-amber-950 dark:text-amber-200 text-[9.5px] leading-snug line-clamp-2 italic">
-                                "{cust.latest_note}"
-                              </div>
-                            ) : null}
-
-                            {/* Card Footer: Follow-up & Chat Button */}
-                            <div
-                              draggable={false}
-                              onDragStart={(e) => e.stopPropagation()}
-                              className="flex items-center justify-between pt-1 border-t border-border/50 text-[9.5px] relative"
-                            >
-                              <div className="min-w-0">
-                                {cust.followup_date ? (
-                                  <button
-                                    type="button"
-                                    draggable={false}
-                                    onDragStart={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
-                                    }}
-                                    className="cursor-pointer hover:opacity-80 truncate block text-[9.5px]"
-                                    title="Click to reschedule"
-                                  >
-                                    {getFollowupBadge(cust.followup_date)}
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    draggable={false}
-                                    onDragStart={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
-                                    }}
-                                    className="inline-flex items-center gap-1 text-[9.5px] text-text-muted hover:text-accent font-medium cursor-pointer"
-                                    title="Click to schedule follow-up"
-                                  >
-                                    <CalendarPlus className="w-3 h-3 text-accent stroke-[1.8]" />
-                                    <span>Schedule</span>
-                                  </button>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  draggable={false}
-                                  onDragStart={(e) => e.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenChat(cust);
-                                  }}
-                                  className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold rounded-xs border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1 shadow-2xs text-[9.5px] cursor-pointer"
-                                  title="Open live WhatsApp chat in popup"
-                                >
-                                  <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366]" />
-                                  <span>Chat</span>
-                                </button>
-                                {cust.phone && (
-                                  <a
-                                    href={`tel:${formatDialablePhone(cust.phone)}`}
-                                    draggable={false}
-                                    onDragStart={(e) => e.stopPropagation()}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="px-1.5 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 font-semibold rounded-xs border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-1 shadow-2xs text-[9.5px] cursor-pointer"
-                                    title={`Click to call ${formatDisplayPhone(cust.phone)}`}
-                                  >
-                                    <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
-                                    <span>Call</span>
-                                  </a>
-                                )}
-                              </div>
-
-                              {/* Popover inside Kanban card */}
-                              {schedulingCustomerId === cust.id && (
-                                <FollowupSchedulerPopover
-                                  currentDate={cust.followup_date}
-                                  currentTime={cust.followup_time}
-                                  onSelect={(newDate, newTime) => {
-                                    handleQuickUpdate(cust.id, {
-                                      followup_date: newDate,
-                                      followup_time: newTime || '10:00 AM',
-                                    });
-                                    setSchedulingCustomerId(null);
-                                  }}
-                                  onClear={() => {
-                                    handleQuickUpdate(cust.id, {
-                                      followup_date: null as any,
-                                      followup_time: null as any,
-                                    });
-                                    setSchedulingCustomerId(null);
-                                  }}
-                                  onClose={() => setSchedulingCustomerId(null)}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           </div>
-        </div>
         )}
 
         {/* TASKS VIEW */}
