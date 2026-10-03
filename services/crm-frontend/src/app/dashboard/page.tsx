@@ -13508,34 +13508,53 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
                   </div>
 
-                  {/* Row 2: Unified Layer / Filter Selector Pills (All, Appointments, Follow-ups, Tasks) */}
-                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-md p-0.5 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
-                    {[
-                      { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) + (liveGcalEvents?.length || 0) },
-                      { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
-                      ...(liveGcalEvents && liveGcalEvents.length > 0 ? [{ key: 'gcal', label: 'Google Cal', icon: Calendar, count: liveGcalEvents.length }] : []),
-                      { key: 'followups', label: 'Follow-ups', icon: Phone, count: customers?.filter(c => c.followup_date).length || 0 },
-                      { key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 },
-                    ].map((tab) => {
-                      const IconComp = tab.icon;
-                      const isActive = calendarLayerFilter === tab.key;
-                      return (
-                        <button
-                          key={tab.key}
-                          type="button"
-                          onClick={() => setCalendarLayerFilter(tab.key as any)}
-                          className={`h-7 flex items-center gap-1.5 px-2.5 py-0.5 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
-                            isActive
-                              ? 'bg-surface text-text-primary font-semibold border border-border shadow-xs'
-                              : 'text-text-secondary hover:text-text-primary border border-transparent'
-                          }`}
-                        >
-                          <IconComp className="w-3 h-3 stroke-[1.5]" />
-                          <span>{tab.label}</span>
-                          <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tab.count}</span>
-                        </button>
-                      );
-                    })}
+                  {/* Row 2: Unified Layer / Filter Selector Pills & Follow-up Warmth Legend */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-md p-0.5 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
+                      {[
+                        { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) + (liveGcalEvents?.length || 0) },
+                        { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
+                        ...(liveGcalEvents && liveGcalEvents.length > 0 ? [{ key: 'gcal', label: 'Google Cal', icon: Calendar, count: liveGcalEvents.length }] : []),
+                        { key: 'followups', label: 'Follow-ups', icon: Phone, count: customers?.filter(c => c.followup_date).length || 0 },
+                        { key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 },
+                      ].map((tab) => {
+                        const IconComp = tab.icon;
+                        const isActive = calendarLayerFilter === tab.key;
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setCalendarLayerFilter(tab.key as any)}
+                            className={`h-7 flex items-center gap-1.5 px-2.5 py-0.5 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
+                              isActive
+                                ? 'bg-surface text-text-primary font-semibold border border-border shadow-xs'
+                                : 'text-text-secondary hover:text-text-primary border border-transparent'
+                            }`}
+                          >
+                            <IconComp className="w-3 h-3 stroke-[1.5]" />
+                            <span>{tab.label}</span>
+                            <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tab.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Follow-up Warmth Legend */}
+                    <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-text-muted shrink-0">
+                      <span className="text-[10px] uppercase font-bold tracking-wider">Intent:</span>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-semibold">
+                        <Flame className="w-2.5 h-2.5 text-rose-600" /> Hot
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
+                        <Sun className="w-2.5 h-2.5 text-amber-600" /> Warm
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-semibold">
+                        <Snowflake className="w-2.5 h-2.5 text-sky-600" /> Cold
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Booked
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -13694,6 +13713,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 if (item.type === 'followup') {
                                   const cust = item.data;
                                   const timeInfo = parseEventTime(cust.followup_time);
+                                  const disp = getLeadRateDisplay(cust);
+                                  const WarmthIcon = disp.icon;
                                   return (
                                     <button
                                       type="button"
@@ -13702,10 +13723,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         e.stopPropagation();
                                         openCustomerProfileByPhone(cust.phone, cust.name || undefined);
                                       }}
-                                      className="w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
-                                      title={`Follow-up with ${cust.name || cust.phone} (${timeInfo.formatted})`}
+                                      className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors cursor-pointer border ${disp.pillClass}`}
+                                      title={`[${disp.label}] Follow-up with ${cust.name || cust.phone} (${timeInfo.formatted})`}
                                     >
-                                      <span className="inline-flex items-center gap-1 truncate"><Phone className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> {timeInfo.formatted} · {cust.name || cust.phone}</span>
+                                      <span className="inline-flex items-center gap-1 truncate">
+                                        <WarmthIcon className={`w-2.5 h-2.5 shrink-0 ${disp.iconColor}`} />
+                                        <span className="opacity-80 font-mono text-[9px]">{timeInfo.formatted} ·</span>
+                                        <span className="truncate font-semibold">{cust.name || cust.phone}</span>
+                                      </span>
                                     </button>
                                   );
                                 }
@@ -13840,30 +13865,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </span>
                               </a>
                             ))}
-                            {showFollowups && dayAllDayFollowups.map((cust) => (
-                              <div
-                                key={`adf-${cust.id}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openCustomerProfileByPhone(cust.phone, cust.name || undefined);
-                                }}
-                                className="px-1.5 py-0.5 rounded-xs bg-blue-50 border border-blue-200 text-blue-800 text-[10px] flex items-center justify-between gap-1 cursor-pointer hover:bg-blue-100 transition-colors"
-                                title={`Follow-up: ${cust.name || cust.phone}`}
-                              >
-                                <span className="truncate font-medium flex items-center gap-1"><Phone className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> {cust.name || cust.phone}</span>
-                                <button
-                                  type="button"
+                            {showFollowups && dayAllDayFollowups.map((cust) => {
+                              const disp = getLeadRateDisplay(cust);
+                              const WarmthIcon = disp.icon;
+                              return (
+                                <div
+                                  key={`adf-${cust.id}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    openChatForContact(cust.phone);
+                                    openCustomerProfileByPhone(cust.phone, cust.name || undefined);
                                   }}
-                                  className="text-blue-700 hover:text-blue-900 shrink-0 cursor-pointer"
-                                  title="WhatsApp chat"
+                                  className={`px-1.5 py-0.5 rounded-xs border text-[10px] flex items-center justify-between gap-1 cursor-pointer transition-colors ${disp.pillClass}`}
+                                  title={`[${disp.label}] Follow-up: ${cust.name || cust.phone}`}
                                 >
-                                  <MessageSquare className="w-2.5 h-2.5" />
-                                </button>
-                              </div>
-                            ))}
+                                  <span className="truncate font-medium flex items-center gap-1">
+                                    <WarmthIcon className={`w-2.5 h-2.5 shrink-0 ${disp.iconColor}`} />
+                                    <span className="truncate font-semibold">{cust.name || cust.phone}</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openChatForContact(cust.phone);
+                                    }}
+                                    className="opacity-75 hover:opacity-100 shrink-0 cursor-pointer"
+                                    title="WhatsApp chat"
+                                  >
+                                    <MessageSquare className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              );
+                            })}
 
                             {showTasks && dayAllDayTasks.map((t) => (
                               <div
@@ -14041,6 +14073,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                     {showFollowups && slotFollowups.map((cust) => {
                                       const tInfo = parseEventTime(cust.followup_time);
+                                      const disp = getLeadRateDisplay(cust);
+                                      const WarmthIcon = disp.icon;
                                       return (
                                         <div
                                           key={cust.id}
@@ -14048,24 +14082,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             e.stopPropagation();
                                             openCustomerProfileByPhone(cust.phone, cust.name || undefined);
                                           }}
-                                          className="p-1 rounded-sm border bg-blue-50 border-blue-200 text-blue-800 text-left cursor-pointer hover:bg-blue-100 text-[10px] transition-colors"
-                                          title={`Follow-up with ${cust.name || cust.phone} (${tInfo.formatted})`}
+                                          className={`p-1 rounded-sm border text-left cursor-pointer text-[10px] transition-colors ${disp.pillClass}`}
+                                          title={`[${disp.label} (${disp.rate}%)] Follow-up with ${cust.name || cust.phone} (${tInfo.formatted})`}
                                         >
                                           <div className="flex items-center justify-between gap-1 font-semibold">
-                                            <span className="truncate flex items-center gap-1"><Phone className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> {cust.name || cust.phone}</span>
+                                            <span className="truncate flex items-center gap-1">
+                                              <WarmthIcon className={`w-2.5 h-2.5 shrink-0 stroke-[2] ${disp.iconColor}`} />
+                                              <span className="truncate">{cust.name || cust.phone}</span>
+                                            </span>
                                             <button
                                               type="button"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 openChatForContact(cust.phone);
                                               }}
-                                              className="p-0.5 text-blue-700 hover:text-blue-950 rounded hover:bg-blue-200/50 transition-colors cursor-pointer shrink-0"
+                                              className="p-0.5 opacity-80 hover:opacity-100 rounded hover:bg-black/5 transition-colors cursor-pointer shrink-0"
                                               title="WhatsApp Chat"
                                             >
                                               <MessageSquare className="w-2.5 h-2.5" />
                                             </button>
                                           </div>
-                                          <p className="truncate text-blue-700 mt-0.5">{cust.health_concern || 'Follow-up Call'}</p>
+                                          <div className="flex items-center justify-between gap-1 mt-0.5 opacity-90 text-[9px]">
+                                            <span className="truncate">{cust.health_concern || 'Follow-up Call'}</span>
+                                            <span className="font-semibold text-[8px] uppercase tracking-wider shrink-0">{disp.label}</span>
+                                          </div>
                                         </div>
                                       );
                                     })}
@@ -14258,31 +14298,43 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </span>
                               </a>
                             ))}
-                            {showFollowups && allDayFollowups.map((cust) => (
-                              <div
-                                key={`dadf-${cust.id}`}
-                                onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
-                                className="p-2.5 rounded-sm border bg-blue-50/70 border-blue-200 text-blue-900 flex items-center justify-between gap-2 cursor-pointer hover:bg-blue-100/70 transition-colors"
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-semibold truncate flex items-center gap-1.5"><Phone className="w-3 h-3 shrink-0 stroke-[1.8]" /> {cust.name || cust.phone}</p>
-                                  <p className="text-[11px] text-blue-700 truncate">{cust.health_concern || 'Follow-up Call'}</p>
+                            {showFollowups && allDayFollowups.map((cust) => {
+                              const disp = getLeadRateDisplay(cust);
+                              const WarmthIcon = disp.icon;
+                              return (
+                                <div
+                                  key={`dadf-${cust.id}`}
+                                  onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
+                                  className={`p-2.5 rounded-sm border flex items-center justify-between gap-2 cursor-pointer transition-colors ${disp.pillClass}`}
+                                  title={`[${disp.label} (${disp.rate}%)] Follow-up: ${cust.name || cust.phone}`}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold truncate flex items-center gap-1.5">
+                                      <WarmthIcon className={`w-3.5 h-3.5 shrink-0 stroke-[2] ${disp.iconColor}`} />
+                                      <span className="truncate">{cust.name || cust.phone}</span>
+                                    </p>
+                                    <div className="flex items-center gap-1.5 mt-0.5 text-[11px] opacity-90">
+                                      <span className="truncate">{cust.health_concern || 'Follow-up Call'}</span>
+                                      <span>&bull;</span>
+                                      <span className="font-semibold text-[9px] uppercase tracking-wider">{disp.label} ({disp.rate}%)</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openChatForContact(cust.phone);
+                                      }}
+                                      className="p-1 opacity-80 hover:opacity-100 hover:bg-black/5 rounded cursor-pointer transition-colors"
+                                      title="WhatsApp Chat"
+                                    >
+                                      <MessageSquare className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openChatForContact(cust.phone);
-                                    }}
-                                    className="p-1 text-blue-700 hover:text-blue-950 hover:bg-blue-200 rounded cursor-pointer"
-                                    title="WhatsApp Chat"
-                                  >
-                                    <MessageSquare className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
 
                             {showTasks && allDayTasks.map((t) => (
                               <div
@@ -14476,21 +14528,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {/* Follow-ups */}
                                   {showFollowups && hourFollowups.map((cust) => {
                                     const tInfo = parseEventTime(cust.followup_time);
+                                    const disp = getLeadRateDisplay(cust);
+                                    const WarmthIcon = disp.icon;
                                     return (
                                       <div
                                         key={`hf-${cust.id}`}
                                         onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
-                                        className="p-3 bg-blue-50/70 hover:bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150"
+                                        className={`p-3 border rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150 ${disp.pillClass}`}
+                                        title={`[${disp.label} (${disp.rate}%)] Follow-up: ${cust.name || cust.phone}`}
                                       >
-                                        <div className="flex items-center gap-3">
-                                          <Phone className="w-4 h-4 text-blue-600" />
-                                          <div>
-                                            <p className="text-xs font-semibold text-blue-950">Follow-up: {cust.name || cust.phone}</p>
-                                            <p className="text-[11px] text-blue-800">{cust.health_concern || 'Follow-up Call'} &bull; Assigned: {cust.preferred_doctor || 'Staff'}</p>
+                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                          <div className="p-2 rounded-full bg-white/70 dark:bg-black/20 shrink-0">
+                                            <WarmthIcon className={`w-4 h-4 stroke-[2] ${disp.iconColor}`} />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                              <p className="text-xs font-semibold truncate">{cust.name || cust.phone}</p>
+                                              <span className="font-semibold text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/80 dark:bg-black/40 border border-current opacity-85 shrink-0">
+                                                {disp.label} ({disp.rate}%)
+                                              </span>
+                                            </div>
+                                            <p className="text-[11px] opacity-90 truncate mt-0.5">
+                                              {cust.health_concern || 'Follow-up Call'} &bull; Assigned: {cust.preferred_doctor || 'Staff'}
+                                            </p>
                                           </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-[10px] font-medium bg-blue-100 text-blue-900 px-2 py-0.5 rounded-sm border border-blue-300">
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className="text-[10px] font-medium bg-white/75 dark:bg-black/30 px-2 py-0.5 rounded-sm border border-current opacity-80 font-mono">
                                             {tInfo.formatted}
                                           </span>
                                           <button
@@ -14499,7 +14563,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                               e.stopPropagation();
                                               openChatForContact(cust.phone);
                                             }}
-                                            className="p-1.5 bg-blue-100 hover:bg-blue-600 hover:text-white text-blue-800 rounded border border-blue-300 transition-colors cursor-pointer"
+                                            className="p-1.5 opacity-80 hover:opacity-100 hover:bg-black/10 rounded border border-current transition-colors cursor-pointer"
                                             title="Chat on WhatsApp"
                                           >
                                             <MessageSquare className="w-3.5 h-3.5" />
