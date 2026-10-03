@@ -701,9 +701,107 @@ const STAGE_STYLES: Record<string, { bg: string; text: string; border: string; d
   'new':       { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200',    dot: 'bg-blue-500' },
   'contacted': { bg: 'bg-indigo-50',  text: 'text-indigo-700',  border: 'border-indigo-200',  dot: 'bg-indigo-500' },
   'follow-up': { bg: 'bg-amber-50',   text: 'text-amber-800',   border: 'border-amber-200',   dot: 'bg-amber-500' },
+  'booked':    { bg: 'bg-teal-50',    text: 'text-teal-700',    border: 'border-teal-200',    dot: 'bg-teal-500' },
   'converted': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
   'lost':      { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    dot: 'bg-rose-400' },
 };
+
+/**
+ * Determines whether a customer belongs to a pipeline stage.
+ * Handles unified matching for booked/converted, lost/cancelled, follow-up, contacted, and new inquiries.
+ */
+export function isCustomerInStage(c: Customer, stageId: string): boolean {
+  const sId = (stageId || '').toLowerCase().trim();
+  const statusLower = (c.status || '').toLowerCase().trim();
+  const callStatusLower = (c.call_status || '').toLowerCase().trim();
+
+  const isBookedOrConverted = (
+    statusLower === 'converted' ||
+    statusLower === 'booked' ||
+    Boolean(c.converted) ||
+    c.conversion_rate === 100 ||
+    c.conversion_rate === 99 ||
+    c.lead_probability === 'converted' ||
+    c.lead_probability === 'booked' ||
+    (c.completed_bookings_count ?? 0) > 0 ||
+    callStatusLower === 'converted' ||
+    callStatusLower === 'confirmed' ||
+    callStatusLower === 'confirmed via whatsapp' ||
+    callStatusLower === 'booking requested'
+  );
+
+  const isLostOrCancelled = (
+    statusLower === 'lost' ||
+    statusLower === 'cancelled' ||
+    callStatusLower === 'blue flag (lost)' ||
+    callStatusLower === 'wrong number' ||
+    callStatusLower === 'not interested' ||
+    callStatusLower === 'lost'
+  );
+
+  if (sId === 'converted' || sId === 'booked') {
+    if (sId === 'converted') {
+      return isBookedOrConverted;
+    }
+    if (sId === 'booked') {
+      return (
+        statusLower === 'booked' ||
+        c.lead_probability === 'booked' ||
+        c.conversion_rate === 99 ||
+        callStatusLower === 'confirmed' ||
+        callStatusLower === 'confirmed via whatsapp' ||
+        callStatusLower === 'booking requested'
+      );
+    }
+  }
+
+  if (sId === 'lost') {
+    return isLostOrCancelled;
+  }
+
+  // If customer is already booked/converted or lost, do NOT show in other active stages
+  if (isBookedOrConverted || isLostOrCancelled) {
+    return false;
+  }
+
+  if (sId === 'follow-up' || sId === 'followup' || sId === 'action_due') {
+    return (
+      statusLower === 'follow-up' ||
+      statusLower === 'followup' ||
+      callStatusLower === 'follow-up' ||
+      callStatusLower === 'call again' ||
+      callStatusLower === 'no response' ||
+      Boolean(c.followup_date)
+    );
+  }
+
+  if (sId === 'contacted' || sId === 'in_progress') {
+    return (
+      statusLower === 'contacted' ||
+      statusLower === 'in_progress' ||
+      callStatusLower === 'info given & taken' ||
+      callStatusLower === 'requirements gathered' ||
+      callStatusLower === 'pricing sent' ||
+      callStatusLower === 'not picked' ||
+      callStatusLower === 'out of service / busy' ||
+      callStatusLower === 'busy' ||
+      callStatusLower === 'missed' ||
+      callStatusLower === 'contacted'
+    );
+  }
+
+  if (sId === 'new') {
+    return (
+      statusLower === 'new' ||
+      callStatusLower === 'new (fresh)' ||
+      callStatusLower === 'new' ||
+      (!statusLower && !callStatusLower)
+    );
+  }
+
+  return statusLower === sId;
+}
+
 
 
 interface ModernCustomerViewProps {
@@ -853,7 +951,8 @@ export function ModernCustomerView({
       { id: 'new',       label: 'New Inquiry',             visible: true },
       { id: 'contacted', label: 'Contacted / In Progress', visible: true },
       { id: 'follow-up', label: 'Follow-up Due',           visible: true },
-      { id: 'converted', label: 'Booked / Converted',      visible: true },
+      { id: 'booked',    label: 'Booked (99%)',            visible: true },
+      { id: 'converted', label: 'Converted (100%)',        visible: true },
       { id: 'lost',      label: 'Lost / Inactive',         visible: true },
     ];
     const src = (crmDropdowns?.pipeline_columns && crmDropdowns.pipeline_columns.length > 0)
@@ -921,23 +1020,27 @@ export function ModernCustomerView({
   // Computed Executive KPI Stats
   const kpis = useMemo(() => {
     const total = customers.length;
-    const hotLeads = customers.filter((c) => c.lead_probability === 'hot').length;
-    const warmLeads = customers.filter((c) => c.lead_probability === 'warm').length;
-    const converted = customers.filter((c) => c.status === 'converted' || c.converted).length;
+    const newLeads = customers.filter((c) => isCustomerInStage(c, 'new')).length;
+    const hotLeads = customers.filter((c) => (c.lead_probability || '').toLowerCase() === 'hot').length;
+    const warmLeads = customers.filter((c) => (c.lead_probability || '').toLowerCase() === 'warm').length;
+    const coldLeads = customers.filter((c) => (c.lead_probability || '').toLowerCase() === 'cold').length;
+    const converted = customers.filter((c) => isCustomerInStage(c, 'converted')).length;
+    const lost = customers.filter((c) => isCustomerInStage(c, 'lost')).length;
 
     const todayStr = new Date().toISOString().split('T')[0];
     const followupsDue = customers.filter((c) => {
-      if (!c.followup_date) return false;
-      return c.followup_date <= todayStr && c.status !== 'converted' && c.status !== 'lost';
+      if (isCustomerInStage(c, 'converted') || isCustomerInStage(c, 'lost')) return false;
+      if (!c.followup_date) return c.status === 'follow-up';
+      return c.followup_date <= todayStr;
     }).length;
 
     const winRate = total > 0 ? Math.round((converted / total) * 100) : 0;
     const totalPipelineValue = customers.reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
     const convertedPipelineValue = customers
-      .filter((c) => c.status === 'converted' || c.converted)
+      .filter((c) => isCustomerInStage(c, 'converted'))
       .reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
 
-    return { total, hotLeads, warmLeads, converted, followupsDue, winRate, totalPipelineValue, convertedPipelineValue };
+    return { total, newLeads, hotLeads, warmLeads, coldLeads, converted, lost, followupsDue, winRate, totalPipelineValue, convertedPipelineValue };
   }, [customers]);
 
   // Filtered customers with instant live search across all fields
@@ -992,17 +1095,16 @@ export function ModernCustomerView({
       // 2. Stage / Outcome Filter
       if (stageFilter === 'action_due') {
         const todayStr = new Date().toISOString().split('T')[0];
-        if (!c.followup_date || c.followup_date > todayStr || c.status === 'converted' || c.status === 'lost') {
+        if (isCustomerInStage(c, 'converted') || isCustomerInStage(c, 'lost')) {
+          return false;
+        }
+        if (!c.followup_date) {
+          if (c.status !== 'follow-up') return false;
+        } else if (c.followup_date > todayStr) {
           return false;
         }
       } else if (stageFilter !== 'all') {
-        const fLower = stageFilter.toLowerCase();
-        const callStatusLower = (c.call_status || '').toLowerCase();
-        const statusLower = (c.status || '').toLowerCase();
-        const matchesOutcome = callStatusLower === fLower;
-        const matchesStatus = statusLower === fLower;
-        const matchesConverted = fLower === 'converted' && (Boolean(c.converted) || statusLower === 'converted' || callStatusLower.includes('confirm') || callStatusLower.includes('convert'));
-        if (!matchesOutcome && !matchesStatus && !matchesConverted) return false;
+        if (!isCustomerInStage(c, stageFilter)) return false;
       }
 
       // 3. Service Filter
@@ -1024,9 +1126,19 @@ export function ModernCustomerView({
         if (cAct !== fAct) return false;
       }
 
-      // 5. Warmth Filter
+      // 5. Warmth / Intent Filter (hot, warm, cold)
       if (warmthFilter !== 'all') {
-        if (c.lead_probability !== warmthFilter) return false;
+        const wLower = warmthFilter.toLowerCase();
+        const leadProb = (c.lead_probability || '').toLowerCase();
+        if (wLower === 'hot' && leadProb !== 'hot') return false;
+        if (wLower === 'warm' && leadProb !== 'warm') return false;
+        if (wLower === 'cold' && leadProb !== 'cold') return false;
+        if (wLower === 'converted') {
+          if (!isCustomerInStage(c, 'converted')) return false;
+        }
+        if (wLower === 'new') {
+          if (!isCustomerInStage(c, 'new')) return false;
+        }
       }
 
       // 6. Staff Filter
@@ -1060,22 +1172,40 @@ export function ModernCustomerView({
     }
   };
 
-  // Drag and Drop lead handler
+  // Drag and Drop lead handler with unified stage state synchronization
   const handleDropLead = async (targetStage: string, customerIdToMove?: string) => {
     const custId = customerIdToMove || draggedCustomerId;
     if (!custId) return;
     const targetCustomer = customers.find((c) => c.id === custId);
     if (!targetCustomer) return;
 
-    if (targetCustomer.status !== targetStage) {
-      await handleQuickUpdate(custId, {
-        status: targetStage as any,
-        ...(targetStage === 'converted'
-          ? { converted: true }
-          : targetCustomer.converted && targetStage !== 'converted'
-          ? { converted: false }
-          : {}),
-      });
+    if (!isCustomerInStage(targetCustomer, targetStage)) {
+      let patch: Partial<Customer> = { status: targetStage as any };
+      if (targetStage === 'converted') {
+        patch.converted = true;
+        patch.call_status = 'Converted';
+        patch.conversion_rate = 100;
+        patch.lead_probability = 'converted';
+      } else if (targetStage === 'lost') {
+        patch.converted = false;
+        patch.call_status = 'Blue Flag (Lost)';
+        patch.lead_probability = 'cold';
+      } else if (targetStage === 'new') {
+        patch.converted = false;
+        patch.call_status = 'New (Fresh)';
+      } else if (targetStage === 'contacted') {
+        patch.converted = false;
+        if (!targetCustomer.call_status || targetCustomer.call_status === 'New (Fresh)' || targetCustomer.call_status === 'Converted') {
+          patch.call_status = 'Info Given & Taken';
+        }
+      } else if (targetStage === 'follow-up') {
+        patch.converted = false;
+        if (!targetCustomer.followup_date) {
+          patch.followup_date = getFollowupDateString(1);
+          patch.followup_time = '10:00 AM';
+        }
+      }
+      await handleQuickUpdate(custId, patch);
     }
     setDraggedCustomerId(null);
     setDragOverStage(null);
@@ -1595,23 +1725,55 @@ export function ModernCustomerView({
         </div>
       )}
 
-      {/* ── 1. ULTRA-SLIM KPI STATS STRIP ───────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md px-2.5 py-1 shadow-2xs shrink-0 text-xs">
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 text-text-secondary font-medium shrink-0 h-6 sm:h-6.5">
+      {/* ── 1. COMPREHENSIVE SEGMENTED KPI QUICK FILTER STRIP ────────────────── */}
+      <div className="flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md px-2 py-1 shadow-2xs shrink-0 text-xs">
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Total */}
+          <button
+            type="button"
+            onClick={() => {
+              setWarmthFilter('all');
+              setStageFilter('all');
+            }}
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+              warmthFilter === 'all' && stageFilter === 'all'
+                ? 'bg-surface-subtle text-text-primary font-bold border border-border shadow-2xs'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle/50'
+            }`}
+            title="Show all contacts (reset stage and intent filters)"
+          >
             <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
             <span className="font-bold text-text-primary">{kpis.total}</span>
             <span className="text-text-muted">Total</span>
-          </div>
+          </button>
 
           <div className="h-3 w-px bg-border/80 shrink-0" />
 
+          {/* New Inquiries */}
+          <button
+            type="button"
+            onClick={() => setStageFilter(stageFilter === 'new' ? 'all' : 'new')}
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+              stageFilter === 'new'
+                ? 'bg-blue-50 text-blue-700 font-bold border border-blue-300 shadow-2xs'
+                : 'text-text-secondary hover:text-blue-600 hover:bg-blue-50/50'
+            }`}
+            title="Click to toggle New Inquiries"
+          >
+            <Zap className="w-3.5 h-3.5 text-blue-500 stroke-[1.8]" />
+            <span className="font-bold text-blue-600">{kpis.newLeads}</span>
+            <span>New</span>
+          </button>
+
+          <div className="h-3 w-px bg-border/80 shrink-0" />
+
+          {/* Hot */}
           <button
             type="button"
             onClick={() => setWarmthFilter(warmthFilter === 'hot' ? 'all' : 'hot')}
-            className={`h-6 sm:h-6.5 flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
               warmthFilter === 'hot'
-                ? 'bg-rose-50 text-rose-700 font-semibold border border-rose-200'
+                ? 'bg-rose-50 text-rose-700 font-bold border border-rose-300 shadow-2xs'
                 : 'text-text-secondary hover:text-rose-600 hover:bg-rose-50/50'
             }`}
             title="Click to toggle Hot Intent filter"
@@ -1623,12 +1785,49 @@ export function ModernCustomerView({
 
           <div className="h-3 w-px bg-border/80 shrink-0" />
 
+          {/* Warm */}
+          <button
+            type="button"
+            onClick={() => setWarmthFilter(warmthFilter === 'warm' ? 'all' : 'warm')}
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+              warmthFilter === 'warm'
+                ? 'bg-amber-50 text-amber-800 font-bold border border-amber-300 shadow-2xs'
+                : 'text-text-secondary hover:text-amber-700 hover:bg-amber-50/50'
+            }`}
+            title="Click to toggle Warm Intent filter"
+          >
+            <Sun className="w-3.5 h-3.5 text-amber-500 stroke-[1.8]" />
+            <span className="font-bold text-amber-700">{kpis.warmLeads}</span>
+            <span>Warm</span>
+          </button>
+
+          <div className="h-3 w-px bg-border/80 shrink-0" />
+
+          {/* Cold */}
+          <button
+            type="button"
+            onClick={() => setWarmthFilter(warmthFilter === 'cold' ? 'all' : 'cold')}
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+              warmthFilter === 'cold'
+                ? 'bg-sky-50 text-sky-800 font-bold border border-sky-300 shadow-2xs'
+                : 'text-text-secondary hover:text-sky-700 hover:bg-sky-50/50'
+            }`}
+            title="Click to toggle Cold Intent filter"
+          >
+            <Snowflake className="w-3.5 h-3.5 text-sky-500 stroke-[1.8]" />
+            <span className="font-bold text-sky-700">{kpis.coldLeads}</span>
+            <span>Cold</span>
+          </button>
+
+          <div className="h-3 w-px bg-border/80 shrink-0" />
+
+          {/* Follow-ups Due */}
           <button
             type="button"
             onClick={() => setStageFilter(stageFilter === 'action_due' ? 'all' : 'action_due')}
-            className={`h-6 sm:h-6.5 flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
               stageFilter === 'action_due'
-                ? 'bg-amber-50 text-amber-800 font-semibold border border-amber-300'
+                ? 'bg-amber-100 text-amber-900 font-bold border border-amber-400 shadow-2xs'
                 : 'text-text-secondary hover:text-amber-700 hover:bg-amber-50/50'
             }`}
             title="Click to toggle Follow-ups Due filter"
@@ -1640,19 +1839,38 @@ export function ModernCustomerView({
 
           <div className="h-3 w-px bg-border/80 shrink-0" />
 
+          {/* Converted / Booked */}
           <button
             type="button"
             onClick={() => setStageFilter(stageFilter === 'converted' ? 'all' : 'converted')}
-            className={`h-6 sm:h-6.5 flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
               stageFilter === 'converted'
-                ? 'bg-emerald-50 text-emerald-800 font-semibold border border-emerald-300'
+                ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-300 shadow-2xs'
                 : 'text-text-secondary hover:text-emerald-700 hover:bg-emerald-50/50'
             }`}
-            title="Click to toggle Converted filter"
+            title="Click to toggle Converted / Booked filter"
           >
             <TrendingUp className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
             <span className="font-bold text-emerald-700">{kpis.converted}</span>
             <span>Converted</span>
+          </button>
+
+          <div className="h-3 w-px bg-border/80 shrink-0" />
+
+          {/* Lost / Inactive */}
+          <button
+            type="button"
+            onClick={() => setStageFilter(stageFilter === 'lost' ? 'all' : 'lost')}
+            className={`h-6 sm:h-6.5 flex items-center gap-1 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
+              stageFilter === 'lost'
+                ? 'bg-slate-100 text-slate-800 font-bold border border-slate-300 shadow-2xs'
+                : 'text-text-secondary hover:text-slate-700 hover:bg-slate-50/50'
+            }`}
+            title="Click to toggle Lost / Inactive filter"
+          >
+            <X className="w-3.5 h-3.5 text-slate-500 stroke-[1.8]" />
+            <span className="font-bold text-slate-700">{kpis.lost}</span>
+            <span>Lost</span>
           </button>
         </div>
 
@@ -1760,6 +1978,35 @@ export function ModernCustomerView({
         </div>
 
         {/* Filter selects */}
+        {/* 1. Stage / Pipeline Filter */}
+        <select
+          value={stageFilter}
+          onChange={(e) => setStageFilter(e.target.value)}
+          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
+          title="Filter by pipeline stage"
+        >
+          <option value="all">All Stages</option>
+          <option value="new">⚡ New Inquiry</option>
+          <option value="contacted">💬 Contacted / In Progress</option>
+          <option value="action_due">⏰ Follow-up Due</option>
+          <option value="converted">🏆 Booked / Converted</option>
+          <option value="lost">🚫 Lost / Inactive</option>
+        </select>
+
+        {/* 2. Warmth / Intent Filter */}
+        <select
+          value={warmthFilter}
+          onChange={(e) => setWarmthFilter(e.target.value)}
+          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
+          title="Filter by buying intent"
+        >
+          <option value="all">All Intent</option>
+          <option value="hot">🔥 Hot</option>
+          <option value="warm">☀️ Warm</option>
+          <option value="cold">❄️ Cold</option>
+        </select>
+
+        {/* 3. Service Filter */}
         <select
           value={serviceFilter}
           onChange={(e) => setServiceFilter(e.target.value)}
@@ -1772,18 +2019,7 @@ export function ModernCustomerView({
           ))}
         </select>
 
-        <select
-          value={warmthFilter}
-          onChange={(e) => setWarmthFilter(e.target.value)}
-          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
-          title="Filter by intent"
-        >
-          <option value="all">All Intent</option>
-          <option value="hot">Hot</option>
-          <option value="warm">Warm</option>
-          <option value="cold">Cold</option>
-        </select>
-
+        {/* 4. Staff Filter */}
         <select
           value={staffFilter}
           onChange={(e) => setStaffFilter(e.target.value)}
@@ -1798,7 +2034,7 @@ export function ModernCustomerView({
         </select>
 
         {/* Reset filters */}
-        {(warmthFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || searchQuery.trim()) && (
+        {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || actionFilter !== 'all' || searchQuery.trim()) && (
           <button
             type="button"
             onClick={() => {
@@ -2080,7 +2316,9 @@ export function ModernCustomerView({
                                     const newStatus = e.target.value as Customer['status'];
                                     handleQuickUpdate(cust.id, {
                                       status: newStatus,
-                                      converted: newStatus === 'converted',
+                                      converted: newStatus === 'converted' || newStatus === 'booked',
+                                      conversion_rate: newStatus === 'converted' ? 100 : (newStatus === 'booked' ? 99 : undefined),
+                                      lead_probability: newStatus === 'converted' ? 'converted' : (newStatus === 'booked' ? 'booked' : undefined),
                                     });
                                   }}
                                   disabled={updatingId === cust.id}
@@ -2348,7 +2586,7 @@ export function ModernCustomerView({
               })()
                 .map((col) => {
 
-                  const colLeads = filteredCustomers.filter((c) => c.status === col.id);
+                  const colLeads = filteredCustomers.filter((c) => isCustomerInStage(c, col.id));
                   const colRevenue = colLeads.reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
                   const isDropTarget = dragOverStage === col.id;
                   return (
@@ -2377,7 +2615,7 @@ export function ModernCustomerView({
                       handleDropLead(col.id, droppedId);
                     }
                   }}
-                  className={`w-[260px] shrink-0 md:w-auto md:shrink md:flex-1 ${col.colBg} border ${
+                  className={`w-[260px] shrink-0 md:w-auto md:shrink md:flex-1 md:min-w-[210px] ${col.colBg} border ${
                     isDropTarget ? 'border-accent ring-2 ring-accent/40 bg-accent/5' : col.border
                   } rounded-md flex flex-col h-full overflow-hidden shadow-2xs transition-colors`}
                 >
@@ -2493,6 +2731,8 @@ export function ModernCustomerView({
                                       ? 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
                                       : cust.lead_probability === 'cold'
                                       ? 'bg-sky-50 text-sky-700 border border-sky-200/80 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
+                                      : cust.lead_probability === 'converted' || cust.lead_probability === 'booked' || cust.converted
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
                                       : 'bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
                                   }`}
                                 >
@@ -2500,10 +2740,18 @@ export function ModernCustomerView({
                                     <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
                                   ) : cust.lead_probability === 'cold' ? (
                                     <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
+                                  ) : cust.lead_probability === 'converted' || cust.lead_probability === 'booked' || cust.converted ? (
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 stroke-[2] shrink-0" />
                                   ) : (
                                     <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
                                   )}
-                                  <span>{cust.lead_probability || 'warm'}</span>
+                                  <span>
+                                    {cust.lead_probability === 'converted' || cust.converted
+                                      ? 'CONVERTED'
+                                      : cust.lead_probability === 'booked'
+                                      ? 'BOOKED'
+                                      : cust.lead_probability || 'WARM'}
+                                  </span>
                                 </span>
                               </div>
                             </div>

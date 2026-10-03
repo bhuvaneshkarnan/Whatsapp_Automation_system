@@ -2501,6 +2501,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [followupSearchInput, setFollowupSearchInput] = useState<string>('');
   const [customerClientTypeFilter, setCustomerClientTypeFilter] = useState<string>('all');
 
+  // Real follow-ups due count for header tab badge
+  const followupsDueCount = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return customers.filter((c) => {
+      if (c.status === 'converted' || c.converted || c.status === 'lost') return false;
+      if (!c.followup_date) return c.status === 'follow-up';
+      return c.followup_date <= todayStr;
+    }).length;
+  }, [customers]);
+
   // Debounce customer search input to prevent rapid request thrashing & race conditions
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -3098,8 +3108,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     meta_access_token: '',
     meta_app_secret: '',
     verify_token: '',
-    primary_model_provider: 'groq',
-    ai_model: 'gemini-3.1-flash-lite',
+    primary_model_provider: 'gemini',
+    ai_model: 'gemini-3.5-flash-lite',
     gemini_api_key: '',
     groq_api_key: '',
     opencode_api_key: '',
@@ -7776,7 +7786,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         setSelectedBookingDetail({ ...selectedBookingDetail, status: newStatus, ...(newStartTime ? { start_time: newStartTime } : {}) });
       }
 
-      if (newStatus === 'completed' || newStatus === 'attended') {
+      if (newStatus === 'attended') {
         const targetB = bookings.find((b) => b.id === bookingId);
         if (targetB) {
           const cleanBPhone = (targetB.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
@@ -7805,6 +7815,32 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         } else {
           setActionNotice('Client marked Attended & Converted (100%)! Post-service review request scheduled.');
         }
+      } else if (newStatus === 'completed') {
+        const targetB = bookings.find((b) => b.id === bookingId);
+        if (targetB) {
+          const cleanBPhone = (targetB.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
+          setCustomers((prev) =>
+            prev.map((c) => {
+              const cleanCPhone = (c.phone || '').replace(/[^0-9]/g, '').slice(-10);
+              if (
+                (cleanBPhone && cleanCPhone && cleanCPhone === cleanBPhone) ||
+                (targetB.contact_name && c.name && c.name.toLowerCase() === targetB.contact_name.toLowerCase())
+              ) {
+                if (c.conversion_rate === 100) return c;
+                return {
+                  ...c,
+                  converted: true,
+                  conversion_rate: 99,
+                  status: 'booked',
+                  lead_probability: 'booked',
+                };
+              }
+              return c;
+            })
+          );
+        }
+        loadCustomers();
+        setActionNotice('Appointment marked Completed (Booked 99%). Mark as Attended to convert 100%.');
       } else if (newStatus === 'no_show') {
         setActionNotice('Client marked No-Show! Reschedule nudge WhatsApp template sent to client.');
       } else if (newStatus === 'cancelled') {
@@ -8464,13 +8500,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (bookingFilter === 'rescheduled') {
       return b.status === 'rescheduled';
     }
+    if (bookingFilter === 'attended') {
+      return b.status === 'attended';
+    }
     if (bookingFilter === 'completed') {
-      // Completed: explicitly completed/attended OR bookings whose scheduled time has passed and are not cancelled/no-show
-      return (
-        b.status === 'completed' ||
-        b.status === 'attended' ||
-        (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
-      );
+      return b.status === 'completed' || (isPast && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'attended');
     }
     if (bookingFilter === 'no_show') {
       return b.status === 'no_show';
@@ -11783,9 +11817,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         {/* Top Clean Actions & Period Selector */}
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {/* Period Selector Presets */}
-                          <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border h-8">
+                          <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border/80 h-7 gap-0.5">
                             {[
                               { id: 'today', label: 'Today' },
                               { id: '7d', label: '7D' },
@@ -11799,10 +11833,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   setAnalyticsPeriod(preset.id as any);
                                   loadDashboardAnalytics(preset.id as any, undefined, '', '', analyticsCompare);
                                 }}
-                                className={`px-2.5 h-7 text-xs rounded transition-all cursor-pointer font-medium flex items-center justify-center ${
+                                className={`px-2 h-6 text-xs rounded-sm transition-all cursor-pointer font-medium flex items-center justify-center whitespace-nowrap ${
                                   analyticsPeriod === preset.id
-                                    ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
-                                    : 'text-text-secondary hover:text-text-primary border border-transparent'
+                                    ? 'bg-surface text-text-primary font-semibold border border-border/80 shadow-2xs'
+                                    : 'text-text-muted hover:text-text-primary hover:bg-surface/50 border border-transparent'
                                 }`}
                               >
                                 {preset.label}
@@ -11819,22 +11853,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               loadBookings();
                               loadContacts();
                             }}
-                            className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
+                            className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-2xs"
                             title="Refresh overview data"
                           >
                             <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingDashboardAnalytics ? 'animate-spin' : ''}`} />
                           </button>
 
-                          <div className="h-4 w-px bg-border hidden sm:block shrink-0" />
+                          <div className="h-4 w-px bg-border/80 shrink-0" />
 
                           {/* Primary CTA: Book Appointment */}
                           <button
                             type="button"
                             onClick={() => setIsAddBookingOpen(true)}
-                            className="h-7.5 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0"
+                            className="h-7 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
                             title="Schedule a new appointment"
                           >
-                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <Plus className="w-3.5 h-3.5 stroke-[2]" />
                             <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
                           </button>
                         </div>
@@ -12175,17 +12209,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         {!isAttended ? (
                                           <button
                                             type="button"
-                                            onClick={() => handleUpdateBookingStatus(b.id, 'completed', undefined, true)}
-                                            className="h-6 px-2 text-[11px] font-medium bg-accent hover:bg-accent-hover text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
-                                            title="Mark patient attended"
+                                            onClick={() => handleUpdateBookingStatus(b.id, 'attended', undefined, true)}
+                                            className="h-6 px-2 text-[11px] font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors ml-auto"
+                                            title="Mark patient attended & convert (100%)"
                                           >
                                             <Check className="w-3 h-3 stroke-[2.5]" />
                                             <span>Mark Attended</span>
                                           </button>
                                         ) : (
-                                          <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1 ml-auto">
+                                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1 ml-auto">
                                             <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2]" />
-                                            <span>Completed</span>
+                                            <span>Attended</span>
                                           </span>
                                         )}
                                       </div>
@@ -12412,8 +12446,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       {[
                         { id: 'today', label: 'Today' },
                         { id: 'upcoming', label: 'Upcoming' },
+                        { id: 'completed', label: 'Completed (99%)' },
+                        { id: 'attended', label: 'Attended (100%)' },
                         { id: 'rescheduled', label: 'Rescheduled' },
-                        { id: 'completed', label: 'Completed' },
                         { id: 'no_show', label: 'No-Show' },
                         { id: 'cancelled', label: 'Cancelled' },
                         { id: 'all', label: 'All' },
@@ -12426,13 +12461,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           }
                           const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
                           if (st.id === 'upcoming') return !isPast && (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled');
+                          if (st.id === 'attended') return b.status === 'attended';
                           if (st.id === 'rescheduled') return b.status === 'rescheduled';
                           if (st.id === 'completed') {
-                            return (
-                              b.status === 'completed' ||
-                              b.status === 'attended' ||
-                              (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
-                            );
+                            return b.status === 'completed' || (isPast && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'attended');
                           }
                           if (st.id === 'no_show') return b.status === 'no_show';
                           if (st.id === 'cancelled') return b.status === 'cancelled';
@@ -12531,7 +12563,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <tbody className="divide-y divide-border">
                         {filteredBookings.map((b) => {
                           const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
-                          const isAttended = b.status === 'completed' || b.status === 'attended';
+                          const isAttended = b.status === 'attended';
+                          const isCompleted = b.status === 'completed';
                           const isNoShow = b.status === 'no_show';
                           const isCancelled = b.status === 'cancelled';
 
@@ -12585,6 +12618,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <span className="px-2 py-0.5 rounded-sm text-[11px] font-semibold border bg-status-success-bg text-status-success border-status-success-border">
                                     Attended
                                   </span>
+                                ) : isCompleted ? (
+                                  <span className="px-2 py-0.5 rounded-sm text-[11px] font-semibold border bg-teal-50 text-teal-700 border-teal-200">
+                                    Completed (Booked)
+                                  </span>
                                 ) : isNoShow ? (
                                   <span className="px-2 py-0.5 rounded-sm text-[11px] font-semibold border bg-status-warning-bg text-status-warning border-status-warning-border">
                                     No-Show
@@ -12606,15 +12643,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                               <td className="p-3 text-right pr-4" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center justify-end gap-1.5">
-                                  {bookingFilter === 'completed' ? (
+                                  {bookingFilter === 'completed' || bookingFilter === 'attended' ? (
                                     <>
                                       {/* Dropdown status selector to avoid mistaken clicks */}
                                       <select
-                                        value={isAttended ? 'attended' : isNoShow ? 'no_show' : 'pending'}
+                                        value={isAttended ? 'attended' : isCompleted ? 'completed' : isNoShow ? 'no_show' : 'pending'}
                                         onChange={(e) => {
                                           const val = e.target.value;
                                           if (val === 'attended' && !isAttended) {
                                             promptMarkAttended(b);
+                                          } else if (val === 'completed' && !isCompleted) {
+                                            handleUpdateBookingStatus(b.id, 'completed');
                                           } else if (val === 'no_show' && !isNoShow) {
                                             handleUpdateBookingStatus(b.id, 'no_show');
                                           }
@@ -12623,16 +12662,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         className={`px-2 py-1 text-[11px] font-semibold rounded-sm border cursor-pointer focus:outline-none transition-colors ${
                                           isAttended
                                             ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                            : isCompleted
+                                            ? 'bg-teal-50 text-teal-800 border-teal-300'
                                             : isNoShow
                                             ? 'bg-amber-50 text-amber-800 border-amber-300'
                                             : 'bg-surface-subtle text-text-primary border-border font-medium'
                                         }`}
                                         title="Select attendance status"
                                       >
-                                        <option value="pending" disabled hidden={isAttended || isNoShow}>
+                                        <option value="pending" disabled hidden={isAttended || isCompleted || isNoShow}>
                                           Set Status...
                                         </option>
-                                        <option value="attended">Attended</option>
+                                        <option value="completed">Completed (99%)</option>
+                                        <option value="attended">Attended (100%)</option>
                                         <option value="no_show">No-Show</option>
                                       </select>
 
@@ -15624,94 +15666,75 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
             {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
             {(activeNav === 'customers' || activeNav === 'followup') && (
-              isMindBodyRecovery ? (
-                <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
-                {/* Clean, Unified Header with Title, Taxonomy, Sub-Tabs, Search, and Action Toolbar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-1.5 pt-0.5 shrink-0">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-accent stroke-[1.8]" />
-                      <h3 className="font-semibold text-sm text-text-primary">
+              <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
+                {/* Clean, Compact Single-Row Header */}
+                <div className="flex items-center justify-between gap-2.5 border-b border-border pb-2 pt-0.5 shrink-0">
+                  {/* Left: Title + View Switcher Tabs (Strictly inline, never wrap) */}
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Users className="w-4 h-4 text-accent stroke-[2]" />
+                      <h3 className="font-semibold text-xs text-text-primary tracking-tight whitespace-nowrap">
                         {currentTaxonomy.client_plural || 'Customers'}
                       </h3>
-                      <span className="text-xs text-text-muted font-mono">({customers.length})</span>
+                      <span className="text-[11px] text-text-muted font-mono font-medium">({customers.length})</span>
                     </div>
 
+                    <div className="h-4 w-px bg-border/80 shrink-0" />
+
                     {/* View Switcher Pills */}
-                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-md p-1 overflow-x-auto no-scrollbar touch-scroll w-full sm:w-auto shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setFollowupView('list')}
-                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
-                          followupView === 'list'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary border border-transparent'
-                        }`}
-                      >
-                        <List className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>{currentTaxonomy.subtab_followup_label || currentTaxonomy.followup_label || 'Follow-up'}</span>
-                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFollowupView('pipeline');
-                          try { localStorage.setItem('whatsapp_crm_followup_view', 'pipeline'); } catch {}
-                        }}
-                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
-                          followupView === 'pipeline'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary border border-transparent'
-                        }`}
-                      >
-                        <LayoutGrid className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>Pipeline</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFollowupView('tasks');
-                          try { localStorage.setItem('whatsapp_crm_followup_view', 'tasks'); } catch {}
-                        }}
-                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
-                          followupView === 'tasks'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary border border-transparent'
-                        }`}
-                      >
-                        <CalendarCheck className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>{currentTaxonomy.subtab_tasks_label || 'Tasks'}</span>
-                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tasks.filter(t => !t.completed).length}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFollowupView('notes');
-                          try { localStorage.setItem('whatsapp_crm_followup_view', 'notes'); } catch {}
-                          setLoadingAllNotes(true);
-                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                        }}
-                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
-                          followupView === 'notes'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary border border-transparent'
-                        }`}
-                      >
-                        <StickyNote className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>{currentTaxonomy.subtab_notes_label || 'Notes'}</span>
-                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{allNotes.length}</span>
-                      </button>
+                    <div className="flex items-center gap-0.5 bg-surface-subtle border border-border/80 rounded-md p-0.5 shrink-0">
+                      {[
+                        { id: 'list', label: currentTaxonomy.subtab_followup_label || currentTaxonomy.followup_label || 'Follow-up', icon: List, count: followupsDueCount },
+                        { id: 'pipeline', label: 'Pipeline', icon: LayoutGrid, count: customers.length },
+                        { id: 'tasks', label: currentTaxonomy.subtab_tasks_label || 'Tasks', icon: CalendarCheck, count: tasks.filter(t => !t.completed).length },
+                        { id: 'notes', label: currentTaxonomy.subtab_notes_label || 'Notes', icon: StickyNote, count: allNotes.length },
+                      ].map((tab) => {
+                        const TabIcon = tab.icon;
+                        const isActive = followupView === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => {
+                              setFollowupView(tab.id as any);
+                              try { localStorage.setItem('whatsapp_crm_followup_view', tab.id); } catch {}
+                              if (tab.id === 'notes') {
+                                setLoadingAllNotes(true);
+                                crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                              }
+                            }}
+                            className={`h-7 px-2.5 text-xs font-medium rounded-sm transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                              isActive
+                                ? 'bg-surface text-text-primary font-semibold border border-border/80 shadow-2xs'
+                                : 'text-text-secondary hover:text-text-primary hover:bg-surface/50 border border-transparent'
+                            }`}
+                          >
+                            <TabIcon className={`w-3.5 h-3.5 stroke-[1.8] ${isActive ? 'text-accent' : 'text-text-muted'}`} />
+                            <span>{tab.label}</span>
+                            {tab.count !== undefined && (
+                              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                                isActive
+                                  ? 'bg-accent/10 text-accent font-semibold'
+                                  : 'bg-surface border border-border/60 text-text-muted'
+                              }`}>
+                                {tab.count}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
+                  {/* Right: Search + Action Buttons (Strictly inline, perfectly aligned) */}
                   {followupView !== 'pipeline' && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {/* Compact Search Bar */}
-                      <div className="relative flex-1 sm:flex-initial w-full sm:w-44 md:w-52 lg:w-56 min-w-[150px]">
-                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Search Bar - Compact, clean */}
+                      <div className="relative w-48 sm:w-56 md:w-64">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[2]" />
                         <input
                           type="text"
-                          placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone, staff...`}
+                          placeholder={`Search ${(currentTaxonomy.client_plural || 'patients').toLowerCase()}, phone...`}
                           value={followupSearchInput}
                           onChange={(e) => setFollowupSearchInput(e.target.value)}
                           onKeyDown={(e) => {
@@ -15719,7 +15742,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               setFollowupSearch(followupSearchInput);
                             }
                           }}
-                          className="w-full pl-8 pr-7 h-7.5 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors shadow-2xs"
+                          className="w-full pl-8 pr-7 h-7 bg-surface-subtle hover:bg-surface focus:bg-surface border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-all shadow-2xs"
                         />
                         {followupSearchInput && (
                           <button
@@ -15731,7 +15754,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer"
                             title="Clear search"
                           >
-                            <X className="w-3.5 h-3.5" />
+                            <X className="w-3 h-3" />
                           </button>
                         )}
                       </div>
@@ -15740,20 +15763,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setShowAddCustomerModal(true)}
-                        className="h-7.5 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        className="h-7 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer shrink-0 shadow-xs"
                       >
-                        <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>Add {currentTaxonomy.client_label || 'Customer'}</span>
+                        <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
+                        <span>Add {currentTaxonomy.client_label || 'Patient'}</span>
                       </button>
 
-                      {/* Subtle Dropdown Options Icon Button */}
+                      {/* Dropdown Options Icon Button */}
                       <button
                         type="button"
                         onClick={openDropdownOptionsModal}
-                        className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
                         title="Customize CRM dropdown options"
                       >
-                        <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <Sliders className="w-3 h-3 stroke-[1.8]" />
                       </button>
 
                       {/* Refresh Button */}
@@ -15767,10 +15790,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
                           }
                         }}
-                        className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
                         title="Refresh customer data"
                       >
-                        <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
+                        <RotateCcw className={`w-3 h-3 stroke-[1.8] ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
                       </button>
                     </div>
                   )}
@@ -15791,6 +15814,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               { key: 'all', label: 'All' },
                               { key: 'new', label: 'New' },
                               { key: 'follow-up', label: 'Follow-up' },
+                              { key: 'booked', label: 'Booked' },
                               { key: 'converted', label: 'Converted' },
                               { key: 'lost', label: 'Lost' },
                             ].map((st) => {
@@ -15814,7 +15838,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         {/* Active Custom Outcome Badge */}
-                        {!['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && (
+                        {!['all', 'new', 'follow-up', 'booked', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && (
                           <div className="inline-flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 text-accent rounded-sm text-[11px] font-semibold shrink-0">
                             <span>{followupStatusFilter}</span>
                             <button
@@ -15866,11 +15890,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <div className="h-4 w-px bg-border/80 shrink-0" />
 
                         {/* Staff / Doctor Selector with docked preset edit button */}
-                        <div className="inline-flex items-center border border-border rounded-md bg-surface min-h-[36px] sm:min-h-[26px] h-9 sm:h-6.5 overflow-hidden shrink-0">
+                        <div className="inline-flex items-center border border-border rounded-md bg-surface h-7 overflow-hidden shrink-0">
                           <select
                             value={followupDoctorFilter}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
-                            className="h-full px-2 text-[11px] bg-transparent border-0 text-text-primary focus:outline-none cursor-pointer max-w-[130px]"
+                            className="h-full px-2 text-[11px] bg-transparent border-0 text-text-primary focus:outline-none cursor-pointer max-w-[180px]"
                           >
                             <option value="all">All {presetRolePlural}</option>
                             <option value="unassigned">Unassigned</option>
@@ -15886,7 +15910,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             type="button"
                             onClick={openDoctorEditor}
                             title={`Manage ${presetRolePlural} presets`}
-                            className="h-full px-2 border-l border-border text-text-muted hover:text-accent hover:bg-surface-subtle transition-colors flex items-center justify-center cursor-pointer touch-manipulation"
+                            className="h-full px-1.5 border-l border-border text-text-muted hover:text-accent hover:bg-surface-subtle transition-colors flex items-center justify-center cursor-pointer"
                           >
                             <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
                           </button>
@@ -15905,7 +15929,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               setFollowupSearchInput('');
                               setFollowupSearch('');
                             }}
-                            className="min-h-[36px] sm:min-h-[26px] text-[11px] text-accent hover:text-accent-hover flex items-center gap-1 px-2 rounded hover:bg-surface-subtle font-medium cursor-pointer shrink-0 touch-manipulation"
+                            className="h-7 text-[11px] text-accent hover:text-accent-hover flex items-center gap-1 px-2 rounded-md hover:bg-surface-subtle font-medium cursor-pointer shrink-0"
                             title="Reset all filters"
                           >
                             <X className="w-3 h-3" />
@@ -16260,30 +16284,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           </select>
                                         </div>
 
-                                        {/* Mind Body Recovery ONLY: Call Button below Status / Outcome */}
-                                        {isMindBodyRecovery && (
-                                          <div className="pt-0.5 flex justify-start">
-                                            {cust.phone ? (
-                                              <a
-                                                href={`tel:${formatDialablePhone(cust.phone)}`}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
-                                                title={`Call ${cust.name || 'Patient'}: ${formatDisplayPhone(cust.phone)}`}
-                                              >
-                                                <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
-                                                <span>Call</span>
-                                              </a>
-                                            ) : (
-                                              <span
-                                                className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium bg-surface-subtle text-text-muted border border-border/60 shadow-2xs opacity-50 cursor-not-allowed"
-                                                title="No phone number available"
-                                              >
-                                                <PhoneCall className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                                <span>Call</span>
-                                              </span>
-                                            )}
-                                          </div>
-                                        )}
+                                        {/* Call Button below Status / Outcome */}
+                                        <div className="pt-0.5 flex justify-start">
+                                          {cust.phone ? (
+                                            <a
+                                              href={`tel:${formatDialablePhone(cust.phone)}`}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
+                                              title={`Call ${cust.name || 'Client'}: ${formatDisplayPhone(cust.phone)}`}
+                                            >
+                                              <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
+                                              <span>Call</span>
+                                            </a>
+                                          ) : (
+                                            <span
+                                              className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium bg-surface-subtle text-text-muted border border-border/60 shadow-2xs opacity-50 cursor-not-allowed"
+                                              title="No phone number available"
+                                            >
+                                              <PhoneCall className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                              <span>Call</span>
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
                                     </td>
 
@@ -16500,7 +16522,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         <select
-                          value={['all', 'new', 'contacted', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? followupStatusFilter.toLowerCase() : 'all'}
+                          value={['all', 'new', 'contacted', 'follow-up', 'booked', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? followupStatusFilter.toLowerCase() : 'all'}
                           onChange={(e) => setFollowupStatusFilter(e.target.value)}
                           className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                         >
@@ -16508,7 +16530,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <option value="new">New Inquiry</option>
                           <option value="contacted">Contacted / In Progress</option>
                           <option value="follow-up">Follow-up Due</option>
-                          <option value="converted">Booked / Converted</option>
+                          <option value="booked">Booked (99%)</option>
+                          <option value="converted">Converted (100%)</option>
                           <option value="lost">Lost / Inactive</option>
                         </select>
 
@@ -16524,7 +16547,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </select>
 
                         <select
-                            value={crmDropdowns.outcome_statuses.includes(followupStatusFilter) ? followupStatusFilter : (['all', 'new', 'follow-up', 'converted', 'contacted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'all' : followupStatusFilter)}
+                            value={crmDropdowns.outcome_statuses.includes(followupStatusFilter) ? followupStatusFilter : (['all', 'new', 'follow-up', 'booked', 'converted', 'contacted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'all' : followupStatusFilter)}
                             onChange={(e) => setFollowupStatusFilter(e.target.value)}
                             className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                           >
@@ -17101,64 +17124,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 )}
               </div>
-              ) : (
-                <ModernCustomerView
-                  customers={customers}
-                  selectedCustomer={selectedCustomer}
-                  onSelectCustomer={handleSelectCustomer}
-                  onUpdateCustomer={handleUpdateCustomer}
-                  onOpenChat={(cust) => {
-                    handleSelectCustomer(cust);
-                    setDrawerActiveTab('chat');
-                  }}
-                  onOpenDetails={(cust) => {
-                    handleSelectCustomer(cust);
-                    setDrawerActiveTab('profile');
-                  }}
-                  onAddCustomer={() => setShowAddCustomerModal(true)}
-                  onExportCsv={exportCustomersToCsv}
-                  onRefresh={() => {
-                    loadCustomers();
-                    loadTasks();
-                    setLoadingAllNotes(true);
-                    crm.getAllNotes().then((n) => {
-                      setAllNotes(Array.isArray(n) ? n : []);
-                      setLoadingAllNotes(false);
-                    }).catch(() => setLoadingAllNotes(false));
-                  }}
-                  loading={loadingCustomers}
-                  tasks={tasks}
-                  allNotes={allNotes}
-                  taxonomy={currentTaxonomy}
-                  renderDrawer={renderCustomerDetailDrawer}
-                  categorizedStaffOptions={categorizedStaffOptions}
-                  crmDropdowns={crmDropdowns}
-                  openDropdownOptionsModal={openDropdownOptionsModal}
-                  loadingTasks={loadingTasks}
-                  loadingNotes={loadingAllNotes}
-                  onDeleteNote={handleDeleteNote}
-                  onAddTask={() => setShowAddTaskModal(true)}
-                  onToggleTask={handleToggleTask}
-                  onDeleteTask={handleDeleteTask}
-                  onOpenQuickNote={(cust: any) => {
-                    setQuickNoteCustomer({
-                      customerId: cust.id,
-                      name: cust.name || 'Customer',
-                      phone: cust.phone || null,
-                      noteId: cust.latest_note_id || null,
-                      ai_summary: cust.ai_summary || null,
-                      health_concern: cust.health_concern || null,
-                    });
-                    setQuickNoteText(cust.latest_note || '');
-                    setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
-                  }}
-                  onDeleteLatestNote={handleDeleteCustomerLatestNote}
-                  onOpenMergeModal={(cust, secId) => {
-                    setMergeModalCustomer(cust);
-                    setMergeModalSecondaryId(secId || null);
-                  }}
-                />
-              )
             )}
 
             {/* Merge Customers Modal */}
@@ -25111,8 +25076,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <div className="flex items-center gap-2">
                   <span
                     className={`px-2 py-0.5 rounded-sm text-xs font-medium border ${
-                      selectedBookingDetail.status === 'completed'
+                      selectedBookingDetail.status === 'attended'
                         ? 'bg-status-success-bg text-status-success border-status-success-border'
+                        : selectedBookingDetail.status === 'completed'
+                        ? 'bg-teal-50 text-teal-700 border-teal-200'
                         : selectedBookingDetail.status === 'rescheduled'
                         ? 'bg-purple-50 text-purple-700 border-purple-200'
                         : selectedBookingDetail.status === 'no_show'
@@ -25122,7 +25089,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         : 'bg-surface-subtle text-text-secondary border-border'
                     }`}
                   >
-                    {selectedBookingDetail.status === 'completed' ? 'Attended' : selectedBookingDetail.status === 'rescheduled' ? 'Rescheduled' : selectedBookingDetail.status === 'no_show' ? 'No-Show' : selectedBookingDetail.status}
+                    {selectedBookingDetail.status === 'attended' ? 'Attended (100%)' : selectedBookingDetail.status === 'completed' ? 'Completed (Booked)' : selectedBookingDetail.status === 'rescheduled' ? 'Rescheduled' : selectedBookingDetail.status === 'no_show' ? 'No-Show' : selectedBookingDetail.status}
                   </span>
                   <button
                     onClick={() => {
@@ -25451,7 +25418,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       onClick={() => promptMarkAttended(selectedBookingDetail)}
                       disabled={updatingBookingId === selectedBookingDetail.id}
                       className={`py-1.5 px-2 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 border ${
-                        selectedBookingDetail.status === 'completed'
+                        selectedBookingDetail.status === 'attended'
                           ? 'bg-status-success-bg text-status-success border-status-success-border font-semibold'
                           : 'bg-surface hover:bg-surface-subtle text-text-body border-border'
                       }`}
@@ -25557,7 +25524,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   onClick={async () => {
                     const b = pendingAttendedBooking;
                     setPendingAttendedBooking(null);
-                    await handleUpdateBookingStatus(b.id, 'completed', undefined, false);
+                    await handleUpdateBookingStatus(b.id, 'attended', undefined, false);
                   }}
                   className="w-full sm:w-auto px-3 py-1.5 text-xs font-medium text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm border border-border bg-surface transition-colors cursor-pointer"
                   title="Mark client as attended without sending any WhatsApp review message"
@@ -25570,7 +25537,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   onClick={async () => {
                     const b = pendingAttendedBooking;
                     setPendingAttendedBooking(null);
-                    await handleUpdateBookingStatus(b.id, 'completed', undefined, true);
+                    await handleUpdateBookingStatus(b.id, 'attended', undefined, true);
                   }}
                   className="w-full sm:w-auto px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-sm shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                   title="Mark attended and immediately dispatch WhatsApp review template"
