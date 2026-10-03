@@ -424,30 +424,32 @@ function FollowupSchedulerPopover({
   };
 
   return (
-    <>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs select-none"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
       <div
-        className="fixed inset-0 z-30"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-      />
-      <div
-        className="absolute left-0 top-full mt-1.5 z-40 w-80 bg-surface border border-border rounded-md shadow-xl p-3.5 text-xs space-y-3 animate-in fade-in zoom-in-95 duration-100 font-sans"
+        className="w-full max-w-sm bg-surface border border-border rounded-lg shadow-2xl p-4 text-xs space-y-3 animate-in fade-in zoom-in-95 duration-150 font-sans relative"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between pb-1.5 border-b border-border">
-          <div className="flex items-center gap-1.5 font-bold text-text-primary text-[11px]">
-            <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+          <div className="flex items-center gap-1.5 font-bold text-text-primary text-[12px]">
+            <Calendar className="w-4 h-4 text-accent stroke-[1.8]" />
             <span>Schedule Follow-up</span>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             className="text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer transition-colors"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -693,7 +695,7 @@ function FollowupSchedulerPopover({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -2629,7 +2631,7 @@ export function ModernCustomerView({
                       </div>
 
                       {/* Column Card List */}
-                      <div className="p-1 sm:p-1.5 flex-1 overflow-y-auto space-y-1.5 min-h-0 scrollbar-thin">
+                      <div className="p-1 sm:p-1.5 flex-1 overflow-y-auto overflow-x-hidden space-y-1.5 min-h-0 scrollbar-thin">
                         {/* Active Drop Guide */}
                         {isDropTarget && draggedCustomerId && !colLeads.some((c) => c.id === draggedCustomerId) && (
                           <div className="p-2 border-2 border-dashed border-accent/70 bg-accent/10 rounded-sm text-center text-[10px] font-semibold text-accent animate-pulse">
