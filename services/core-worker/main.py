@@ -764,7 +764,9 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * NEVER end two or more consecutive messages with the same closing sentence, call-to-action, question, or website link.\n"
     "  * Check your own previous reply. If it already ended with 'Would you like to check out our website...', 'Let me know if you have any questions', 'Would you like to book an appointment?', or any similar CTA, you MUST use a DIFFERENT or completely OMIT a closing CTA in the next reply.\n"
     "  * Each reply must have a UNIQUE, CONTEXTUALLY FRESH closing that directly matches what the customer just said. DO NOT fall back to generic repeated CTAs.\n"
-    "  * If a customer has already been asked 'Would you like to book?' or 'Would you like more details?' in the last message, do NOT ask the same thing again. Instead, directly answer their new question and stop there."
+    "  * If a customer has already been asked 'Would you like to book?' or 'Would you like more details?' in the last message, do NOT ask the same thing again. Instead, directly answer their new question and stop there.\n"
+    "- NO-QUESTION CONFIRMATION PROGRESSION (ANTI-REPETITION):\n"
+    "  * If you asked 'Is there anything else you would like to know before we finalize?' or similar pre-booking readiness question, and the customer replies 'No', 'Nothing', 'illa', or expresses they have no questions: Understand they are ready to finalize now! Do NOT re-ask if they have questions or repeat yourself. Immediately proceed to confirm/lock the proposed slot (e.g. 'Noted [Name]! Shall I go ahead and confirm your consultation for [Day] at [Time]?')."
 )
 
 def _esc_html(val: Any) -> str:
@@ -1541,7 +1543,7 @@ class CoreWorker:
             creds = await self._get_tenant_whatsapp_creds(tenant_id)
             tenant_info = await self.db_pool.fetchrow(
                 "SELECT is_active, org_lifecycle_stage, subscription_status, "
-                "payment_failed_at, grace_period_until FROM tenants WHERE id = $1::uuid", tenant_id
+                "payment_failed_at, grace_period_until, settings FROM tenants WHERE id = $1::uuid", tenant_id
             )
             is_active = tenant_info["is_active"] if tenant_info else True
             stage = (tenant_info.get("org_lifecycle_stage") or "setup") if tenant_info else "setup"
@@ -1550,6 +1552,32 @@ class CoreWorker:
             # Grace period: payment_failed within 3 days → AI still runs (client has time to fix payment)
             _grace_until = tenant_info.get("grace_period_until") if tenant_info else None
             _now_utc = datetime.datetime.now(timezone.utc)
+
+            # Temporary access expiration enforcer (e.g. temp activation granted until specific time)
+            _t_settings = tenant_info.get("settings") if tenant_info else {}
+            if isinstance(_t_settings, str):
+                try: _t_settings = json.loads(_t_settings)
+                except Exception: _t_settings = {}
+            _temp_until_raw = _t_settings.get("temp_access_until") if isinstance(_t_settings, dict) else None
+            if _temp_until_raw:
+                try:
+                    _temp_until_dt = datetime.datetime.fromisoformat(str(_temp_until_raw).replace("Z", "+00:00"))
+                    if _now_utc > _temp_until_dt:
+                        stage = "ready_to_activate"
+                        sub_status = "not_started"
+                        asyncio.create_task(
+                            self.db_pool.execute(
+                                """UPDATE tenants 
+                                   SET org_lifecycle_stage = 'ready_to_activate',
+                                       subscription_status = 'not_started',
+                                       last_payment_status = 'temp_access_expired',
+                                       updated_at = now()
+                                   WHERE id = $1::uuid""",
+                                tenant_id
+                            )
+                        )
+                except Exception as _e:
+                    logger.debug("temp_access_until_parse_error", error=str(_e))
             _in_grace = (
                 sub_status == "payment_failed"
                 and _grace_until is not None
@@ -4485,6 +4513,9 @@ end
                 "would you like me to book",
                 "would you like to book",
                 "shall i go ahead and book",
+                "shall i go ahead and confirm",
+                "ready to be locked in",
+                "ready to lock",
                 "shall i book",
                 "shall i confirm",
                 "shall i lock",
@@ -4746,8 +4777,31 @@ end
         )
 
         # Resolve candidate slot date (checking current message and recent history)
+        DAY_AFTER_PHRASES = [
+            "day after tomorrow", "day after tmrw", "day after tomm", "day after", "overmorrow",
+            "nalaiku marunal", "nalaiku marunaal", "naalaiku marunaal", "naalaikku marunaal",
+            "naalaiki marunal", "nalaiku adutha naal", "நாளை மறுநாள்"
+        ]
+        TOMORROW_PHRASES = [
+            "tomorrow", "tmrw", "tomm", "nalaiku", "naalaiku", "naalaiki", "நாளை"
+        ]
+
+        def _contains_day_after(txt: str) -> bool:
+            t = (txt or "").lower()
+            return any(p in t for p in DAY_AFTER_PHRASES)
+
+        def _contains_tomorrow(txt: str) -> bool:
+            t = (txt or "").lower()
+            if _contains_day_after(t):
+                return False
+            return any(re.search(rf'\b{re.escape(p)}\b', t) for p in TOMORROW_PHRASES)
+
+        day_after_date_str = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+
         target_slot_date_iso = today_date_str
-        if "tomorrow" in inbound_clean or ((is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history and any("tomorrow" in (h.get("content") or "").lower() for h in history[-3:])):
+        if _contains_day_after(inbound_clean) or ((is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history and any(_contains_day_after(h.get("content") or "") for h in history[-4:])):
+            target_slot_date_iso = day_after_date_str
+        elif _contains_tomorrow(inbound_clean) or ((is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history and any(_contains_tomorrow(h.get("content") or "") for h in history[-4:])):
             target_slot_date_iso = tomorrow_date_str
         else:
             days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -4770,7 +4824,7 @@ end
                 if any(w in c_content.lower() for w in ["operating hours", "open from", "opens at", "closing time", "open daily", "24 hours", "daily"]):
                     continue
                 # If assistant message, only extract if it was an explicit slot confirmation proposal
-                if h.get("role") in ("assistant", "model") and not any(w in c_content.lower() for w in ["available", "book this slot", "confirm this"]):
+                if h.get("role") in ("assistant", "model") and not any(w in c_content.lower() for w in ["available", "book this slot", "confirm this", "ready to be locked in"]):
                     continue
                 m_t_cand = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', c_content, re.I)
                 if m_t_cand:
@@ -4786,6 +4840,21 @@ end
                     target_slot_time_iso = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
             except Exception:
                 pass
+        else:
+            # Time period resolution (evening, night, afternoon, morning) if no clock digits were stated
+            combined_time_context = f"{inbound_clean} {' '.join((h.get('content') or '').lower() for h in (history[-3:] if history else []))}"
+            if any(w in combined_time_context for w in ["evening", "sayanthiram", "sayangalam", "maalaai", "மாலை", "saayanthram"]):
+                target_slot_time_iso = "18:00"
+            elif any(w in combined_time_context for w in ["night", "iravu", "இரவு"]):
+                target_slot_time_iso = "20:00"
+            elif any(w in combined_time_context for w in ["afternoon", "noon", "mathiyam", "madhyam", "மதியம்"]):
+                target_slot_time_iso = "14:00"
+            elif any(w in combined_time_context for w in ["morning", "kaalai", "kalai", "காலை"]):
+                target_slot_time_iso = "10:00"
+            elif is_home_visit:
+                target_slot_time_iso = "08:00"
+            else:
+                target_slot_time_iso = "10:00"
 
         # If requested for today but that time has already passed (or is within 30 mins): rollover to tomorrow
         if target_slot_date_iso == today_date_str:
@@ -4807,6 +4876,8 @@ end
             target_day_display = "today"
         elif target_slot_date_iso == tomorrow_date_str:
             target_day_display = "tomorrow"
+        elif target_slot_date_iso == day_after_date_str:
+            target_day_display = "day after tomorrow"
         else:
             try:
                 target_day_display = datetime.date.fromisoformat(target_slot_date_iso).strftime("%A, %d %b")
@@ -4824,7 +4895,8 @@ end
                 re.search(r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', last_assistant_msg, re.I)
                 or any(w in last_assistant_msg.lower() for w in [
                     "this slot", "this timing", "slot at", "time works", "tomorrow morning", "tomorrow afternoon",
-                    "today morning", "today afternoon", "today evening", "open for a demo at", "scheduled your demo for"
+                    "today morning", "today afternoon", "today evening", "day after tomorrow", "evening consultation",
+                    "morning consultation", "afternoon consultation", "ready to be locked in", "open for a demo at", "scheduled your demo for"
                 ])
             )
         )
@@ -4849,6 +4921,19 @@ end
             "let you know", "will let you know", "not today", "not now", "illa vena", "vendam",
             "theva illa", "theva illai", "no need", "apram paakalam", "aprom solren", "no thanks"
         ])
+
+        # Check if customer has answered "No" / "Nothing" to assistant's "anything else before we finalize?"
+        is_no_more_questions = bool(
+            last_assistant_msg and any(q in last_assistant_msg.lower() for q in [
+                "anything else", "any other question", "any questions before", "before we finalize",
+                "before we book", "before we confirm", "help you with anything else", "any doubts"
+            ])
+            and any(w in inbound_clean for w in [
+                "no", "nope", "nothing", "no thanks", "no thank you", "illa", "onnum illa", "onnumilla",
+                "ille", "all good", "all set", "thats all", "that's all", "nothing else", "clear"
+            ])
+            and len(inbound_clean.split()) <= 4
+        )
 
         if is_missed_call_query:
             funnel_stage = "MISSED_CALL_APOLOGY"
@@ -5457,6 +5542,15 @@ end
                 "3. Do NOT force arbitrary slots and do NOT claim today is fully booked.\n"
                 "4. BREVITY: Keep your reply to 1-2 short natural sentences (25-40 words max)."
             )
+        elif is_no_more_questions:
+            funnel_stage = "NO_MORE_QUESTIONS_FINALIZE_SLOT"
+            cust_name_part = f" {confirmed_name or customer_name_display}" if (confirmed_name or customer_name_display) else ""
+            stage_directive = (
+                f"The customer confirmed they have no further questions ('{message_text}') and is ready to lock in their appointment.\n"
+                f"1. Acknowledge and propose final confirmation: 'Noted{cust_name_part}! Your consultation for {target_day_display} at {target_time_display} with {conf_host} is ready to be locked in. Shall I go ahead and confirm this slot for you now?'\n"
+                f"2. CRITICAL ANTI-REPETITION: Do NOT ask if they have questions again! Do NOT repeat 'anything else you would like to know'!\n"
+                f"3. Keep response under 2 short sentences."
+            )
         elif is_ongoing_conversation:
             funnel_stage = "CONSIDERATION_PROGRESSION"
             stage_directive = (
@@ -5465,7 +5559,7 @@ end
                 "CRITICAL ANTI-REPETITION DIRECTIVE: "
                 + ("You ALREADY asked for their timing preference in recent messages. Do NOT ask for morning/afternoon or timing again! " if already_asked_timing else "")
                 + ("You ALREADY asked if they want to book or demo. Do NOT repeat that question! " if already_asked_readiness else "")
-                + "Answer their latest message directly and invite any remaining questions they have."
+                + "Answer their latest message directly and guide them toward their consultation or appointment without re-asking questions you already asked."
             )
         else:
             funnel_stage = "DISCOVERY"
@@ -6181,7 +6275,10 @@ end
                         target_b_date = target_slot_date_iso
                     except NameError:
                         target_b_date = today_date_str
-                        if "tomorrow" in resp_low or "tomorrow" in inbound_clean or (history and any("tomorrow" in (h.get("content") or "").lower() for h in history[-3:])):
+                        comb_d_txt = f"{resp_low} {inbound_clean} {' '.join((h.get('content') or '').lower() for h in (history[-3:] if history else []))}"
+                        if any(p in comb_d_txt for p in ["day after tomorrow", "day after tmrw", "day after", "nalaiku marunal", "nalaiku marunaal", "naalaiku marunaal", "நாளை மறுநாள்"]):
+                            target_b_date = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+                        elif "tomorrow" in comb_d_txt:
                             target_b_date = tomorrow_date_str
                         else:
                             days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -6731,11 +6828,25 @@ end
                         if has_time_or_slot_indicator:
                             slot_target_date = today_date_str
                             time_match = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b', inbound_clean, re.I)
-                            stated_time = time_match.group(1).upper() if time_match else "09:00 AM"
-                            if ":" not in stated_time and ("AM" in stated_time or "PM" in stated_time):
-                                stated_time = re.sub(r'(\d+)\s*(AM|PM)', r'\1:00 \2', stated_time)
+                            if time_match:
+                                stated_time = time_match.group(1).upper()
+                                if ":" not in stated_time and ("AM" in stated_time or "PM" in stated_time):
+                                    stated_time = re.sub(r'(\d+)\s*(AM|PM)', r'\1:00 \2', stated_time)
+                            elif any(w in inbound_clean for w in ["evening", "sayanthiram", "sayangalam", "maalaai", "மாலை"]):
+                                stated_time = "06:00 PM"
+                            elif any(w in inbound_clean for w in ["night", "iravu", "இரவு"]):
+                                stated_time = "08:00 PM"
+                            elif any(w in inbound_clean for w in ["afternoon", "noon", "mathiyam", "madhyam", "மதியம்"]):
+                                stated_time = "02:00 PM"
+                            elif any(w in inbound_clean for w in ["morning", "kaalai", "kalai", "காலை"]):
+                                stated_time = "10:00 AM"
+                            else:
+                                stated_time = "10:00 AM"
 
-                            if "tomorrow" in inbound_clean:
+                            if any(p in inbound_clean for p in ["day after tomorrow", "day after tmrw", "day after", "nalaiku marunal", "nalaiku marunaal", "naalaiku marunaal", "நாளை மறுநாள்"]):
+                                slot_target_date = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+                                date_friendly = "day after tomorrow"
+                            elif "tomorrow" in inbound_clean:
                                 slot_target_date = tomorrow_date_str
                                 date_friendly = "tomorrow"
                             else:
@@ -6811,10 +6922,14 @@ end
                                         response_text = f"{date_friendly.capitalize()} at {stated_time} is available with {host_lbl}! Would you like me to go ahead and book this slot for you?"
                                     booking_action = None
                         else:
-                            # Strip the repeated intro and keep subsequent sentences
+                            # Strip the repeated intro and keep subsequent sentences ONLY if not also in last_assistant_msg
                             sentences = _safe_split_sentences(response_text)
-                            if len(sentences) > 1:
-                                response_text = " ".join(sentences[1:]).strip()
+                            candidate_tail = " ".join(sentences[1:]).strip() if len(sentences) > 1 else ""
+                            tail_overlap = difflib.SequenceMatcher(None, re.sub(r'[^\w\s]', '', candidate_tail.lower()), prev_clean).ratio() if (candidate_tail and prev_clean) else 0.0
+                            if candidate_tail and len(candidate_tail) >= 10 and tail_overlap < 0.6:
+                                response_text = candidate_tail
+                            else:
+                                response_text = ""
                             if not response_text or len(response_text) < 10:
                                 logger.info("rephrasing_duplicate_response", tenant_id=tenant_id)
                                 rephrase_prompt = active_system_prompt + "\n\nCRITICAL: Your previous response was an exact duplicate of the message before it. You MUST rephrase your response to be fresh and different, while answering the user's latest message directly."
@@ -7381,6 +7496,11 @@ end
                 tz = zoneinfo.ZoneInfo(tenant_timezone_str)
             except Exception:
                 tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+            is_24_7 = bool(
+                tenant_st_row.get("is_24_7") is True
+                or str(tenant_st_row.get("is_24_7", "")).lower() == "true"
+            ) if tenant_st_row and isinstance(tenant_st_row, dict) else False
 
             service_name = booking_data.get("service") or "Consultation / Demo"
             date_str = booking_data.get("date") or datetime.date.today().strftime("%Y-%m-%d")
@@ -10083,13 +10203,29 @@ end
 
             template_name = (creds.get("template_subscription_reminder") or "").strip()
             if not template_name:
-                logger.error(
+                logger.info(
                     "dispatch_platform_sub_reminder_skipped_no_template",
                     tenant_id=tenant_id,
                     stage=reminder_stage,
                     phone=clean_phone,
-                    error="Meta 24-hour policy violation: Freeform text to admin is prohibited outside active window. An approved template is required."
+                    reason="No template_subscription_reminder configured for tenant; skipping WhatsApp dispatch to avoid Meta 24-hr policy violation."
                 )
+                await self.db_pool.execute(
+                    "UPDATE tenants SET last_reminder_sent_at = now(), reminder_stage = $1 WHERE id = $2::uuid",
+                    reminder_stage, tenant_id
+                )
+                try:
+                    pay_url = payment_link or tenant.get("razorpay_short_url") or f"https://boldlabs.ai/pay/{tenant['slug']}"
+                    org_name = tenant.get("name") or "Your Organization"
+                    await self.db_pool.execute(
+                        """INSERT INTO notifications (id, tenant_id, title, body, type, data, is_read, created_at)
+                           VALUES ($1::uuid, $2::uuid, $3, $4, 'billing', $5::jsonb, false, NOW())""",
+                        str(uuid.uuid4()), tenant_id, f"Subscription Renewal: {org_name}",
+                        f"Your subscription renewal is coming up. Payment link: {pay_url}",
+                        json.dumps({"payment_url": str(pay_url), "stage": reminder_stage})
+                    )
+                except Exception as notif_e:
+                    logger.debug("sub_reminder_inapp_notif_failed", error=str(notif_e))
                 return
 
             pay_url = payment_link or tenant.get("razorpay_short_url") or f"https://boldlabs.ai/pay/{tenant['slug']}"
