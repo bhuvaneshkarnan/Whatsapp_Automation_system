@@ -215,6 +215,7 @@ async def get_tenant_settings(
         
         # Location, Region & Templates
         "full_location_text": wa_data.get("full_location_text") or tenant_settings.get("full_location_text", ""),
+        "welcome_message": tenant_settings.get("welcome_message", ""),
         "timezone": tenant_settings.get("timezone", "Asia/Kolkata"),
         "country_code": tenant_settings.get("country_code", "+91"),
         "currency": tenant_settings.get("currency", "INR"),
@@ -251,6 +252,7 @@ async def get_tenant_settings(
         
         # Industry & Taxonomy
         "industry": tenant_settings.get("industry", "clinic"),
+        "facility_term": tenant_settings.get("facility_term", "clinic"),
         "taxonomy": taxonomy_val,
         "opening_time": tenant_settings.get("opening_time", "09:00"),
         "closing_time": tenant_settings.get("closing_time", "20:00"),
@@ -265,6 +267,14 @@ async def get_tenant_settings(
             'Easy Booking & Response'
         ],
         "requirement_presets": presets_val,
+        "services": tenant_settings.get("services") or [],
+        "doctors": tenant_settings.get("doctors") or [],
+        "is_24_7": bool(tenant_settings.get("is_24_7", False)),
+        "operating_hours": tenant_settings.get("operating_hours", ""),
+        "location": tenant_settings.get("location") or "",
+        "google_maps_url": tenant_settings.get("google_maps_url") or "",
+        "slot_duration": int(tenant_settings.get("slot_duration_mins") or tenant_settings.get("slot_duration") or 30),
+        "slot_duration_mins": int(tenant_settings.get("slot_duration_mins") or tenant_settings.get("slot_duration") or 30),
         "gmb_review_url": (tenant_settings.get("gmb_review_url") or tenant_settings.get("google_review_link") or wa_data.get("google_review_link") or wa_data.get("gmb_review_url") or "").strip(),
         "slot_booking_mode": tenant_settings.get("slot_booking_mode", "single"),
         "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
@@ -337,6 +347,8 @@ async def get_tenant_settings(
         "booking_fee_description": tenant_settings.get("booking_fee_description", "Appointment Booking Fee"),
         "service_pricing": tenant_settings.get("service_pricing", {}),
         "billing_categories": tenant_settings.get("billing_categories") or ["Naturopathy", "Ayurveda", "Medicine", "Others"],
+        "ai_enabled": tenant_settings.get("ai_enabled", True) if tenant_settings.get("ai_enabled") is not None else True,
+        "ai_paused": tenant_settings.get("ai_paused", False) if tenant_settings.get("ai_paused") is not None else False,
     }
 
 
@@ -660,6 +672,16 @@ async def update_tenant_settings(
                     payload.admin_name.strip(), tenant_id
                 )
 
+        ai_toggled = False
+        if getattr(payload, "ai_enabled", None) is not None:
+            cur_settings["ai_enabled"] = bool(payload.ai_enabled)
+            cur_settings["ai_paused"] = not bool(payload.ai_enabled)
+            ai_toggled = True
+        elif getattr(payload, "ai_paused", None) is not None:
+            cur_settings["ai_paused"] = bool(payload.ai_paused)
+            cur_settings["ai_enabled"] = not bool(payload.ai_paused)
+            ai_toggled = True
+
         if payload.logo_url is not None: cur_settings["logo_url"] = payload.logo_url.strip()
         if payload.timezone is not None: cur_settings["timezone"] = payload.timezone.strip()
         if payload.country_code is not None: cur_settings["country_code"] = payload.country_code.strip()
@@ -673,9 +695,11 @@ async def update_tenant_settings(
         if effective_gmb_save:
             cur_settings["gmb_review_url"] = effective_gmb_save
             cur_settings["google_review_link"] = effective_gmb_save
-        if payload.enable_auto_review is not None: cur_settings["enable_auto_review"] = payload.enable_auto_review
-        if payload.full_location_text is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
-        if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
+        if getattr(payload, "enable_auto_review", None) is not None: cur_settings["enable_auto_review"] = payload.enable_auto_review
+        if getattr(payload, "full_location_text", None) is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
+        if getattr(payload, "welcome_message", None) is not None: cur_settings["welcome_message"] = payload.welcome_message.strip()
+        if getattr(payload, "industry", None) is not None: cur_settings["industry"] = payload.industry.strip()
+        if getattr(payload, "facility_term", None) is not None: cur_settings["facility_term"] = payload.facility_term.strip().lower()
 
         # Synchronize taxonomy and requirement_presets cleanly
         effective_presets = None
@@ -698,6 +722,18 @@ async def update_tenant_settings(
             cur_settings["review_experience_tags"] = payload.review_experience_tags
         if payload.opening_time is not None: cur_settings["opening_time"] = payload.opening_time.strip()
         if payload.closing_time is not None: cur_settings["closing_time"] = payload.closing_time.strip()
+        if payload.is_24_7 is not None: cur_settings["is_24_7"] = payload.is_24_7
+        if payload.operating_hours is not None: cur_settings["operating_hours"] = payload.operating_hours.strip()
+        if payload.services is not None: cur_settings["services"] = payload.services
+        if getattr(payload, "doctors", None) is not None: cur_settings["doctors"] = payload.doctors
+        if getattr(payload, "location", None) is not None: cur_settings["location"] = payload.location.strip()
+        if getattr(payload, "google_maps_url", None) is not None: cur_settings["google_maps_url"] = payload.google_maps_url.strip()
+        if getattr(payload, "slot_duration", None) is not None:
+            cur_settings["slot_duration"] = int(payload.slot_duration)
+            cur_settings["slot_duration_mins"] = int(payload.slot_duration)
+        if getattr(payload, "slot_duration_mins", None) is not None:
+            cur_settings["slot_duration_mins"] = int(payload.slot_duration_mins)
+            cur_settings["slot_duration"] = int(payload.slot_duration_mins)
         if payload.slot_booking_mode is not None: cur_settings["slot_booking_mode"] = payload.slot_booking_mode.strip().lower()
         if payload.max_concurrent_bookings is not None: cur_settings["max_concurrent_bookings"] = int(payload.max_concurrent_bookings)
         if payload.leave_schedules is not None:
@@ -770,6 +806,17 @@ async def update_tenant_settings(
             "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
             json.dumps(cur_settings), tenant_id
         )
+
+        if ai_toggled:
+            try:
+                import redis.asyncio as aioredis
+                redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+                r = aioredis.from_url(redis_url)
+                await r.delete(f"tenant_context:{tenant_id}")
+                await r.delete(f"ai_config:{tenant_id}")
+                await r.aclose()
+            except Exception as r_err:
+                logger.debug("redis_cache_invalidation_skipped", error=str(r_err))
 
         # 2. Update WhatsApp credentials & location/templates
         wa_row = await conn.fetchrow("SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'", tenant_id)
@@ -1057,59 +1104,126 @@ async def optimize_ai_prompt(
 """
 
     meta_system_prompt = (
-        "You are the Master Enterprise WhatsApp AI Knowledge Base Architect. "
-        "Your task is to take raw business details, FAQs, documents, and directives, and compile them into ONE cohesive, "
-        "production-grade Master Knowledge Base for a WhatsApp AI assistant. "
+        "You are the Master Enterprise WhatsApp AI Prompt & Knowledge Base Architect. "
+        "Your mission is to take raw, unstructured, messy business brain-dump data (services, prices, doctors/staff, timings, location, policies, FAQs) "
+        "and compile them into ONE cohesive, high-density, production-grade Master Prompt and structured settings for a WhatsApp AI receptionist with 100% precision. "
         "CRITICAL INSTRUCTIONS:\n"
         "1. Output ONLY a valid JSON object. No Markdown code fences, no backticks, no introductory or concluding text.\n"
         "2. ZERO INFORMATION LOSS: Retain 100% of all facts, service names, prices, doctor credentials, operating hours, and clinical policies.\n"
-        "3. Standardize prices in numbers with currency (e.g. ₹1499 or Rs. 1499). Standardize hours with AM/PM.\n"
-        "4. Output the keys: assistant_name, unified_knowledge_base, services_text, strict_rules, bot_goal, objection_handling, response_style, summary, custom_prompt."
+        "3. DIRECT CONVERSATIONAL FLOW & NATURAL BOOKING PROTOCOL: Answer customer questions directly in Sentence 1 (pricing, hours, location, doctor availability). Transition naturally to locking an appointment/slot without artificial delay turns or rigid stage formulas.\n"
+        "4. Standardize prices in numbers with currency (e.g. ₹999 or Rs. 999). Standardize hours with AM/PM.\n"
+        "5. Output the keys: assistant_name, facility_term, unified_knowledge_base, ai_prompt, services_text, services_list, requirement_presets, doctors, operating_hours, opening_time, closing_time, is_24_7, full_location_text, location, google_maps_url, booking_payment_policy, slot_duration, bot_goal, strict_rules, objection_handling, response_style, summary, custom_prompt."
     )
 
-    meta_user_prompt = f"""Compile the following business information into a single Master Unified Knowledge Base for a WhatsApp AI assistant:
+    meta_user_prompt = f"""Compile the following business information into a single Master Unified Knowledge Base and structured platform settings for a WhatsApp AI assistant:
 
-MANDATORY DIRECTIVES — ZERO INFORMATION LOSS:
-- In "unified_knowledge_base", compile a clean, high-density Markdown document with these explicit sections:
-  ### 1. BUSINESS IDENTITY & CONTACT GROUND TRUTH
-  - Name, exact address/landmark, official daily operating hours, doctors/staff names & specialties, official website/links.
-  - STRICT LOCATION FIDELITY: Retain the EXACT business address, street, and city provided in the dump. NEVER invent, alter, or replace the business location with generic locations (e.g. Bengaluru, Indiranagar, Chennai) unless explicitly stated in the input.
-  ### 2. VERIFIED SERVICES, TREATMENTS & PRICING CATALOG
-  - Every single service, treatment, duration, and price in digits with currency (e.g. Full Body Ayurvedic Massage (60 mins): ₹1499).
-  ### 3. CLINICAL DIRECTIVES, SAFETY & BUSINESS POLICIES
-  - Gender matching rules (e.g. female therapists for female clients), advance notice, cancellation/rescheduling terms, medical disclaimers.
-  - POSITIVE & EMPATHETIC POLICY FRAMING: Always frame restrictions warmly and positively around patient comfort, privacy, and care. Never sound like a legal disclaimer or a cold rejection.
-  ### 4. WHATSAPP CONVERSATIONAL RULES & STYLE
-    - Warm, caring, humanized front-desk tone. Sound like a polite, hospitable, caring clinic coordinator.
-  - FRIENDLY HOSPITALITY (BANISH BLUNT 'NO'): Never say blunt 'No', 'Forbidden', 'We do not allow', or quote cold negative policies. Frame limitations warmly around patient privacy, comfort, and care.
-  - SMART CONTEXTUAL RESPONSE STYLE (NO RIGID SALES SCRIPTS):
-    * For Casual messages ('Hi', 'Ok', 'Thanks') or quick admin inquiries (parking, hours, location): 1-2 friendly, helpful sentences. Do not force a sales pitch.
-    * For Direct Questions about price, hours, services, or features: Answer directly and completely first. Never dodge a direct question with a qualification question.
-    * For Exploratory Inquiries (customer describes a vague problem or broad need): Ask ONE gentle, empathetic diagnostic question to understand their specific goal.
-    * For Slot Selection and Timing Replies ('today evening', '5:30 pm', 'tomorrow morning', 'Monday'): IMMEDIATELY confirm that exact slot with warmth. NEVER re-pitch the service or ask again what they need. Output [ACTION:CREATE_BOOKING: {{"service": "Service Name", "date": "YYYY-MM-DD", "time": "HH:MM", "name": "Customer Name"}}].
-    * TRAILING VARIETY: Never end two consecutive messages with the same sentence, CTA, or question.
-  - AI HONESTY & TRANSPARENCY: If the customer asks 'Are you AI?' or 'Are you a bot?', warmly and honestly confirm you are the AI assistant for this business. Never deny being AI.
-  - REAL-TIME DYNAMIC LANGUAGE SWITCHING: Always match the language and script of the customer's LATEST message. Switch immediately if they switch language.
-  - SERVICE NAME INTEGRITY: In Tamil/Tanglish, never bizarrely mistranslate wellness terms. Only mention services that exist in the verified knowledge base.
-  - ZERO hyphens (-), dashes (--), bullets, asterisks (*), or emojis. Forward slashes (/) are allowed (e.g. 24/7). Write clean flowing sentences.
-  - Direct answers to direct questions. No corporate filler.
-  ### 5. AUTOMATED ACTION PROTOCOLS
-  - [ACTION:CREATE_BOOKING: {{"service": "Service Name", "date": "YYYY-MM-DD", "time": "HH:MM", "name": "Customer Name"}}]
+MANDATORY DIRECTIVES — ZERO INFORMATION LOSS, FACTUAL FIDELITY & HIGH-DENSITY STRUCTURE:
+- In "unified_knowledge_base", compile a clean, high-density Markdown document with these explicit 9 sections:
+
+  ### 1. BUSINESS IDENTITY & SINGLE-BRANCH GROUND TRUTH
+  - Business Name, Exact Physical Address, Google Maps link, Direct Contact/WhatsApp number, Official Website/portal.
+  - STRICT LOCATION FIDELITY: Retain the EXACT business address, street, and city provided in the dump.
+  - SINGLE-BRANCH MANDATE: This business operates EXCLUSIVELY from this single verified location. We have NO branches in other areas or cities. Never claim or confirm any other branch regardless of user suggestions.
+  - MANDATORY DUAL-PAYLOAD LOCATION RULE: When a customer asks for our location, address, route, or directions: The AI MUST provide BOTH the complete physical street address AND the official Google Maps link in its reply. Never omit the Maps link!
+
+  ### 2. OFFICIAL OPERATING HOURS & CLINIC SCHEDULE (GROUND TRUTH)
+  - Daily Operating Hours (e.g. 06:00 AM to 10:00 PM daily, Monday through Sunday, or Open 24 Hours daily).
+  - Opening time (Morning / காலை) and Closing time (Night / இரவு).
+  - 24/7 Mandate (if 24 hours open, explicitly state open 24 hours day and night; otherwise state exact opening and closing hours).
+  - MANDATORY TIMING RULE: When asked about timings, always state official operating hours. Closing time is at night, never morning!
+
+  ### 3. ABSOLUTE KNOWLEDGE BOUNDARIES & FACILITY GROUND TRUTH (ZERO HALLUCINATION)
+  - Facility Type: Strictly define this facility (e.g. 'clinic', 'diagnostic lab', 'wellness center', 'software company', 'store').
+  - STRICT PROHIBITIONS & BOUNDARIES: Explicitly state what services, claims, or facilities this business DOES NOT have to prevent cross-tenant hallucinations:
+    * If Diagnostic Lab: Explicitly state ZERO massages, spa treatments, relaxation therapies, or doctor prescriptions. Certified blood tests and diagnostic investigations only.
+    * If Wellness / Massage Center: Explicitly state ZERO doctors on staff, NO medical diagnosing or prescribing. Certified wellness therapists only.
+    * If B2B SaaS (e.g. Boldlabs): Explicitly state ZERO physical clinic or walk-in address; 100% online screen-share live demo via Google Meet.
+    * If Medical Clinic: Explicitly state consultations are OP based with verified specialists on duty; never prescribe medicines or diagnose over WhatsApp chat.
+
+  ### 4. DOCTORS, SPECIALISTS & CLINICAL STAFF ROSTER (GROUND TRUTH)
+  - Names, qualifications/degrees, specialties, consultation days and hours for each doctor or therapist.
+  - OP consultation fees in standard digits (e.g. General OP ₹150, Specialist OP ₹200).
+  - SYMPTOM & SPECIALIST MATCHING MANDATE: When a patient describes symptoms or asks which doctor to see (e.g. joint/bone pain -> Ortho Dr. Nethaji MS; skin issue -> Dermatologist Dr. Raju MD; child -> Paediatrician Dr. Thamizharasan MD; general fever -> General Physician Dr. Sakthivel MBBS): The AI MUST explicitly name the specific doctor (with qualification), their schedule, and their consultation fee directly in Sentence 1. Never reply with a vague doctor category without naming the specific doctor and fee!
+  - If non-medical (wellness/salon/tech), clearly state qualified therapists / staff on duty and note zero doctors on staff.
+
+  ### 5. VERIFIED SERVICES, TREATMENTS & PRICING CATALOG (STRICT NUMERIC DIGITS)
+  - Every single service, package, and treatment with duration (in mins) and verified price in standard digits with currency (e.g. Full Body Relaxation Massage (60 mins): ₹999).
+  - Home service vs At-center pricing clearly distinguished.
+  - NUMBERS & PRICES IN DIGITS (TAMIL / TANGLISH / ENGLISH): Always write prices, fees, duration, and numbers strictly in numerical digits with currency (e.g. ₹150, ₹200, ₹300, ₹700, ₹999, ₹1499, 60 mins). STRICTLY NEVER spell out numbers in words in Tamil or English (never write 'இரண்டாயிரம்', write '₹2000'; never write 'எழுநூறு', write '₹700').
+  - VOCABULARY INTEGRITY: In Tamil/Tanglish, use accurate terminology: for powder massage, write 'உத்வர்தனம்' (Udwarthanam / மூலிகை பொடி மசாஜ்), NEVER 'புடவை மசாஜ்'.
+
+  ### 6. DIRECT CONVERSATIONAL FLOW & NATURAL BOOKING PROTOCOL
+  - DIRECT ANSWER IN SENTENCE 1: Always answer the customer's specific question (pricing, hours, location, services, doctor availability) directly in Sentence 1. Never delay, dodge, or withhold a direct answer.
+  - IMMEDIATE BOOKING WHEN REQUESTED: If the customer asks to book or provides a specific day/time (e.g. 'tomorrow at 11 am', 'today 5 pm'), confirm the slot warmly and immediately emit:
+    [ACTION:CREATE_BOOKING: {{"service": "<Service Name>", "date": "YYYY-MM-DD", "time": "HH:MM", "name": "<Customer Name>"}}]
+    Never artificially delay booking to ask unnecessary discovery questions.
+  - NATURAL DISCOVERY ONLY WHEN UNCLEAR: If the customer's inquiry is broad or unspecified (e.g. 'Hi', 'I need help'), warmly ask what specific service or requirement they are looking for.
+  - FACTUAL PRICING: Only quote verified prices from the catalog above. Never invent prices or services.
+
+  ### 7. OBJECTION HANDLING & VALUE REFRAMING PLAYBOOK
+  - When customer pushes back on price or says 'will let you know' / 'will think about it':
+    1. Briefly acknowledge their perspective naturally (no canned corporate empathy).
+    2. Reframe the core value or mention a lighter option in 1 sentence.
+    3. Respectfully leave the door open without pressure.
+
+  ### 8. WHATSAPP CONVERSATIONAL TEXTING RULES & LANGUAGE MIRRORING
+  - Warm, caring, humanized front-desk tone. Real WhatsApp texting flow.
+  - Concise: 1 to 2 short natural sentences (25 to 45 words max).
+  - FORMATTING: STRICTLY ZERO hyphens (-), ZERO dashes (--), ZERO bullets, ZERO asterisks (*), ZERO emojis. Forward slashes (/) permitted (e.g. 24/7).
+  - LANGUAGE MIRRORING: 100% natural conversational language matching:
+    * If English: natural friendly Indian English.
+    * If Tanglish: 100% natural colloquial spoken WhatsApp Tanglish as texted in Tamil Nadu (e.g. 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir', 'Full Body Relaxation Massage 60 mins price ₹999 sir. Ungalukku intha session book pannalama?'). NEVER bookish archaic transliterations!
+    * If Tamil script: 100% polite Tamil script (தமிழ்).
+    * If Hindi: natural conversational Hindi/Hinglish.
+  - AI HONESTY: If asked 'Are you AI?' or 'Are you a bot?', confirm warmly and honestly.
+  - ZERO REPETITIVE INTROS: Never start every message with the business name ('Namma Aadhiran Center la...', 'At [Business]...'). Jump straight into the answer.
+  - DIRECT QUESTION ANSWERING: Sentence 1 MUST answer the customer's specific question directly.
+  - VAGUE REFERENCE HANDLING: Resolving "what is the offer?", "how much is this?", "where are you located?" using prior turn context.
+
+  ### 9. AUTOMATED BACKEND ACTION PROTOCOLS
+  - [ACTION:CREATE_BOOKING: {{"service": "<Service Name>", "date": "YYYY-MM-DD", "time": "HH:MM", "name": "<Customer Name>"}}]
+  - [ACTION:CUSTOMER_INFO: {{"name": "<Name>", "health_concern": "<Concern>", "lead_probability": "hot" | "warm" | "cold"}}]
   - [ACTION:CANCEL_BOOKING]
-  - [ACTION:RESCHEDULE_BOOKING: {{"service": "Service Name", "date": "YYYY-MM-DD", "time": "HH:MM"}}]
+  - [ACTION:RESCHEDULE_BOOKING: {{"service": "<Service Name>", "date": "YYYY-MM-DD", "time": "HH:MM"}}]
 {custom_prompt_section}
 
 REQUIRED JSON KEYS:
 {{
-  "assistant_name": "String. Assistant first name",
+  "assistant_name": "String. Assistant first name (e.g. 'Priya' or 'Reception Assistant')",
+  "facility_term": "String. Facility type e.g. 'clinic' | 'diagnostic lab' | 'wellness center' | 'software company' | 'store'",
   "unified_knowledge_base": "String. The complete Unified Master Knowledge Base in the structured sections above",
-  "services_text": "String. Extracted services & pricing catalog",
+  "services_text": "String. Clean text list of verified services and pricing",
+  "services_list": [
+    {{"name": "String", "duration": 60, "price": 999.0, "category": "String"}}
+  ],
+  "requirement_presets": [
+    "String e.g. 'Full Body Massage (₹999)', 'Acne Treatment (₹800)'"
+  ],
+  "doctors": [
+    {{
+      "name": "Dr. String",
+      "specialty": "String",
+      "qualification": "String",
+      "fee": 200.0,
+      "schedule": "String e.g. Daily: 10:00 AM to 1:00 PM",
+      "available_days": ["Monday", "Tuesday"]
+    }}
+  ],
+  "opening_time": "String. HH:MM format e.g. '06:00' or '09:00' or '00:00'",
+  "closing_time": "String. HH:MM format e.g. '22:00' or '20:00' or '23:59'",
+  "is_24_7": false,
+  "operating_hours": "String. e.g. '06:00 AM to 10:00 PM daily' or 'Open 24 Hours daily'",
+  "full_location_text": "String. Full verified physical address and landmark, including Google Maps link if provided",
+  "location": "String. Physical street address / city without link",
+  "google_maps_url": "String. Extracted Google Maps URL if present, otherwise empty string",
+  "booking_payment_policy": "String. 'pay_at_clinic' | 'mandatory' | 'customer_choice'",
+  "slot_duration": 30,
   "bot_goal": "String. 2-3 clear sentences on what the AI must achieve",
   "strict_rules": "String. Key hard business rules and restrictions",
   "objection_handling": "String. Playbook for patient objections and hesitations",
   "response_style": "String. WhatsApp conversational texting style",
   "custom_prompt": "String. The user's custom prompt instructions preserved and formatted cleanly",
-  "summary": "String. 2-3 lines summarizing the extracted services, pricing, and operating hours"
+  "summary": "String. 2-3 lines summarizing the extracted services, pricing, doctors roster, and operating hours"
 }}
 
 --- RAW BUSINESS INFORMATION DUMP ---
@@ -1121,14 +1235,14 @@ REQUIRED JSON KEYS:
 
     # ── 1. Gemini Cascade ──────────────────────────────────────────────────────────
     if gem_key:
-        gemini_models = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"]
+        gemini_models = ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"]
         for g_model in gemini_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={gem_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent"
             try:
                 async with httpx.AsyncClient(timeout=45.0) as client:
                     res = await client.post(
                         url,
-                        headers={"Content-Type": "application/json"},
+                        headers={"x-goog-api-key": gem_key, "Content-Type": "application/json"},
                         json={
                             "systemInstruction": {"parts": [{"text": meta_system_prompt}]},
                             "contents": [{"parts": [{"text": meta_user_prompt}]}],
@@ -1149,7 +1263,7 @@ REQUIRED JSON KEYS:
 
     # ── 2. Groq Cascade (Resilient Fallback) ───────────────────────────────────────
     if not result_text and groq_key:
-        groq_models = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+        groq_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
         for gr_model in groq_models:
             # Attempt 1: with response_format json_object
             try:
@@ -1281,8 +1395,10 @@ REQUIRED JSON KEYS:
         structured = {}
 
     expected_keys = [
-        "assistant_name", "unified_knowledge_base", "ai_prompt", "services_text", "bot_goal",
-        "strict_rules", "objection_handling", "response_style", "summary", "custom_prompt"
+        "assistant_name", "facility_term", "unified_knowledge_base", "ai_prompt", "services_text", "bot_goal",
+        "strict_rules", "objection_handling", "response_style", "summary", "custom_prompt",
+        "opening_time", "closing_time", "is_24_7", "operating_hours", "full_location_text",
+        "location", "google_maps_url", "booking_payment_policy", "slot_duration"
     ]
     for key in expected_keys:
         if not structured.get(key):
@@ -1295,6 +1411,210 @@ REQUIRED JSON KEYS:
                     structured[key] = m.group(1).replace(r'\"', '"').replace(r'\n', '\n')
             else:
                 structured[key] = ""
+
+    # ── Services List Extraction & Normalization ──
+    raw_services = structured.get("services_list")
+    services_list = []
+    if isinstance(raw_services, list) and raw_services:
+        for item in raw_services:
+            if isinstance(item, dict) and item.get("name"):
+                s_name = str(item.get("name", "")).strip()
+                try:
+                    s_price = float(item.get("price", 0))
+                except (ValueError, TypeError):
+                    s_price = 0.0
+                try:
+                    s_dur = int(item.get("duration", 30))
+                except (ValueError, TypeError):
+                    s_dur = 30
+                s_cat = str(item.get("category", "")).strip()
+                services_list.append({
+                    "name": s_name,
+                    "duration": s_dur,
+                    "price": s_price,
+                    "category": s_cat
+                })
+    elif not services_list:
+        # Regex extraction of services_list JSON array
+        m_slist = re.search(r'"services_list"\s*:\s*(\[[^\]]*\])', result_text)
+        if m_slist:
+            try:
+                parsed_slist = json.loads(m_slist.group(1))
+                if isinstance(parsed_slist, list):
+                    for item in parsed_slist:
+                        if isinstance(item, dict) and item.get("name"):
+                            s_name = str(item.get("name", "")).strip()
+                            try:
+                                s_price = float(item.get("price", 0))
+                            except (ValueError, TypeError):
+                                s_price = 0.0
+                            try:
+                                s_dur = int(item.get("duration", 30))
+                            except (ValueError, TypeError):
+                                s_dur = 30
+                            services_list.append({
+                                "name": s_name,
+                                "duration": s_dur,
+                                "price": s_price,
+                                "category": str(item.get("category", "")).strip()
+                            })
+            except Exception:
+                pass
+
+    # Fallback: extract services from text or raw dump if list still empty
+    if not services_list:
+        text_source = str(structured.get("services_text") or structured.get("unified_knowledge_base") or raw_dump)
+        for line in text_source.splitlines():
+            line_clean = line.strip().lstrip("-*•0123456789.) ").strip()
+            m_pr = re.search(r'(?:₹|rs\.?|inr)\s*(\d+(?:,\d+)*(?:\.\d+)?)', line, re.I)
+            if m_pr and len(line_clean) > 3:
+                try:
+                    price_val = float(m_pr.group(1).replace(",", ""))
+                except Exception:
+                    price_val = 0.0
+                m_dur = re.search(r'(\d+)\s*(?:min|minute|hr|hour)', line, re.I)
+                duration_val = 30
+                if m_dur:
+                    try:
+                        duration_val = int(m_dur.group(1))
+                        if "hr" in m_dur.group(0).lower():
+                            duration_val *= 60
+                    except Exception:
+                        duration_val = 30
+                name_cand = re.split(r'[:–—\-\(₹]|Rs\.?', line_clean)[0].strip()
+                if name_cand and len(name_cand) >= 3 and not any(h in name_cand.lower() for h in ["service", "price", "treatment", "catalog", "rupee"]):
+                    services_list.append({
+                        "name": name_cand,
+                        "duration": duration_val,
+                        "price": price_val,
+                        "category": "General"
+                    })
+
+    # ── Doctors Roster Extraction & Normalization ──
+    raw_doctors = structured.get("doctors")
+    doctors = []
+    if isinstance(raw_doctors, list) and raw_doctors:
+        for doc in raw_doctors:
+            if isinstance(doc, dict) and doc.get("name"):
+                d_name = str(doc.get("name", "")).strip()
+                d_spec = str(doc.get("specialty", "")).strip()
+                d_qual = str(doc.get("qualification", "")).strip()
+                try:
+                    d_fee = float(doc.get("fee", 0))
+                except (ValueError, TypeError):
+                    d_fee = 0.0
+                d_sched = str(doc.get("schedule", "")).strip()
+                d_days = doc.get("available_days", [])
+                if not isinstance(d_days, list):
+                    d_days = [str(d_days)] if d_days else []
+                doctors.append({
+                    "name": d_name,
+                    "specialty": d_spec,
+                    "qualification": d_qual,
+                    "fee": d_fee,
+                    "schedule": d_sched,
+                    "available_days": [str(d).strip() for d in d_days if str(d).strip()]
+                })
+    elif not doctors:
+        m_docs = re.search(r'"doctors"\s*:\s*(\[[^\]]*\])', result_text)
+        if m_docs:
+            try:
+                parsed_docs = json.loads(m_docs.group(1))
+                if isinstance(parsed_docs, list):
+                    for doc in parsed_docs:
+                        if isinstance(doc, dict) and doc.get("name"):
+                            doctors.append({
+                                "name": str(doc.get("name", "")).strip(),
+                                "specialty": str(doc.get("specialty", "")).strip(),
+                                "qualification": str(doc.get("qualification", "")).strip(),
+                                "fee": float(doc.get("fee", 0)) if doc.get("fee") is not None else 0.0,
+                                "schedule": str(doc.get("schedule", "")).strip(),
+                                "available_days": doc.get("available_days", []) if isinstance(doc.get("available_days"), list) else []
+                            })
+            except Exception:
+                pass
+
+    # ── Requirement Presets Extraction & Auto-Generation ──
+    requirement_presets = []
+    if isinstance(structured.get("requirement_presets"), list):
+        requirement_presets = [str(x).strip() for x in structured.get("requirement_presets") if str(x).strip()]
+    if not requirement_presets:
+        m_presets = re.search(r'"requirement_presets"\s*:\s*(\[[^\]]*\])', result_text)
+        if m_presets:
+            try:
+                parsed_presets = json.loads(m_presets.group(1))
+                if isinstance(parsed_presets, list):
+                    requirement_presets = [str(x).strip() for x in parsed_presets if str(x).strip()]
+            except Exception:
+                pass
+    # If still empty, auto-generate presets from services and doctors
+    if not requirement_presets:
+        for s in services_list[:12]:
+            p_str = f"{s['name']} (₹{int(s['price'])})" if s.get('price', 0) > 0 else s['name']
+            if p_str not in requirement_presets:
+                requirement_presets.append(p_str)
+        for d in doctors:
+            doc_str = f"Consultation: {d['name']}"
+            if doc_str not in requirement_presets:
+                requirement_presets.append(doc_str)
+
+    # ── Google Maps URL Extraction & Raw Dump Fallback ──
+    google_maps_url = str(structured.get("google_maps_url", "")).strip()
+    if not google_maps_url or not google_maps_url.startswith("http"):
+        m_url = re.search(r'https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|www\.google\.com/maps|maps\.google\.com)[^\s,)>"\']+', raw_dump)
+        if m_url:
+            google_maps_url = m_url.group(0).rstrip(".")
+
+    # ── Location & Full Address ──
+    location = str(structured.get("location", "")).strip()
+    full_location_text = str(structured.get("full_location_text", "")).strip()
+    if not location and full_location_text:
+        location = re.sub(r'https?://\S+', '', full_location_text).strip().rstrip(",- ")
+    if not full_location_text and location:
+        full_location_text = location + (f" - {google_maps_url}" if google_maps_url else "")
+
+    # ── Slot Duration ──
+    try:
+        slot_duration = int(structured.get("slot_duration", 30))
+        if slot_duration <= 0 or slot_duration > 240:
+            slot_duration = 30
+    except (ValueError, TypeError):
+        slot_duration = 30
+
+    # ── Booking Payment Policy ──
+    booking_payment_policy = str(structured.get("booking_payment_policy", "pay_at_clinic")).strip().lower()
+    if booking_payment_policy not in ("pay_at_clinic", "mandatory", "customer_choice"):
+        booking_payment_policy = "pay_at_clinic"
+
+    # ── 24/7 & Operating Hours ──
+    is_24_7 = bool(structured.get("is_24_7", False))
+    if not is_24_7:
+        if re.search(r'\b24\s*[/xX-]?\s*7\b|24\s*hours\s*(?:open|daily)', raw_dump, re.I):
+            is_24_7 = True
+
+    operating_hours = str(structured.get("operating_hours", "")).strip()
+    if is_24_7 and not operating_hours:
+        operating_hours = "Open 24 Hours daily"
+
+    # ── Facility Term (Clinic, Diagnostic Lab, Wellness Center, Software Company, Business) ──
+    facility_term = str(structured.get("facility_term", "")).strip().lower()
+    if not facility_term or facility_term in ("none", "null", "undefined"):
+        lower_dump = raw_dump.lower()
+        if any(w in lower_dump for w in ("clinic", "doctor", "hospital", "patient", "consultation", "op ")):
+            facility_term = "clinic"
+        elif any(w in lower_dump for w in ("lab", "diagnostic", "blood test", "scan", "investigation")):
+            facility_term = "diagnostic lab"
+        elif any(w in lower_dump for w in ("spa", "massage", "wellness", "therapy", "ayurved")):
+            facility_term = "wellness center"
+        elif any(w in lower_dump for w in ("software", "crm", "platform", "saas", "tech")):
+            facility_term = "software company"
+        else:
+            facility_term = "business"
+
+    # ── Services Text ──
+    services_text = str(structured.get("services_text", "")).strip()
+    if not services_text and services_list:
+        services_text = "\n".join([f"{s['name']} ({s['duration']} mins): ₹{int(s['price'])}" for s in services_list])
 
     # Synchronize unified_knowledge_base and ai_prompt
     master_kb = structured.get("unified_knowledge_base") or structured.get("ai_prompt") or ""
@@ -1309,7 +1629,7 @@ REQUIRED JSON KEYS:
     if not structured.get("response_style"):
         structured["response_style"] = (
             "Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp. "
-            "2 to 3 short sentences, zero hyphens, zero emojis, direct answers to prices and hours."
+            "1 to 2 short natural sentences, zero hyphens, zero emojis, direct answers to prices and hours."
         )
 
     return {
@@ -1317,9 +1637,23 @@ REQUIRED JSON KEYS:
         "provider": provider_used,
         "optimized": {
             "assistant_name": str(structured.get("assistant_name", "")).strip(),
+            "facility_term": facility_term,
             "unified_knowledge_base": str(structured.get("unified_knowledge_base", "")).strip(),
             "ai_prompt": str(structured.get("ai_prompt", "")).strip(),
-            "services_text": str(structured.get("services_text", "")).strip(),
+            "services_text": services_text,
+            "services_list": services_list,
+            "requirement_presets": requirement_presets,
+            "doctors": doctors,
+            "opening_time": str(structured.get("opening_time", "")).strip(),
+            "closing_time": str(structured.get("closing_time", "")).strip(),
+            "is_24_7": is_24_7,
+            "operating_hours": operating_hours,
+            "full_location_text": full_location_text,
+            "location": location,
+            "google_maps_url": google_maps_url,
+            "booking_payment_policy": booking_payment_policy,
+            "slot_duration": slot_duration,
+            "slot_duration_mins": slot_duration,
             "bot_goal": str(structured.get("bot_goal", "")).strip(),
             "strict_rules": str(structured.get("strict_rules", "")).strip(),
             "objection_handling": str(structured.get("objection_handling", "")).strip(),

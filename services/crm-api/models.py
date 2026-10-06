@@ -173,6 +173,8 @@ class TenantSettingsUpdate(BaseModel):
     opencode_api_key: Optional[str] = None
     opencode_base_url: Optional[str] = None
     
+    ai_enabled: Optional[bool] = None
+    ai_paused: Optional[bool] = None
     assistant_name: Optional[str] = None
     bot_goal: Optional[str] = None
     services_text: Optional[str] = None
@@ -217,6 +219,7 @@ class TenantSettingsUpdate(BaseModel):
     notification_email: Optional[str] = None
     
     industry: Optional[str] = None
+    facility_term: Optional[str] = None
     taxonomy: Optional[Dict[str, Any]] = None
     review_experience_tags: Optional[List[str]] = None
     requirement_presets: Optional[List[str]] = None
@@ -225,6 +228,11 @@ class TenantSettingsUpdate(BaseModel):
     is_24_7: Optional[bool] = None
     operating_hours: Optional[str] = None
     services: Optional[List[Dict[str, Any]]] = None
+    doctors: Optional[List[Dict[str, Any]]] = None
+    location: Optional[str] = None
+    google_maps_url: Optional[str] = None
+    slot_duration: Optional[int] = None
+    slot_duration_mins: Optional[int] = None
     slot_booking_mode: Optional[str] = None
     max_concurrent_bookings: Optional[int] = None
     leave_schedules: Optional[List[Dict[str, Any]]] = None

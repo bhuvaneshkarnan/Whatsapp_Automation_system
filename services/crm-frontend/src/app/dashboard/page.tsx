@@ -5767,6 +5767,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
                 return timeB - timeA;
               });
+              // Keep selectedConv in sync with fresh server data (e.g. ai_enabled or status changes)
+              if (activeId) {
+                const freshActive = sanitizedConvs.find((c) => c.id === activeId);
+                if (freshActive) {
+                  setSelectedConv((cur) => {
+                    if (!cur || cur.id !== freshActive.id) return cur;
+                    if (cur.ai_enabled !== freshActive.ai_enabled || cur.status !== freshActive.status) {
+                      return { ...cur, ...freshActive };
+                    }
+                    return cur;
+                  });
+                }
+              }
+
               setConversations((prev) => {
                 // Critical safeguard: Never wipe out existing conversations during a background sync poll
                 if (sanitizedConvs.length === 0 && prev.length > 0) {
@@ -5780,7 +5794,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       prev[idx].id !== c.id ||
                       prev[idx].unread_count !== c.unread_count ||
                       prev[idx].last_message_at !== c.last_message_at ||
-                      prev[idx].last_message !== c.last_message
+                      prev[idx].last_message !== c.last_message ||
+                      prev[idx].ai_enabled !== c.ai_enabled ||
+                      prev[idx].status !== c.status
                   );
                 return isDiff ? sanitizedConvs : prev;
               });
@@ -7734,29 +7750,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  async function handleToggleAi(convId: string, currentStatus: boolean) {
+  async function handleToggleAi(convId: string, enable: boolean) {
     setTogglingAi(true);
-    const newStatus = !currentStatus;
+    const newStatusStr = enable ? 'bot' : 'human';
     try {
       // Optimistic update
-      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, ai_enabled: newStatus } : prev));
+      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, ai_enabled: enable, status: newStatusStr } : prev));
       setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, ai_enabled: newStatus } : c))
+        prev.map((c) => (c.id === convId ? { ...c, ai_enabled: enable, status: newStatusStr } : c))
       );
 
-      const updated = await crm.toggleAi(convId, newStatus);
-      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, ai_enabled: updated.ai_enabled } : prev));
+      const updated = await crm.toggleAi(convId, enable);
+      const isEnabled = updated.ai_enabled;
+      const statusStr = (updated as any).status || (isEnabled ? 'bot' : 'human');
+      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, ai_enabled: isEnabled, status: statusStr } : prev));
       setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, ai_enabled: updated.ai_enabled } : c))
+        prev.map((c) => (c.id === convId ? { ...c, ai_enabled: isEnabled, status: statusStr } : c))
       );
-      setActionNotice(newStatus ? 'AI Auto-Reply enabled for this chat!' : 'Switched to Human Mode (AI paused for this chat).');
+      setActionNotice(enable ? 'AI Auto-Reply enabled for this chat!' : 'Switched to Human Mode (AI paused for this chat).');
       setTimeout(() => setActionNotice(null), 3000);
     } catch (err) {
       console.error('Failed to toggle AI mode:', err);
       // Revert on error
-      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, ai_enabled: currentStatus } : prev));
+      const revertEnable = !enable;
+      const revertStatusStr = revertEnable ? 'bot' : 'human';
+      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, ai_enabled: revertEnable, status: revertStatusStr } : prev));
       setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, ai_enabled: currentStatus } : c))
+        prev.map((c) => (c.id === convId ? { ...c, ai_enabled: revertEnable, status: revertStatusStr } : c))
       );
     } finally {
       setTogglingAi(false);
@@ -7765,10 +7785,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   async function handleToggleAllAi(enable: boolean) {
     setTogglingAi(true);
+    const newStatusStr = enable ? 'bot' : 'human';
     try {
       // Optimistic update
-      setConversations((prev) => prev.map((c) => ({ ...c, ai_enabled: enable })));
-      setSelectedConv((prev) => (prev ? { ...prev, ai_enabled: enable } : null));
+      setConversations((prev) => prev.map((c) => ({ ...c, ai_enabled: enable, status: newStatusStr })));
+      setSelectedConv((prev) => (prev ? { ...prev, ai_enabled: enable, status: newStatusStr } : null));
+      setSettingsForm((prev) => ({ ...prev, ai_enabled: enable, ai_paused: !enable }));
 
       await crm.toggleAllAi(enable);
       setActionNotice(enable ? 'AI Auto-Reply enabled for ALL chats!' : 'AI Auto-Reply paused (Human Mode) for ALL chats!');
@@ -14999,27 +15021,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <MessageSquare className="w-4 h-4 text-accent stroke-[2]" />
                         <span>{currentTaxonomy.tab_chats_label || 'Chats'}</span>
                       </h3>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const anyOn = conversations.some((c) => c.ai_enabled);
-                          if (anyOn) {
-                            setConfirmAllAiModal(true);
-                          } else {
-                            handleToggleAllAi(true);
-                          }
-                        }}
-                        disabled={togglingAi}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all cursor-pointer border ${
-                          conversations.some((c) => c.ai_enabled)
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                            : 'bg-surface-subtle text-text-muted border-border hover:text-text-primary'
-                        }`}
-                        title="Toggle AI auto-reply for all conversations"
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${conversations.some((c) => c.ai_enabled) ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                        <span>AI {conversations.some((c) => c.ai_enabled) ? 'Active' : 'Off'}</span>
-                      </button>
+                      {(() => {
+                        const isGlobalAiActive = settingsForm?.ai_enabled !== false && !settingsForm?.ai_paused && conversations.some((c) => c.ai_enabled);
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isGlobalAiActive) {
+                                setConfirmAllAiModal(true);
+                              } else {
+                                handleToggleAllAi(true);
+                              }
+                            }}
+                            disabled={togglingAi}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all cursor-pointer border ${
+                              isGlobalAiActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                : 'bg-surface-subtle text-text-muted border-border hover:text-text-primary'
+                            }`}
+                            title="Toggle AI auto-reply for all conversations"
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isGlobalAiActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                            <span>All: AI {isGlobalAiActive ? 'Active' : 'Off'}</span>
+                          </button>
+                        );
+                      })()}
                     </div>
 
                     {/* Minimal Search with Icon & Clear */}
@@ -15173,11 +15199,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               {/* Avatar Dot: Green = AI Active, Amber = Human Mode */}
                               <span
                                 className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface ${
-                                  conv.ai_enabled !== false
+                                  conv.ai_enabled === true
                                     ? 'bg-emerald-500'
                                     : 'bg-amber-500'
                                 }`}
-                                title={conv.ai_enabled !== false ? 'AI Assistant Active' : 'Human Takeover Mode'}
+                                title={conv.ai_enabled === true ? 'AI Assistant Active' : 'Human Takeover Mode'}
                               />
                             </div>
 
@@ -15486,7 +15512,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <span className="sm:hidden">+ Book</span>
                               </button>
 
-                              {/* 2. AI Active / Paused Toggle */}
+                              {/* 2. AI Active / Human Mode Toggle */}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -15497,7 +15523,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       name: selectedConv.contact_name || selectedConv.contact_phone || 'this customer',
                                     });
                                   } else {
-                                    handleToggleAi(selectedConv.id, false);
+                                    handleToggleAi(selectedConv.id, true);
                                   }
                                 }}
                                 disabled={togglingAi}
@@ -15506,11 +15532,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
                                     : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
                                 }`}
-                                title={selectedConv.ai_enabled ? 'AI assistant is active (Click to take over)' : 'Human mode (Click to resume AI)'}
+                                title={selectedConv.ai_enabled ? 'AI assistant is active (Click to switch to human mode)' : 'Human mode (Click to resume AI)'}
                               >
                                 <span className={`w-2 h-2 rounded-full shrink-0 ${selectedConv.ai_enabled ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                                <span className="hidden sm:inline">{selectedConv.ai_enabled ? 'AI Active' : 'AI Paused'}</span>
-                                <span className="sm:hidden">{selectedConv.ai_enabled ? 'AI' : 'Off'}</span>
+                                <span className="hidden sm:inline">{selectedConv.ai_enabled ? 'AI Active' : 'Human Mode'}</span>
+                                <span className="sm:hidden">{selectedConv.ai_enabled ? 'AI' : 'Human'}</span>
                               </button>
 
                               {/* 3. Profile Button */}
@@ -23015,40 +23041,65 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </details>
 
-                        {/* Shop Operating Hours */}
-                        <div className="bg-surface rounded-md border border-border p-4 space-y-3">
-                          <div className="flex items-center justify-between pb-1 border-b border-border">
+                        {/* Verified Operating Hours (Managed by Super Admin for 100% Accuracy) */}
+                        <div className="bg-surface rounded-md border border-border p-4 space-y-3.5">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
                             <label className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
                               <Clock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                              <span>Shop Operating Hours</span>
+                              <span>Verified Operating Hours</span>
                             </label>
-                            <span className="text-[10px] text-text-muted">Enforced on WhatsApp AI</span>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                              Synced with WhatsApp AI
+                            </span>
                           </div>
-                          <p className="text-xs text-text-secondary">
-                            Your WhatsApp AI assistant strictly proposes and accepts appointments only within these operating hours.
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-surface-subtle rounded-md border border-border">
                             <div>
-                              <label className="block text-[11px] font-medium text-text-primary mb-1">Shop Opening Time</label>
-                              <input
-                                type="time"
-                                value={settingsForm.opening_time || '09:00'}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, opening_time: e.target.value })}
-                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                              />
-                              <span className="text-[10px] text-text-muted mt-1 block">Default: 09:00 AM</span>
+                              <div className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
+                                Current Active Schedule
+                              </div>
+                              <div className="text-sm font-bold text-text-primary font-mono mt-0.5">
+                                {(() => {
+                                  if (settingsForm.is_24_7 || (settingsForm.operating_hours && settingsForm.operating_hours.toLowerCase().includes('24'))) {
+                                    return 'Open 24 Hours Daily (24/7)';
+                                  }
+                                  const fmt = (t?: string) => {
+                                    if (!t) return '';
+                                    const parts = t.split(':');
+                                    const h = parseInt(parts[0], 10);
+                                    if (isNaN(h)) return t;
+                                    const ampm = h >= 12 ? 'PM' : 'AM';
+                                    const h12 = h % 12 || 12;
+                                    const mStr = parts[1] || '00';
+                                    return `${h12 < 10 ? '0' : ''}${h12}:${mStr} ${ampm}`;
+                                  };
+                                  const o = fmt(settingsForm.opening_time || '09:00');
+                                  const c = fmt(settingsForm.closing_time || '20:00');
+                                  return `${o} to ${c} (Daily)`;
+                                })()}
+                              </div>
+                              <p className="text-[11px] text-text-secondary mt-1">
+                                Your WhatsApp AI assistant strictly proposes and accepts appointments only within this verified schedule.
+                              </p>
                             </div>
 
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-primary mb-1">Shop Closing Time</label>
-                              <input
-                                type="time"
-                                value={settingsForm.closing_time || '20:00'}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, closing_time: e.target.value })}
-                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                              />
-                              <span className="text-[10px] text-text-muted mt-1 block">Default: 08:00 PM</span>
+                            <div className="shrink-0 self-start sm:self-center">
+                              <a
+                                href={`mailto:${settingsForm.brand_support_email || 'bhuvaneshkarnan@gmail.com'}?subject=${encodeURIComponent(`Update Operating Hours Request - ${settingsForm.name || 'Clinic'}`)}&body=${encodeURIComponent(`Hello Support,\n\nPlease update the permanent operating hours for ${settingsForm.name || 'our facility'}.\n\nNew Opening Time:\nNew Closing Time:\nWeekly Off Days:\n\nThank you!`)}`}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-sm border border-border bg-surface hover:bg-surface-subtle text-text-primary transition-colors cursor-pointer shadow-2xs"
+                              >
+                                <span>Request Time Change</span>
+                                <ExternalLink className="w-3 h-3 text-text-muted" />
+                              </a>
                             </div>
+                          </div>
+
+                          <div className="flex items-start gap-2 p-2.5 rounded bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-[11px] text-blue-900 dark:text-blue-300">
+                            <Lock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                            <span>
+                              <strong>Managed Configuration:</strong> Operating hours and doctor shifts are locked and synchronized with your Single Source of Truth AI model to guarantee 100% factual accuracy. For temporary off-days or emergency closures, use <strong>Clinic Leaves & Blackout Hours</strong> below.
+                            </span>
                           </div>
                         </div>
 
@@ -26104,7 +26155,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   onClick={() => {
                     const convId = confirmSingleAiModal.convId;
                     setConfirmSingleAiModal(null);
-                    handleToggleAi(convId, true);
+                    handleToggleAi(convId, false);
                   }}
                   className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5"
                 >

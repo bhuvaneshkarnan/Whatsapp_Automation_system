@@ -31,15 +31,22 @@ async def list_conversations(
     async with database.db_pool.acquire() as conn:
         # Auto-ensure all contacts have a conversation record
         try:
+            t_sett_row = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            t_sett = {}
+            if t_sett_row:
+                try: t_sett = json.loads(t_sett_row) if isinstance(t_sett_row, str) else dict(t_sett_row)
+                except Exception: t_sett = {}
+            def_status = "human" if (t_sett.get("ai_enabled") is False or t_sett.get("ai_paused") is True) else "bot"
+
             await conn.execute("""
                 INSERT INTO conversations (id, tenant_id, contact_id, status, last_message_at, created_at, updated_at)
-                SELECT gen_random_uuid(), c.tenant_id, c.id, 'bot', c.created_at, c.created_at, now()
+                SELECT gen_random_uuid(), c.tenant_id, c.id, $2, c.created_at, c.created_at, now()
                 FROM contacts c
                 WHERE c.tenant_id = $1::uuid
                   AND NOT EXISTS (
                       SELECT 1 FROM conversations cv WHERE cv.contact_id = c.id AND cv.tenant_id = c.tenant_id
                   )
-            """, tenant_id)
+            """, tenant_id, def_status)
         except Exception as e:
             logger.warning("conversation_sync_from_contacts_failed", error=str(e))
 
@@ -74,8 +81,10 @@ async def list_conversations(
                             WHEN m.content_type = 'audio' THEN '🎵 [Audio]'
                             WHEN m.content_type = 'sticker' THEN '🏷️ [Sticker]'
                             WHEN m.content_type = 'location' THEN '📍 [Location]'
+                            WHEN m.content_type = 'interactive' THEN '🔘 [Interactive Selection]'
+                            WHEN m.content_type = 'unsupported' THEN '📞 [Incoming WhatsApp Call]'
                             WHEN m.template_name IS NOT NULL AND m.template_name != '' THEN '📋 [Template]'
-                            ELSE '[Message]'
+                            ELSE '📷 [Unsupported attachment / View-Once media]'
                         END
                     ) AS last_message
                 FROM messages m 
@@ -160,6 +169,7 @@ async def list_conversations(
         out.append({
             "id": str(r["id"]),
             "status": r["status"] or "bot",
+            "ai_enabled": (r["status"] or "bot").lower() not in ("human", "manual", "off", "human_takeover", "false"),
             "last_message_at": r["last_message_at"].isoformat() if r["last_message_at"] else None,
             "last_inbound_at": r["last_inbound_at"].isoformat() if r["last_inbound_at"] else None,
             "last_message": r["last_message"] or "",
@@ -276,7 +286,7 @@ async def get_messages(
         # If template body is raw [Template: ...], expand into human-readable text
         if t_name and (not b or str(b).startswith("[Template:") or str(b).startswith("📋 [Template:")):
             d["body"] = expand_template_body(t_name, d.get("template_params"), b)
-        elif not b or not str(b).strip():
+        elif not b or not str(b).strip() or str(b).strip() == "[Message]":
             ct = d.get("content_type")
             if ct == "image": d["body"] = "📷 [Photo]"
             elif ct == "video": d["body"] = "🎥 [Video]"
@@ -284,8 +294,10 @@ async def get_messages(
             elif ct == "audio": d["body"] = "🎵 [Audio]"
             elif ct == "sticker": d["body"] = "🏷️ [Sticker]"
             elif ct == "location": d["body"] = "📍 [Location]"
+            elif ct == "interactive": d["body"] = "🔘 [Interactive Selection]"
+            elif ct == "unsupported": d["body"] = "📞 [Incoming WhatsApp Call]"
             elif t_name: d["body"] = expand_template_body(t_name, d.get("template_params"), f"📋 [Template: {t_name}]")
-            else: d["body"] = "[Message]"
+            else: d["body"] = "📷 [Unsupported attachment / View-Once media]"
         out.append(d)
     return out
 
@@ -469,8 +481,14 @@ async def send_manual_message(
             msg_id, conv_id, tenant_id, wa_id, content_type, body_to_save, status, payload.template_name, tpl_params_json
         )
 
-        # Update conversation last_message_at
-        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+        # Update conversation last_message_at and clear pending callback request since staff reached out
+        await conn.execute(
+            """UPDATE conversations 
+               SET last_message_at = now(),
+                   wa_context = coalesce(wa_context, '{}'::jsonb) - 'callback_requested' - 'callback_requested_at'
+               WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+            conv_id, tenant_id
+        )
 
     if status == "failed":
         raise HTTPException(
@@ -1135,6 +1153,29 @@ async def toggle_all_conversations_ai(
             "UPDATE conversations SET status = $1, updated_at = now() WHERE tenant_id = $2::uuid",
             new_status, tenant_id
         )
+        # CRITICAL: Persist organization-wide AI toggle directly into tenants.settings
+        await conn.execute(
+            """UPDATE tenants
+               SET settings = jsonb_set(
+                   jsonb_set(coalesce(settings, '{}'::jsonb), '{ai_enabled}', to_jsonb($1::boolean)),
+                   '{ai_paused}', to_jsonb($2::boolean)
+               ),
+               updated_at = now()
+               WHERE id = $3::uuid""",
+            payload.ai_enabled, not payload.ai_enabled, tenant_id
+        )
+
+    # Invalidate Redis tenant cache keys so core-worker picks up global AI pause instantly
+    try:
+        import redis.asyncio as aioredis
+        redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+        r = aioredis.from_url(redis_url)
+        await r.delete(f"tenant_context:{tenant_id}")
+        await r.delete(f"ai_config:{tenant_id}")
+        await r.aclose()
+    except Exception as r_err:
+        logger.debug("redis_cache_invalidation_skipped", error=str(r_err))
+
     return {"status": "updated", "ai_enabled": payload.ai_enabled, "new_status": new_status}
 
 

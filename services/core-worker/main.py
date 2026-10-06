@@ -73,12 +73,44 @@ except Exception:
     processing_time    = REGISTRY._names_to_collectors.get("core_processing_seconds")
     wa_sends           = REGISTRY._names_to_collectors.get("core_wa_sends_total")
 
+# ── Phone & Self-Messaging Guards ───────────────────────────────────────────────
+def is_self_or_contact_phone(target_phone: str, bot_phone: str = "", contact_phone: str = "") -> tuple[bool, str]:
+    """
+    Checks if a target WhatsApp phone number matches the bot's own number or the customer's number.
+    Meta WhatsApp Cloud API strictly rejects sending messages to the bot's own WABA number (#100 Invalid parameter).
+    """
+    if not target_phone:
+        return True, "empty_target"
+    clean_target = re.sub(r'[^0-9]', '', str(target_phone))
+    if len(clean_target) < 10:
+        return True, "invalid_target_length"
+    target_10 = clean_target[-10:]
+
+    if bot_phone:
+        clean_bot = re.sub(r'[^0-9]', '', str(bot_phone))
+        if len(clean_bot) >= 10 and clean_bot[-10:] == target_10:
+            return True, "matches_bot_number"
+
+    if contact_phone:
+        clean_contact = re.sub(r'[^0-9]', '', str(contact_phone))
+        if len(clean_contact) >= 10 and clean_contact[-10:] == target_10:
+            return True, "matches_customer_number"
+
+    return False, ""
+
+
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
 async def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
     """Dispatches direct HTML email using authorized Google OAuth token via Gmail API."""
     if not to_email or "@" not in to_email:
         return None
     try:
+        # Check if Google credentials have Gmail send scope
+        scopes = getattr(g_creds, "scopes", None)
+        if scopes and not any("gmail" in str(s).lower() for s in scopes):
+            logger.debug("gmail_email_notification_skipped_scope_missing", to=to_email, note="Calendar invite already sent via Google Calendar sendUpdates=all")
+            return None
+
         import base64
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
@@ -94,7 +126,11 @@ async def send_gmail_direct_notification(g_creds, to_email: str, subject: str, h
         logger.info("gmail_email_notification_sent", to=to_email, msg_id=res.get("id"))
         return res
     except Exception as e:
-        logger.warning("gmail_email_notification_failed", to=to_email, error=str(e))
+        err_str = str(e)
+        if "insufficient authentication scopes" in err_str.lower() or "403" in err_str:
+            logger.info("gmail_email_notification_insufficient_scope_skipped", to=to_email, note="Calendar invite already sent via Google Calendar sendUpdates=all")
+        else:
+            logger.warning("gmail_email_notification_failed", to=to_email, error=err_str)
         return None
 
 
@@ -402,11 +438,32 @@ def resolve_package_and_fee(
             if eff_price <= 0:
                 eff_price = 999.0
 
-    # 1b. Check Aadhiran Full Body Relaxation Massage (unified 60 mins: Regular ₹999, Offer ₹700)
-    if "aadhiran" in clean_slug and any(w in search_text for w in ["full body", "relaxation", "massage", "மசாஜ்"]) and "home" not in search_text:
-        resolved_service = "Full Body Relaxation Massage (60 mins)"
-        if eff_price <= 0:
-            eff_price = 700.0  # Active special 4-day offer (2/10/2026 to 5/10/2026): ₹700, regular ₹999
+    # 1b. Check Aadhiran Services (Full Body Relaxation Massage 60 mins: ₹999; and other treatments)
+    if "aadhiran" in clean_slug and "home" not in search_text:
+        if any(w in search_text for w in ["abhyangam", "ayurvedic"]):
+            resolved_service = "Abhyangam / Ayurvedic Massage"
+            if eff_price <= 0:
+                eff_price = 1399.0
+        elif any(w in search_text for w in ["udwarthanam", "powder massage", "udwartana"]):
+            resolved_service = "Powder Massage / Udwarthanam"
+            if eff_price <= 0:
+                eff_price = 1499.0
+        elif any(w in search_text for w in ["stress relief", "deep tissue"]):
+            resolved_service = "Stress Relief & Relaxation Therapy"
+            if eff_price <= 0:
+                eff_price = 1499.0
+        elif any(w in search_text for w in ["sirodhara", "shirodhara", "reflexology"]):
+            resolved_service = "Reflexology / Sirodhara"
+            if eff_price <= 0:
+                eff_price = 999.0
+        elif any(w in search_text for w in ["steam bath", "steam"]):
+            resolved_service = "Steam Bath"
+            if eff_price <= 0:
+                eff_price = 299.0
+        elif any(w in search_text for w in ["full body", "relaxation", "massage", "மசாஜ்"]) or not hint_str or hint_str == "Consultation":
+            resolved_service = "Full Body Relaxation Massage (60 mins)"
+            if eff_price <= 0:
+                eff_price = 999.0
 
     # 2. Check for price in service string if not resolved yet
     if eff_price <= 0:
@@ -721,14 +778,23 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "- ACCURATE CUSTOMER QUERY COMPREHENSION (FIRST PRIORITY):\n"
     "  * Always read and genuinely understand what the customer is saying in the context of the conversation before replying.\n"
     "  * When the customer gives a short reply (e.g. '3 pm', 'tomorrow', 'hydrafacial', 'yes', 'T Nagar', 'give me a demo', 'today evening'): Connect their reply directly to the previous messages. They are answering your previous question or continuing the ongoing topic. NEVER evaluate short answers in isolation and NEVER reset the conversation context.\n"
-    "  * NATURAL 4 TO 5 TURN DISCOVERY FLOW: On early turns (Turn 1 to 3), prioritize diagnosing the customer's need with ONE thoughtful diagnostic question. Do NOT propose appointment times or demo slots until Stage 4 or unless the customer explicitly provided an exact time.\n"
+    "  * ANSWER FIRST, QUALIFY SECOND: If the customer asks a direct question (pricing, hours, services, doctors, packages, location, duration), your FIRST sentence MUST directly and accurately answer what they asked from the verified knowledge base. Sentence 2 can guide them forward with a natural next step. Never force an artificial qualification flow if the customer is asking a direct question or wants to book immediately.\n"
     "  * TIME / SLOT PROVIDED: When the customer provides a time or day (e.g. 'today evening', '5:30 pm', 'tomorrow at 3'), understand they are selecting their slot! Immediately confirm that exact time with warmth and append [ACTION:CREATE_BOOKING: ...] with date and time.\n"
+    "- CLICK-TO-WHATSAPP (CTWA) / AD REFERRALS (MANDATORY FOR ALL TENANTS):\n"
+    "  * When an incoming customer message contains '[Ad Referral: ...]' or asks for info on an ad, offer, or promotional campaign:\n"
+    "    1. The customer reached out directly from clicking your Facebook or Instagram ad campaign!\n"
+    "    2. Immediately acknowledge their specific inquiry about that ad or service (e.g. the specific massage, treatment, test, doctor specialty, or product mentioned in the ad referral).\n"
+    "    3. Provide the exact package details, pricing, duration, and benefits from your knowledge base with high warmth and sales enthusiasm.\n"
+    "    4. Invite them to schedule a convenient time or day for an appointment.\n"
+    "    5. NEVER treat ad referral messages as generic greetings or send error messages. Answer the ad offer directly!\n"
     "- DIRECT QUESTION ANSWERING:\n"
     "  * Always identify what the customer is specifically asking and answer THAT question directly. Never respond with a generic greeting or service list when a specific question was asked.\n"
     "- VAGUE REFERENCE HANDLING:\n"
     "  * When customer says 'this', 'it', 'that service', 'the offer' without specifying, look at conversation history to understand what they're referring to, then answer specifically.\n"
     "- NO GENERIC OPENERS:\n"
     "  * Never start a reply with just 'Welcome to [Business Name]!' or 'Thank you for contacting us!' as the ENTIRE reply. These are greetings, not answers.\n"
+    "- LOCATION & GOOGLE MAPS INQUIRIES:\n"
+    "  * When the customer asks about our location, address, route, or directions: If a Google Maps URL is provided in the verified business ground truth, you MUST include BOTH our full physical address AND the Google Maps link in your reply. Never omit the maps link.\n"
     "- TEMPORAL REASONING & DATE/TIME RESOLUTION (ZERO AMBIGUITY):\n"
     "  * Live Timestamp Awareness: Check the current time provided at the top of the prompt.\n"
     "  * If customer mentions a time without a date (e.g. '3 pm', 'at 11', '5:30 PM'):\n"
@@ -751,9 +817,11 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.\n"
     "- REAL-TIME DYNAMIC LANGUAGE SWITCHING:\n"
     "  * ALWAYS mirror the language and script of the customer's LATEST message on every single turn.\n"
-    "  * If the customer previously messaged in Tamil but now writes in English, you MUST immediately switch and reply 100% in natural English. NEVER stay locked in Tamil when the customer asks in English.\n"
+    "  * If the customer previously messaged in Tamil but now writes in English, switch and reply 100% in natural English (EXCEPTION FOR AADHIRAN CENTER: Aadhiran Center operates EXCLUSIVELY in Tanglish and Tamil. If an Aadhiran customer writes in English or sends an English voice note, reply in natural spoken Tanglish, NEVER English!).\n"
     "  * If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish.\n"
     "  * If the customer sends a neutral short acknowledgment (like 'ok', 'yes', 'sure', '3 pm'), continue in the previously established language.\n"
+    "- NUMBERS AND PRICES IN DIGITS (TAMIL / TANGLISH):\n"
+    "  * ALWAYS write prices, fees, duration, and numbers strictly in numerical digits with ₹ (e.g. ₹700, ₹999, ₹1399, ₹1499, 60 mins). STRICTLY NEVER spell numbers out in Tamil words (e.g. NEVER write 'ஆயிரத்து நானூறு', write '₹1400'; never write 'எழுநூறு', write '₹700'; never write 'அறுபது', write '60 mins'; never write 'ஆயிரத்து முனுநூற்று தொண்ணூறு', write '₹1399').\n"
     "- SERVICE NAME INTEGRITY & ZERO HALLUCINATION:\n"
     "  * Only offer and describe services and packages that explicitly exist in THIS business's verified catalog below. Never invent, extrapolate, or confuse services.\n"
     "  * In Tamil/Tanglish, translate service terms accurately according to this business's specific vocabulary instructions.\n"
@@ -766,7 +834,11 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * Each reply must have a UNIQUE, CONTEXTUALLY FRESH closing that directly matches what the customer just said. DO NOT fall back to generic repeated CTAs.\n"
     "  * If a customer has already been asked 'Would you like to book?' or 'Would you like more details?' in the last message, do NOT ask the same thing again. Instead, directly answer their new question and stop there.\n"
     "- NO-QUESTION CONFIRMATION PROGRESSION (ANTI-REPETITION):\n"
-    "  * If you asked 'Is there anything else you would like to know before we finalize?' or similar pre-booking readiness question, and the customer replies 'No', 'Nothing', 'illa', or expresses they have no questions: Understand they are ready to finalize now! Do NOT re-ask if they have questions or repeat yourself. Immediately proceed to confirm/lock the proposed slot (e.g. 'Noted [Name]! Shall I go ahead and confirm your consultation for [Day] at [Time]?')."
+    "  * If you asked 'Is there anything else you would like to know before we finalize?' or similar pre-booking readiness question, and the customer replies 'No', 'Nothing', 'illa', or expresses they have no questions: Understand they are ready to finalize now! Do NOT re-ask if they have questions or repeat yourself. Immediately proceed to confirm/lock the proposed slot (e.g. 'Noted [Name]! Shall I go ahead and confirm your consultation for [Day] at [Time]?').\n"
+    "- PHONE CALL & CALLBACK REQUESTS (MANDATORY ADMIN ALERT):\n"
+    "  * When a customer asks to be called (e.g. 'call me', 'please call', 'give me a call', 'call back', 'call pannunga', 'can you call me', 'pesanum'):\n"
+    "    1. Warmly reassure them in 1 to 2 short natural sentences: 'Sure! I have notified our team to give you a call directly on this number shortly.'\n"
+    "    2. The platform automatically alerts the admin to call them. Do NOT append [ACTION:HUMAN_TAKEOVER] so AI remains active to answer any future customer questions."
 )
 
 def _esc_html(val: Any) -> str:
@@ -1261,6 +1333,7 @@ class CoreWorker:
         self.redis: Optional[aioredis.Redis] = None
         self.in_flight_messages: set = set()
         self._worker_semaphore: asyncio.Semaphore = asyncio.Semaphore(15)
+        self._tenant_context_cache: dict = {}
 
     @staticmethod
     async def _fire_and_log(coro, label: str, **ctx):
@@ -1380,6 +1453,26 @@ class CoreWorker:
                                     status, wa_message_id, tenant_id
                                 )
                                 logger.info("status_updated", wa_message_id=wa_message_id, status=status, tenant_id=tenant_id)
+                                if status == "failed" and tenant_id:
+                                    err_raw = str(fields.get("errors") or "[]")
+                                    if "131042" in err_raw:
+                                        logger.error("meta_waba_payment_currency_error_131042", tenant_id=tenant_id, wa_message_id=wa_message_id)
+                                        try:
+                                            await self.db_pool.execute("""
+                                                INSERT INTO notifications (id, tenant_id, type, title, body, is_read, data, created_at)
+                                                SELECT $1::uuid, $2::uuid, 'payment_issue', $3, $4, false, $5::jsonb, now()
+                                                WHERE NOT EXISTS (
+                                                    SELECT 1 FROM notifications 
+                                                    WHERE tenant_id = $2::uuid AND type = 'payment_issue' AND created_at > now() - interval '6 hours'
+                                                )
+                                            """,
+                                            str(uuid.uuid4()), tenant_id,
+                                            "⚠️ Meta Payment Required for Outbound WhatsApp Templates",
+                                            "Meta blocked outbound template delivery (Error 131042): WhatsApp Business Account currency is not configured. Visit Meta Business Manager Billing Hub to resolve.",
+                                            json.dumps({"code": 131042, "raw": err_raw})
+                                            )
+                                        except Exception as e_ntf:
+                                            logger.debug("notification_insert_skipped", error=str(e_ntf))
                             else:
                                 logger.warning("status_update_skipped_unresolved_tenant", wa_message_id=wa_message_id)
                         await self.redis.xack(STATUS_STREAM_KEY, STATUS_CONSUMER_GROUP, msg_id)
@@ -1540,21 +1633,24 @@ class CoreWorker:
             conv_id, conv_status = await self._get_or_create_conversation(tenant_id, contact_id)
 
             # ── 3. WhatsApp Read Receipts (2 Blue Ticks) ──────────────────────
-            creds = await self._get_tenant_whatsapp_creds(tenant_id)
-            tenant_info = await self.db_pool.fetchrow(
-                "SELECT is_active, org_lifecycle_stage, subscription_status, "
-                "payment_failed_at, grace_period_until, settings FROM tenants WHERE id = $1::uuid", tenant_id
-            )
-            is_active = tenant_info["is_active"] if tenant_info else True
-            stage = (tenant_info.get("org_lifecycle_stage") or "setup") if tenant_info else "setup"
-            sub_status = (tenant_info.get("subscription_status") or "active") if tenant_info else "active"
+            tenant_ctx = await self.load_tenant_context(tenant_id)
+            creds = tenant_ctx.get("creds")
+            is_active = tenant_ctx.get("is_active", True)
+            stage = tenant_ctx.get("org_lifecycle_stage", "setup")
+            sub_status = tenant_ctx.get("subscription_status", "active")
 
             # Grace period: payment_failed within 3 days → AI still runs (client has time to fix payment)
-            _grace_until = tenant_info.get("grace_period_until") if tenant_info else None
+            _grace_until_raw = tenant_ctx.get("grace_period_until")
+            _grace_until = None
+            if _grace_until_raw:
+                try:
+                    _grace_until = datetime.datetime.fromisoformat(str(_grace_until_raw))
+                except Exception:
+                    _grace_until = None
             _now_utc = datetime.datetime.now(timezone.utc)
 
             # Temporary access expiration enforcer (e.g. temp activation granted until specific time)
-            _t_settings = tenant_info.get("settings") if tenant_info else {}
+            _t_settings = tenant_ctx.get("settings") or {}
             if isinstance(_t_settings, str):
                 try: _t_settings = json.loads(_t_settings)
                 except Exception: _t_settings = {}
@@ -1630,14 +1726,15 @@ class CoreWorker:
                 wa_token = (creds.get("access_token") if creds else None) or fields.get("accessToken")
                 if media_id and wa_token:
                     try:
-                        groq_key = await self._get_tenant_groq_key(tenant_id)
-                        gemini_key = await self._get_tenant_gemini_key(tenant_id)
+                        groq_key = tenant_ctx.get("groq_key") or await self._get_tenant_groq_key(tenant_id)
+                        gemini_key = tenant_ctx.get("gemini_key") or await self._get_tenant_gemini_key(tenant_id)
                         transcription = await transcribe_voice_message(
                             media_id=media_id,
                             wa_access_token=wa_token,
                             groq_api_key=groq_key,
                             gemini_api_key=gemini_key,
                             tenant_id=tenant_id,
+                            tenant_slug=tenant_ctx.get("tenant_slug"),
                         )
                         if transcription and transcription.strip():
                             body_text = f"🎤 [Voice Note]: {transcription.strip()}"
@@ -1745,15 +1842,69 @@ class CoreWorker:
 
             inbound_media_url = f"/api/v1/crm/media/{inbound_media_id}" if inbound_media_id else None
 
+            # ── Click-to-WhatsApp (CTWA) Ad Referral & Sync Extraction ───────
+            referral_obj = raw_data.get("referral") or raw_data.get("context", {}).get("referred_product")
+            ad_context = ""
+            if referral_obj and isinstance(referral_obj, dict):
+                ref_h = (referral_obj.get("headline") or "").strip()
+                ref_b = (referral_obj.get("body") or "").strip()
+                ref_u = (referral_obj.get("source_url") or "").strip()
+                parts = [p for p in [ref_h, ref_b] if p]
+                if parts:
+                    ad_context = " - ".join(parts)
+                elif ref_u:
+                    ad_context = ref_u
+
+            # Check Meta error codes (e.g. 131060 message unavailable for CTWA ad clicks / device sync)
+            err_codes = []
+            if raw_data.get("errors") and isinstance(raw_data["errors"], list):
+                err_codes = [e.get("code") for e in raw_data["errors"] if isinstance(e, dict) and "code" in e]
+            is_ctwa_sync = (131060 in err_codes) or bool(referral_obj)
+
+            if ad_context:
+                if "[Ad Referral:" not in str(body_text):
+                    if body_text and not any(str(body_text).startswith(x) for x in ["📷 [Unsupported", "[unsupported"]):
+                        body_text = f"{body_text}\n[Ad Referral: {ad_context}]"
+                    else:
+                        body_text = f"Hello! Can I get more info on this? [Ad Referral: {ad_context}]"
+            elif is_ctwa_sync:
+                if not body_text or any(str(body_text).startswith(x) for x in ["📷 [Unsupported", "[unsupported", "[Message]"]):
+                    body_text = "Hello! Can I get more info on this?"
+
+            is_call_attempt = (
+                not is_ctwa_sync
+                and not ad_context
+                and (
+                    131051 in err_codes
+                    or "incoming whatsapp call" in str(body_text).lower()
+                    or "whatsapp call" in str(body_text).lower()
+                    or (msg_type == "unsupported" and raw_data.get("unsupported", {}).get("type") != "poll_update" and not any(k in raw_data for k in ["poll", "reaction"]))
+                )
+            )
+            is_poll_msg = (
+                not is_call_attempt
+                and not is_ctwa_sync
+                and not ad_context
+                and (
+                    raw_data.get("unsupported", {}).get("type") == "poll_update"
+                    or raw_data.get("type") == "poll"
+                    or "[poll" in str(body_text).lower()
+                )
+            )
             safe_content_type = "interactive" if msg_type in ["button", "interactive"] else (msg_type if msg_type in ['text', 'image', 'audio', 'video', 'document', 'template', 'interactive', 'sticker', 'location', 'button'] else 'text')
-            if not body_text or not body_text.strip():
-                if safe_content_type == "image": body_text = "📷 [Photo]"
+            if not body_text or not body_text.strip() or is_call_attempt or is_poll_msg:
+                if is_call_attempt:
+                    body_text = "📞 [Incoming WhatsApp Call]"
+                elif is_poll_msg:
+                    body_text = "📊 [Poll Response]"
+                elif safe_content_type == "image": body_text = "📷 [Photo]"
                 elif safe_content_type == "video": body_text = "🎥 [Video]"
                 elif safe_content_type == "document": body_text = "📄 [Document]"
                 elif safe_content_type == "audio": body_text = "🎤 [Voice Note received]"
                 elif safe_content_type == "sticker": body_text = "🏷️ [Sticker]"
                 elif safe_content_type == "location": body_text = "📍 [Location]"
-                else: body_text = "[Message]"
+                elif safe_content_type == "interactive": body_text = "🔘 [Interactive Selection]"
+                else: body_text = "Hello! Can I get more info on this?"
 
             await self._persist_message(
                 tenant_id=tenant_id,
@@ -1900,28 +2051,47 @@ class CoreWorker:
                 except Exception as cd_err:
                     logger.debug("cooldown_check_error", error=str(cd_err))
 
+            _t_settings = tenant_ctx.get("settings") or {}
+            if isinstance(_t_settings, str):
+                try: _t_settings = json.loads(_t_settings)
+                except Exception: _t_settings = {}
+            _global_ai_enabled = _t_settings.get("ai_enabled", True) if isinstance(_t_settings, dict) else True
+            _global_ai_paused = _t_settings.get("ai_paused", False) if isinstance(_t_settings, dict) else False
+            is_global_ai_off = (_global_ai_enabled is False or _global_ai_paused is True)
+
             if sub_delinquent:
                 logger.warn("skipping_ai_subscription_not_active", conv_id=conv_id, tenant_id=tenant_id, stage=stage, sub_status=sub_status)
             elif is_active is False:
                 logger.warn("skipping_ai_tenant_paused", conv_id=conv_id, tenant_id=tenant_id)
-            elif conv_status == "human":
+            elif is_global_ai_off:
+                logger.info("skipping_ai_global_tenant_ai_disabled", conv_id=conv_id, tenant_id=tenant_id)
+            elif conv_status in ("human", "manual", "off", "human_takeover", "false"):
                 logger.info("skipping_ai_human_mode", conv_id=conv_id, tenant_id=tenant_id)
             elif body_text:
-                typing_started_at = time.monotonic()
-                if creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
-                    try:
-                        await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
-                    except Exception as e:
-                        logger.warning("typing_indicator_dispatch_failed", error=str(e))
-                await self._generate_and_send_reply(
-                    tenant_id=tenant_id,
-                    conv_id=conv_id,
-                    contact_phone=fields["from"],
-                    message_text=body_text,
-                    creds=creds,
-                    inbound_wa_message_id=wa_message_id,
-                    typing_started_at=typing_started_at,
+                # Re-verify conversation status directly from DB to catch real-time staff takeover
+                fresh_status = await self.db_pool.fetchval(
+                    "SELECT status FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    conv_id, tenant_id
                 )
+                if fresh_status in ("human", "manual", "off", "human_takeover", "false"):
+                    logger.info("skipping_ai_human_mode_fresh_check", conv_id=conv_id, tenant_id=tenant_id, status=fresh_status)
+                else:
+                    typing_started_at = time.monotonic()
+                    if creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
+                        try:
+                            await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
+                        except Exception as e:
+                            logger.warning("typing_indicator_dispatch_failed", error=str(e))
+                    await self._generate_and_send_reply(
+                        tenant_id=tenant_id,
+                        conv_id=conv_id,
+                        contact_phone=fields["from"],
+                        message_text=body_text,
+                        creds=creds,
+                        inbound_wa_message_id=wa_message_id,
+                        typing_started_at=typing_started_at,
+                        tenant_ctx=tenant_ctx,
+                    )
 
             # ── 7. Update conversation timestamp ──────────────────────────────
             async with self.db_pool.acquire() as conn:
@@ -1950,7 +2120,9 @@ class CoreWorker:
             messages_processed.labels(tenant=tenant_id, status="error").inc()
             try:
                 _f_from = fields.get("from")
-                if _f_from and tenant_id:
+                _is_glob_off = locals().get("is_global_ai_off", False)
+                _c_stat = str(locals().get("conv_status", "")).lower()
+                if _f_from and tenant_id and not _is_glob_off and _c_stat not in ("human", "manual", "off", "human_takeover", "false"):
                     _c = creds if 'creds' in locals() and creds else await self._get_tenant_whatsapp_creds(tenant_id)
                     if _c and _c.get("phone_number_id") and _c.get("access_token"):
                         await send_text(
@@ -1993,6 +2165,1073 @@ end
             self.in_flight_messages.discard(stream_msg_id)
             elapsed = time.monotonic() - start
             processing_time.labels(tenant=tenant_id).observe(elapsed)
+
+    @staticmethod
+    def _fmt_ampm_util(t_str: str, default_val: str, is_closing: bool = False) -> str:
+        try:
+            s = str(t_str).strip()
+            is_pm = "pm" in s.lower()
+            is_am = "am" in s.lower()
+            s_clean = re.sub(r'[^\d:]', '', s)
+            parts = s_clean.split(":")
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+            if is_pm and h < 12:
+                h += 12
+            elif is_am and h == 12:
+                h = 0
+            elif not is_pm and not is_am and is_closing and h < 12:
+                h += 12
+            import datetime as dt_mod
+            return dt_mod.time(h, m).strftime("%I:%M %p")
+        except Exception:
+            return default_val
+
+    async def load_tenant_context(self, tenant_id: str, force_refresh: bool = False) -> dict:
+        """
+        Single-Pass Tenant Context Fetcher:
+        Loads and caches complete tenant configuration, settings, AI config, credentials,
+        business hours, doctors roster, and services in a single concurrent pass using asyncio.gather.
+        Uses in-memory L1 cache (60s TTL) and Redis L2 cache (120s TTL).
+        """
+        if not tenant_id:
+            return {}
+        tenant_id_str = str(tenant_id)
+        now_mono = time.monotonic()
+
+        # 1. In-memory L1 cache check
+        if not force_refresh and hasattr(self, "_tenant_context_cache"):
+            cached_entry = self._tenant_context_cache.get(tenant_id_str)
+            if cached_entry:
+                ts, ctx = cached_entry
+                if (now_mono - ts) < 60.0:
+                    return ctx
+
+        # 2. Redis L2 cache check
+        cache_key = f"tenant_context:{tenant_id_str}"
+        if not force_refresh and self.redis:
+            try:
+                raw_cached = await self.redis.get(cache_key)
+                if raw_cached:
+                    c_str = raw_cached.decode("utf-8") if isinstance(raw_cached, bytes) else str(raw_cached)
+                    data = json.loads(c_str)
+                    if "valid_prices" in data and isinstance(data["valid_prices"], list):
+                        data["valid_prices"] = set(data["valid_prices"])
+                    if hasattr(self, "_tenant_context_cache"):
+                        self._tenant_context_cache[tenant_id_str] = (now_mono, data)
+                    return data
+            except Exception as r_err:
+                logger.debug("redis_tenant_context_cache_read_error", error=str(r_err))
+
+        # 3. Cache miss: Single concurrent pass against PostgreSQL using asyncio.gather
+        t_row_task = self.db_pool.fetchrow(
+            "SELECT id, name, slug, settings, is_active, org_lifecycle_stage, subscription_status, "
+            "payment_failed_at, grace_period_until FROM tenants WHERE id = $1::uuid",
+            tenant_id_str
+        )
+        ai_cfg_task = self.db_pool.fetchrow(
+            "SELECT model, temperature, max_tokens, timeout_ms, system_prompt, assistant_name, "
+            "bot_goal, services_text, response_style, methodology, strict_rules, objection_handling, "
+            "custom_prompt FROM ai_config WHERE tenant_id = $1::uuid",
+            tenant_id_str
+        )
+        creds_task = self.db_pool.fetch(
+            "SELECT provider, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND is_active = true",
+            tenant_id_str
+        )
+
+        t_row, ai_cfg_row, creds_rows = await asyncio.gather(t_row_task, ai_cfg_task, creds_task)
+
+        # Parse tenant row & settings
+        tenant_name = (t_row["name"] if t_row and t_row["name"] else "")
+        tenant_slug = (t_row["slug"] if t_row and t_row["slug"] else "").lower()
+        is_active = t_row["is_active"] if t_row else True
+        org_lifecycle_stage = (t_row.get("org_lifecycle_stage") or "setup") if t_row else "setup"
+        subscription_status = (t_row.get("subscription_status") or "active") if t_row else "active"
+        payment_failed_at = t_row.get("payment_failed_at").isoformat() if (t_row and t_row.get("payment_failed_at")) else None
+        grace_period_until = t_row.get("grace_period_until").isoformat() if (t_row and t_row.get("grace_period_until")) else None
+
+        settings_raw = t_row.get("settings") if t_row else None
+        settings = {}
+        if settings_raw:
+            if isinstance(settings_raw, str):
+                try: settings = json.loads(settings_raw)
+                except Exception: settings = {}
+            elif isinstance(settings_raw, dict):
+                settings = settings_raw
+
+        # Parse AI config row
+        ai_cfg = dict(ai_cfg_row) if ai_cfg_row else {
+            "model": "gemini-3.5-flash-lite",
+            "temperature": 0.3,
+            "max_tokens": 2048,
+            "timeout_ms": 8000,
+            "response_style": "short",
+            "methodology": "dogfooding",
+            "custom_prompt": ""
+        }
+        services_text = (ai_cfg.get("services_text") or settings.get("services_text") or "").strip()
+        structured_services = settings.get("services") or []
+        if isinstance(structured_services, list) and structured_services:
+            structured_catalog_lines = []
+            for s in structured_services:
+                if isinstance(s, dict) and s.get("name"):
+                    dur = f" ({s['duration']} mins)" if s.get("duration") else ""
+                    pr = f": ₹{int(float(s['price']))}" if s.get("price") is not None else ""
+                    structured_catalog_lines.append(f"{s['name']}{dur}{pr}")
+            if structured_catalog_lines:
+                if not services_text:
+                    services_text = "\n".join(structured_catalog_lines)
+                else:
+                    for s_line in structured_catalog_lines:
+                        s_name = s_line.split("(")[0].split(":")[0].strip()
+                        if s_name.lower() not in services_text.lower():
+                            services_text += f"\n{s_line}"
+        assistant_name = (ai_cfg.get("assistant_name") or "Assistant").strip()
+        custom_instructions = (ai_cfg.get("system_prompt") or "").strip()
+
+        # Parse credentials
+        whatsapp_creds = None
+        gemini_key = None
+        groq_key = None
+        opencode_key = None
+        opencode_base = None
+
+        if creds_rows:
+            for c in creds_rows:
+                provider = c["provider"]
+                c_data = c["credential_data"]
+                if isinstance(c_data, str):
+                    try: c_data = json.loads(c_data)
+                    except Exception: c_data = {}
+                if not isinstance(c_data, dict):
+                    c_data = {}
+
+                if provider == "whatsapp":
+                    whatsapp_creds = c_data
+                elif provider == "gemini":
+                    k = c_data.get("api_key")
+                    if k and str(k).strip() and not str(k).endswith("_CHANGE_ME") and not str(k).startswith("AIzaSy_DRAINED") and len(str(k)) > 15:
+                        gemini_key = str(k).strip()
+                elif provider == "groq":
+                    k = c_data.get("api_key")
+                    if k and str(k).strip() and not str(k).endswith("_CHANGE_ME") and len(str(k)) > 15:
+                        groq_key = str(k).strip()
+                elif provider == "opencode":
+                    k = c_data.get("api_key")
+                    b = c_data.get("base_url")
+                    if k and str(k).strip() and not str(k).endswith("_CHANGE_ME"):
+                        opencode_key = str(k).strip()
+                        opencode_base = str(b).strip() if b else None
+
+        # Derive Tenant Ground Truth Flags
+        is_mbr = (
+            tenant_id_str in _PRIVACY_TENANT_IDS
+            or tenant_slug in ("mindbodyrecovery", "mind-body-recovery")
+            or "mind body recovery" in tenant_name.lower()
+        )
+        is_aadhiran = (
+            tenant_id_str == "ad4768fc-08c4-4d78-8bc8-11583f7e7a74"
+            or "aadhiran" in tenant_slug
+            or "aadhiran" in tenant_name.lower()
+        )
+        is_vetrivel = (
+            tenant_id_str == "5e1f8aff-ae3b-4f5a-b8b6-f02af90a961d"
+            or "vetrivel" in tenant_slug
+            or "vetrivel" in tenant_name.lower()
+        )
+        is_boldlabs = (
+            tenant_id_str == "05f469a7-2089-425c-8fce-1a56002d5272"
+            or "boldlabs" in tenant_slug
+            or "boldlabs" in tenant_name.lower()
+        )
+        is_abinayaa = (
+            tenant_id_str == "7432a8bb-487b-4613-9db8-04fee00cb31b"
+            or "abinayaa" in tenant_slug
+            or "abinayaa" in tenant_name.lower()
+        )
+        is_muthra = (
+            tenant_id_str == "aec375f7-2ff1-4d6d-b8ca-ad2ce05756ce"
+            or "muthra" in tenant_slug
+            or "muthra" in tenant_name.lower()
+        )
+
+        # Facility Term & Primary Language
+        facility_term = (
+            settings.get("facility_term")
+            or settings.get("facility_type")
+            or settings.get("business_type")
+            or ""
+        ).strip().lower()
+        if not facility_term:
+            t_ind = str(settings.get("industry") or "").lower()
+            t_name_l = tenant_name.lower()
+            clean_s = (tenant_slug or "").lower()
+
+            if is_boldlabs or "software" in t_ind or "saas" in t_ind:
+                facility_term = "company"
+            elif "mobile" in clean_s or "repair" in clean_s or "store" in clean_s or "shop" in clean_s or t_ind in ("repair", "mobile", "electronics", "service_center"):
+                facility_term = "store"
+            elif "enterprise" in clean_s or "distribution" in clean_s or t_ind in ("ecommerce", "distribution", "wholesale", "retail"):
+                facility_term = "business"
+            elif is_aadhiran or "wellness" in t_name_l or "center" in t_name_l or t_ind in ("wellness", "spa"):
+                facility_term = "center"
+            elif is_abinayaa or "diagnostics" in t_name_l or "lab" in t_name_l or t_ind in ("diagnostic_lab", "diagnostic", "diagnostics", "pathology"):
+                facility_term = "lab"
+            elif any(w in t_name_l or w in clean_s for w in ["clinic", "hospital", "doctor"]) or t_ind in ("clinic", "hospital", "healthcare", "medical"):
+                facility_term = "clinic"
+            else:
+                facility_term = "center"
+
+        primary_language = (
+            settings.get("primary_language")
+            or settings.get("reply_language")
+            or settings.get("default_language")
+            or ("tamil" if is_vetrivel else ("tanglish" if is_aadhiran else "auto"))
+        ).strip().lower()
+
+        # Full Location
+        full_location = (settings.get("full_location_text") or settings.get("location") or "").strip()
+        if not full_location and whatsapp_creds:
+            full_location = (whatsapp_creds.get("full_location_text") or "").strip()
+        if not full_location and is_vetrivel:
+            full_location = "Villupuram to Gingee Main Road, Appampattu, Meenambur post, Gingee TK, 604205.\nhttps://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+        elif not full_location and is_aadhiran:
+            full_location = "14/18, M.G.R Nagar, 5th Street, P.N. Road East, Tiruppur – 641602."
+        elif not full_location and is_boldlabs:
+            full_location = "100% Online Live Demo (Google Meet / Screen Share) — A meeting link will be shared prior to your session."
+        elif not full_location and is_abinayaa:
+            full_location = "AVM Ave 1st Main Rd, Aranganathan Nagar, Virugambakkam, Chennai, Tamil Nadu 600092"
+        elif not full_location and is_muthra:
+            full_location = "Madurai, Tamil Nadu"
+        elif not full_location and custom_instructions:
+            m_addr = re.search(r'[-•*]\s*(?:Address|Location)\s*[:\-]\s*(.+?)(?:\n|$)', custom_instructions, re.IGNORECASE)
+            if m_addr:
+                full_location = m_addr.group(1).strip()
+
+        # Google Maps URL & Physical Address extraction
+        google_maps_url = (settings.get("google_maps_url") or "").strip()
+        if not google_maps_url and whatsapp_creds:
+            google_maps_url = (whatsapp_creds.get("google_maps_url") or "").strip()
+        if not google_maps_url and full_location:
+            m_url = re.search(r'(https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|share\.google|maps\.google\.[a-z]+|www\.google\.[a-z]+/maps)[^\s]+)', full_location)
+            if m_url:
+                google_maps_url = m_url.group(1).strip()
+        if not google_maps_url and is_aadhiran:
+            google_maps_url = "https://maps.app.goo.gl/zixd3wGegQCDdCYM8?g_st=ac"
+        elif not google_maps_url and is_vetrivel:
+            google_maps_url = "https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+
+        physical_address = (settings.get("location") or "").strip()
+        if not physical_address:
+            physical_address = re.sub(r'https?://[^\s]+', '', full_location).strip(' .\n\r-')
+        if not physical_address and is_aadhiran:
+            physical_address = "14/18, M.G.R Nagar, 5th Street, P.N. Road East, Tiruppur – 641602"
+        elif not physical_address and is_vetrivel:
+            physical_address = "Villupuram to Gingee Main Road, Appampattu, Meenambur post, Gingee TK, 604205"
+
+        # Admin phone & name
+        admin_phone = ""
+        if whatsapp_creds:
+            admin_phone = (whatsapp_creds.get("admin_whatsapp_number") or "").strip()
+        if not admin_phone:
+            admin_phone = (
+                settings.get("admin_whatsapp_number")
+                or settings.get("business_phone")
+                or settings.get("contact_phone")
+                or settings.get("phone")
+                or ""
+            ).strip()
+        if not admin_phone and is_aadhiran:
+            admin_phone = "8220267077"
+        elif not admin_phone and is_vetrivel:
+            admin_phone = "9600462432"
+        elif not admin_phone and is_boldlabs:
+            admin_phone = "+918870341570"
+        elif not admin_phone and is_abinayaa:
+            admin_phone = "9092117662"
+
+        admin_name = (settings.get("admin_name") or settings.get("founder_name") or tenant_name or "our team").strip()
+
+        # Timezone, Currency
+        timezone_str = (settings.get("timezone") or "Asia/Kolkata").strip()
+        currency_str = (settings.get("currency") or "INR").strip()
+        currency_sym = (settings.get("currency_symbol") or "₹").strip()
+        country_code = (settings.get("country_code") or "+91").strip()
+
+        # Operating hours & 24/7 check
+        is_24_7 = bool(
+            settings.get("is_24_7") is True
+            or str(settings.get("is_24_7")).lower() == "true"
+            or str(settings.get("operating_hours", "")).lower() in ("24/7", "24 hours", "24x7")
+            or (str(settings.get("opening_time", "")).strip() in ("00:00", "00:00:00", "12:00 AM")
+                and str(settings.get("closing_time", "")).strip() in ("23:59", "23:59:59", "24:00", "11:59 PM"))
+            or is_vetrivel
+        )
+
+        opening_time_raw = "06:00" if is_aadhiran else ("00:00" if is_24_7 else ("07:00" if is_abinayaa else ("09:00" if is_boldlabs else ("10:00" if is_muthra else "09:00"))))
+        closing_time_raw = "22:00" if is_aadhiran else ("23:59" if is_24_7 else ("21:00" if is_abinayaa else ("20:00" if is_boldlabs else ("20:00" if is_muthra else "20:00"))))
+
+        for k in ("opening_time", "open_time", "working_hours_start", "start_time"):
+            if settings.get(k):
+                opening_time_raw = str(settings.get(k)).strip()
+                break
+        for k in ("closing_time", "close_time", "working_hours_end", "end_time"):
+            if settings.get(k):
+                closing_time_raw = str(settings.get(k)).strip()
+                break
+
+        if is_24_7:
+            op_hours_display = "Open 24 Hours daily (24/7, all days and nights)"
+            fmt_open = "12:00 AM"
+            fmt_close = "11:59 PM"
+        elif is_aadhiran:
+            op_hours_display = "06:00 AM to 10:00 PM"
+            fmt_open = "06:00 AM"
+            fmt_close = "10:00 PM"
+        elif is_abinayaa:
+            op_hours_display = "07:00 AM to 09:00 PM"
+            fmt_open = "07:00 AM"
+            fmt_close = "09:00 PM"
+        elif is_boldlabs:
+            op_hours_display = "09:00 AM to 08:00 PM"
+            fmt_open = "09:00 AM"
+            fmt_close = "08:00 PM"
+        elif is_muthra:
+            op_hours_display = "10:00 AM to 08:00 PM"
+            fmt_open = "10:00 AM"
+            fmt_close = "08:00 PM"
+        else:
+            fmt_open = self._fmt_ampm_util(opening_time_raw, '09:00 AM', is_closing=False)
+            fmt_close = self._fmt_ampm_util(closing_time_raw, '08:00 PM', is_closing=True)
+            op_hours_display = f"{fmt_open} to {fmt_close}"
+
+        # Doctors roster
+        doctors = settings.get("doctors") or []
+        if not doctors and is_vetrivel:
+            doctors = [
+                {"name": "Dr. Pallavan", "name_ta": "டாக்டர் பல்லவன்", "qualification": "MCh", "specialty": "Neurosurgeon", "specialty_ta": "நரம்பியல் அறுவை சிகிச்சை நிபுணர்", "schedule": "Sunday only: 1:00 PM to 2:00 PM", "schedule_ta": "ஞாயிற்றுக்கிழமை மட்டும்: மதியம் 1:00 PM முதல் 2:00 PM வரை", "fee": 300, "available_days": ["Sunday"]},
+                {"name": "Dr. Tamilmani", "name_ta": "டாக்டர் தமிழ்மணி", "qualification": "MD", "specialty": "General Medicine", "specialty_ta": "பொது மருத்துவம்", "schedule": "Daily: 1:30 PM to 3:00 PM", "schedule_ta": "தினமும்: மதியம் 1:30 PM முதல் 3:00 PM வரை", "fee": 200, "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
+                {"name": "Dr. Anbarasan", "name_ta": "டாக்டர் அன்பரசன்", "qualification": "MS", "specialty": "General Surgeon", "specialty_ta": "பொது அறுவை சிகிச்சை நிபுணர்", "schedule": "Wednesday & Friday: 12:00 PM to 2:00 PM", "schedule_ta": "புதன் மற்றும் வெள்ளி: மதியம் 12:00 PM முதல் 2:00 PM வரை", "fee": 200, "available_days": ["Wednesday", "Friday"]},
+                {"name": "Dr. Nethaji", "name_ta": "டாக்டர் நேதாஜி", "qualification": "MS", "specialty": "Ortho Surgeon", "specialty_ta": "எலும்பு மற்றும் மூட்டு அறுவை சிகிச்சை நிபுணர்", "schedule": "Monday & Friday: 12:00 PM to 2:00 PM", "schedule_ta": "திங்கள் மற்றும் வெள்ளி: மதியம் 12:00 PM முதல் 2:00 PM வரை", "fee": 200, "available_days": ["Monday", "Friday"]},
+                {"name": "Dr. Raju", "name_ta": "டாக்டர் ராஜு", "qualification": "MD", "specialty": "Dermatologist", "specialty_ta": "தோல் மருத்துவ நிபுணர்", "schedule": "Wednesday only: 1:00 PM to 2:00 PM", "schedule_ta": "புதன்கிழமை மட்டும்: மதியம் 1:00 PM முதல் 2:00 PM வரை", "fee": 200, "available_days": ["Wednesday"]},
+                {"name": "Dr. Thamizharasan", "name_ta": "டாக்டர் தமிழரசன்", "qualification": "MD", "specialty": "Paediatrician", "specialty_ta": "குழந்தைகள் நல மருத்துவர்", "schedule": "Daily: 4:00 PM to 5:00 PM", "schedule_ta": "தினமும்: மாலை 4:00 PM முதல் 5:00 PM வரை", "fee": 200, "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
+                {"name": "Dr. Nithiya Priyadharshini", "name_ta": "டாக்டர் நிதியா பிரியதர்ஷினி", "qualification": "MD", "specialty": "Gynecologist", "specialty_ta": "மகளிர் மற்றும் மகப்பேறு மருத்துவ நிபுணர்", "schedule": "Appointment Only (Call 8925722432)", "schedule_ta": "முன்பதிவு மூலம் மட்டுமே (8925722432 அழைக்கவும்)", "fee": 200, "available_days": []},
+                {"name": "Dr. Kamaraj", "name_ta": "டாக்டர் கமராஜ்", "qualification": "MD", "specialty": "AYUSH", "specialty_ta": "ஆயுஷ் மருத்துவர்", "schedule": "Daily: 9:00 AM to 6:00 PM", "schedule_ta": "தினமும்: காலை 9:00 AM முதல் மாலை 6:00 PM வரை", "fee": 200, "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
+                {"name": "Dr. Prathiba", "name_ta": "டாக்டர் பிரதிபா", "qualification": "BSMS", "specialty": "Siddha", "specialty_ta": "சித்த மருத்துவர்", "schedule": "Daily: 10:00 AM to 1:00 PM", "schedule_ta": "தினமும்: காலை 10:00 AM முதல் மதியம் 1:00 PM வரை", "fee": 200, "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
+                {"name": "Dr. Sakthivel", "name_ta": "டாக்டர் சக்திவேல்", "qualification": "MBBS", "specialty": "General Physician", "specialty_ta": "பொது மருத்துவர் & அவசர சிகிச்சை", "schedule": "Daily: 6:00 PM to 6:00 AM", "schedule_ta": "தினமும்: மாலை 6:00 PM முதல் காலை 6:00 AM வரை", "fee": 150, "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
+            ]
+        known_doctor_names = []
+        if doctors:
+            for d in doctors:
+                d_name = d.get("name", "")
+                clean_d = re.sub(r'(?i)\bdr\.?\s*', '', d_name).strip().lower()
+                if clean_d:
+                    known_doctor_names.append(clean_d)
+
+        # Valid prices set
+        valid_prices = set()
+        if services_text:
+            found_nums = re.findall(r'[₹Rs\.]*\s*(\d{2,6})\b', services_text)
+            for fn in found_nums:
+                try: valid_prices.add(int(fn))
+                except Exception: pass
+        if doctors:
+            for d in doctors:
+                f = d.get("fee")
+                if f:
+                    try: valid_prices.add(int(f))
+                    except Exception: pass
+        if structured_services and isinstance(structured_services, list):
+            for s in structured_services:
+                if isinstance(s, dict) and s.get("price") is not None:
+                    try: valid_prices.add(int(float(s["price"])))
+                    except Exception: pass
+        if is_aadhiran:
+            valid_prices.update([299, 399, 700, 799, 899, 999, 1399, 1499, 1699, 1999, 3000, 3499, 5999])
+        elif is_vetrivel:
+            valid_prices.update([150, 200, 300])
+        elif is_boldlabs:
+            valid_prices.update([2499, 0])
+        elif is_abinayaa:
+            valid_prices.update([999, 1299, 2499, 3499, 4499])
+
+        # Leave schedules
+        leave_schedules_list = settings.get("leave_schedules") or []
+
+        # Slot scheduling
+        slot_duration_mins = int(settings.get("slot_duration_mins") or 30)
+        buffer_mins = int(settings.get("buffer_mins") or 0)
+        lunch_break_start = (settings.get("lunch_break_start") or "")
+        lunch_break_end = (settings.get("lunch_break_end") or "")
+
+        ctx = {
+            "tenant_id": tenant_id_str,
+            "tenant_name": tenant_name,
+            "tenant_slug": tenant_slug,
+            "is_active": is_active,
+            "org_lifecycle_stage": org_lifecycle_stage,
+            "subscription_status": subscription_status,
+            "payment_failed_at": payment_failed_at,
+            "grace_period_until": grace_period_until,
+            "settings": settings,
+            "full_location": full_location,
+            "google_maps_url": google_maps_url,
+            "physical_address": physical_address,
+            "facility_term": facility_term,
+            "admin_phone": admin_phone,
+            "admin_name": admin_name,
+            "timezone": timezone_str,
+            "currency": currency_str,
+            "currency_symbol": currency_sym,
+            "country_code": country_code,
+            "is_24_7": is_24_7,
+            "opening_time_raw": opening_time_raw,
+            "closing_time_raw": closing_time_raw,
+            "fmt_open": fmt_open,
+            "fmt_close": fmt_close,
+            "op_hours_display": op_hours_display,
+            "leave_schedules": leave_schedules_list,
+            "slot_duration_mins": slot_duration_mins,
+            "buffer_mins": buffer_mins,
+            "lunch_break_start": lunch_break_start,
+            "lunch_break_end": lunch_break_end,
+            "doctors": doctors,
+            "known_doctor_names": known_doctor_names,
+            "services_text": services_text,
+            "services": structured_services,
+            "valid_prices": valid_prices,
+            "ai_config": ai_cfg,
+            "creds": whatsapp_creds,
+            "gemini_key": gemini_key,
+            "groq_key": groq_key,
+            "opencode_key": opencode_key,
+            "opencode_base": opencode_base,
+            "is_aadhiran": is_aadhiran,
+            "is_vetrivel": is_vetrivel,
+            "is_boldlabs": is_boldlabs,
+            "is_abinayaa": is_abinayaa,
+            "is_muthra": is_muthra,
+            "is_mbr": is_mbr,
+            "primary_language": primary_language,
+        }
+
+        # Store in memory L1
+        if hasattr(self, "_tenant_context_cache"):
+            self._tenant_context_cache[tenant_id_str] = (now_mono, ctx)
+
+        # Store in Redis L2
+        if self.redis:
+            try:
+                redis_dict = dict(ctx)
+                redis_dict["valid_prices"] = list(ctx["valid_prices"])
+                await self.redis.setex(cache_key, 120, json.dumps(redis_dict))
+            except Exception as r_save_err:
+                logger.debug("redis_tenant_context_cache_write_error", error=str(r_save_err))
+
+        return ctx
+
+    async def invalidate_tenant_context(self, tenant_id: str):
+        """Purges in-memory and Redis cached context for a tenant."""
+        if not tenant_id:
+            return
+        tenant_id_str = str(tenant_id)
+        if hasattr(self, "_tenant_context_cache"):
+            self._tenant_context_cache.pop(tenant_id_str, None)
+        if self.redis:
+            try:
+                await self.redis.delete(f"tenant_context:{tenant_id_str}")
+            except Exception as e:
+                logger.warning("invalidate_tenant_context_failed", tenant_id=tenant_id_str, error=str(e))
+
+    def _build_single_source_of_truth_block(self, tenant_ctx: dict, now_dt: Optional[datetime.datetime] = None) -> str:
+        """
+        Constructs the absolute Single Source of Truth (SSOT) grounding prompt block for the tenant.
+        All facts (identity, location, hours, doctors roster, pricing catalog) are declared with zero-tolerance strictness.
+        """
+        tenant_name = tenant_ctx.get("tenant_name", "")
+        facility_term = tenant_ctx.get("facility_term", "business")
+        full_location = tenant_ctx.get("full_location", "")
+        google_maps_url = tenant_ctx.get("google_maps_url", "")
+        physical_address = tenant_ctx.get("physical_address", "")
+        admin_phone = tenant_ctx.get("admin_phone", "")
+        op_hours_display = tenant_ctx.get("op_hours_display", "")
+        fmt_open = tenant_ctx.get("fmt_open", "")
+        fmt_close = tenant_ctx.get("fmt_close", "")
+        is_24_7 = tenant_ctx.get("is_24_7", False)
+        doctors = tenant_ctx.get("doctors") or []
+        services_text = tenant_ctx.get("services_text") or ""
+        is_aadhiran = tenant_ctx.get("is_aadhiran", False)
+        is_vetrivel = tenant_ctx.get("is_vetrivel", False)
+        is_boldlabs = tenant_ctx.get("is_boldlabs", False)
+        is_abinayaa = tenant_ctx.get("is_abinayaa", False)
+
+        # 1. Doctors block
+        if doctors:
+            doc_lines = []
+            for d in doctors:
+                name = d.get("name", "Doctor")
+                name_ta = d.get("name_ta", "")
+                name_display = f"{name} / {name_ta}" if name_ta else name
+                spec = d.get("specialty", "Specialist")
+                spec_ta = d.get("specialty_ta", "")
+                spec_display = f"{spec} ({spec_ta})" if spec_ta else spec
+                qual = d.get("qualification", "")
+                qual_str = f" [{qual}]" if qual else ""
+                sched = d.get("schedule", "Available by appointment")
+                fee = d.get("fee", "")
+                fee_str = f" | Consultation Fee: ₹{fee}" if fee else ""
+                days = ", ".join(d.get("available_days", [])) if d.get("available_days") else ""
+                days_str = f" (Days: {days})" if days else ""
+                doc_lines.append(f"- {name_display}{qual_str} - {spec_display}: {sched}{days_str}{fee_str}")
+            doctors_block = (
+                "OFFICIAL VERIFIED DOCTORS & SPECIALISTS ROSTER (STRICT GROUND TRUTH):\n"
+                + "\n".join(doc_lines) + "\n"
+                + "STRICT DOCTOR RULES:\n"
+                + "- NEVER invent, hallucinate, or mention any doctor not in this list.\n"
+                + "- Only quote the exact consultation days, hours, and fees listed above.\n"
+                + "- If a doctor is available only on specific days (e.g. Dr. Pallavan on Sunday only), NEVER claim they are available on other days!\n"
+                + "- SYMPTOM & SPECIALTY MATCHING MANDATE: When a patient asks which doctor to see or asks about a symptom/condition (e.g. joint/bone pain / மூட்டு வலி -> Ortho Dr. Nethaji MS / டாக்டர் நேதாஜி, skin -> Dr. Raju MD, child -> Dr. Thamizharasan MD, general fever/health -> Dr. Sakthivel MBBS or Dr. Tamilmani MD, neuro -> Dr. Pallavan MCh, gynecology -> Dr. Nithiya Priyadharshini MD): You MUST explicitly NAME the matched doctor (e.g. Dr. Nethaji / டாக்டர் நேதாஜி) and state their consultation fee (₹200) directly in Sentence 1. NEVER give a generic answer without naming the specific doctor and fee!"
+            )
+        else:
+            if is_aadhiran:
+                doctors_block = (
+                    "OFFICIAL STAFF & PRACTITIONER GROUND TRUTH:\n"
+                    "- ZERO DOCTORS ON STAFF: This is a wellness and relaxation center, NOT a medical clinic or hospital.\n"
+                    "- STRICT PROHIBITION: NEVER use the title 'Dr.' or 'Doctor' or 'டாக்டர்'. There are NO doctors here!\n"
+                    "- Refer to staff strictly as 'our wellness therapists' or 'நமது சிகிச்சை நிபுணர்' / 'therapist'."
+                )
+            elif is_boldlabs:
+                doctors_block = (
+                    "OFFICIAL TEAM GROUND TRUTH:\n"
+                    "- ZERO DOCTORS: Boldlabs is a B2B AI SaaS software product company, NOT a medical facility.\n"
+                    "- Host for live demos: Rakshaya (Product Specialist).\n"
+                    "- STRICT PROHIBITION: Never refer to doctors, consultations, or treatments."
+                )
+            elif is_abinayaa:
+                doctors_block = (
+                    "OFFICIAL STAFF GROUND TRUTH:\n"
+                    "- Diagnostic and laboratory center. Tests are conducted by certified lab technicians and phlebotomists.\n"
+                    "- There are no OP consulting doctors on general WhatsApp duty."
+                )
+            else:
+                doctors_block = (
+                    "OFFICIAL STAFF GROUND TRUTH:\n"
+                    "- Services are provided by qualified professionals and therapists on staff."
+                )
+
+        # 2. Services & Pricing Block
+        services_pricing_block = (
+            f"OFFICIAL VERIFIED SERVICES & PRICING CATALOG (STRICT GROUND TRUTH):\n"
+            f"{services_text.strip()}\n"
+            "STRICT PRICING RULES:\n"
+            "- NEVER quote prices or discounts that are not explicitly stated above!\n"
+            "- ALWAYS quote prices in standard digits (e.g. ₹700, ₹999, ₹1499, ₹2499).\n"
+            "- Never guess or approximate fees."
+        )
+
+        # 3. Location Block
+        if is_boldlabs:
+            location_block = (
+                f"OFFICIAL MEETING & DEMO LOCATION:\n"
+                f"- {full_location}\n"
+                "- NEVER give a physical clinic address or tell customers to visit an office in person."
+            )
+        elif is_vetrivel:
+            maps_info = f"\n- Google Maps Link: {google_maps_url or 'https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb'}"
+            location_block = (
+                f"OFFICIAL BUSINESS LOCATION & ADDRESS (STRICT GROUND TRUTH):\n"
+                f"- Physical Address: {physical_address or full_location}{maps_info}\n"
+                f"- Official Address in Tamil: விழுப்புரம் - செஞ்சி மெயின் ரோடு, அப்பம்பட்டு, மீனம்பூர் அஞ்சல், செஞ்சி தாலுகா, 604205\n"
+                "- STRICT SINGLE LOCATION GROUND TRUTH: This clinic operates EXCLUSIVELY from Appampattu, Gingee (விழுப்புரம் - செஞ்சி மெயின் ரோடு, அப்பம்பட்டு, மீனம்பூர் அஞ்சல், செஞ்சி தாலுகா, 604205). There are NO other branches. Always and only state this verified address."
+            )
+        else:
+            maps_info = f"\n- Google Maps Link: {google_maps_url}\n- MANDATORY: When the customer asks for location/directions, you MUST provide BOTH this physical address AND this Google Maps link!" if google_maps_url else ""
+            location_block = (
+                f"OFFICIAL BUSINESS LOCATION & ADDRESS:\n"
+                f"- Physical Address: {physical_address or full_location}{maps_info}\n"
+                f"- Facility Type: Strictly refer to this business as a '{facility_term}'. NEVER use conflicting terms."
+            )
+
+        # 4. Operating Hours Block
+        if is_24_7:
+            hours_block = (
+                "OFFICIAL OPERATING HOURS:\n"
+                "- Open 24 Hours daily (24/7, all days and nights).\n"
+                "- Open everyday, Monday through Sunday, 24 hours.\n"
+                "- NEVER say 9 AM to 8 PM or any restricted daytime hours!"
+            )
+        else:
+            hours_block = (
+                f"OFFICIAL OPERATING HOURS:\n"
+                f"- {op_hours_display} (Daily Monday through Sunday).\n"
+                f"- Opening time is {fmt_open} (Morning). Closing time is {fmt_close} (Night/Evening).\n"
+                f"- NEVER quote conflicting hours (e.g. do not say 9 AM to 8 PM if opening is {fmt_open} and closing is {fmt_close})."
+            )
+
+        if is_vetrivel:
+            lang_mandate = (
+                "\n6. MANDATORY OUTPUT LANGUAGE FOR VETRIVEL CLINIC:\n"
+                "- STRICT TAMIL SCRIPT ONLY (தமிழ் எழுத்துக்களில் மட்டுமே பதிலளிக்கவும்).\n"
+                "- You MUST write your entire response ONLY in pure Tamil script (தமிழ்).\n"
+                "- ZERO ENGLISH WORDS OR LATIN LETTERS ALLOWED (except digits and ₹ symbol)."
+            )
+        elif is_aadhiran:
+            lang_mandate = (
+                "\n6. MANDATORY OUTPUT LANGUAGE FOR AADHIRAN CENTER:\n"
+                "- STRICT TANGLISH / TAMIL SCRIPT ONLY (Colloquial WhatsApp Tanglish or Tamil script).\n"
+                "- ZERO pure English replies allowed!"
+            )
+        elif is_boldlabs:
+            lang_mandate = (
+                "\n6. MANDATORY IDENTITY FOR BOLDLABS:\n"
+                "- Boldlabs is a B2B AI SaaS software technology product company.\n"
+                "- Never call Boldlabs a clinic, medical practice, or hospital. All demos are 100% online via Google Meet."
+            )
+        else:
+            lang_mandate = ""
+
+        ssot_block = (
+            "================================================================================\n"
+            f"### SINGLE SOURCE OF TRUTH (SSOT) — ABSOLUTE FACTUAL GROUNDING FOR {tenant_name.upper()}\n"
+            "All replies MUST strictly follow these verified facts. Any statement contradicting this block is a fatal hallucination.\n"
+            "================================================================================\n\n"
+            f"1. BUSINESS IDENTITY & CONTACT:\n"
+            f"- Business Name: {tenant_name}\n"
+            f"- Facility Term: Strictly '{facility_term}' (NEVER call it something else)\n"
+            + (f"- Official Phone: {admin_phone}\n" if admin_phone else "")
+            + f"\n2. LOCATION & ADDRESS:\n{location_block}\n\n"
+            f"3. OPERATING HOURS:\n{hours_block}\n\n"
+            f"4. DOCTORS & STAFF ROSTER:\n{doctors_block}\n\n"
+            f"5. PRICING & SERVICES:\n{services_pricing_block}\n"
+            + (f"{lang_mandate}\n" if lang_mandate else "")
+            + "================================================================================"
+        )
+        return ssot_block
+
+    def _verify_and_guard_facts(self, text: str, tenant_ctx: dict, inbound_clean: str = "") -> str:
+        """
+        Deterministic post-processing guard to eliminate hallucinations in outbound messages.
+        Guarantees 100% factual correctness for:
+        - Doctor names and schedules
+        - Pricing digits and active special offers
+        - Operating hours
+        - Facility terminology
+        - Language script (Pure Tamil for Vetrivel, Tanglish/Tamil for Aadhiran)
+        """
+        if not text:
+            return ""
+        inbound_clean = (inbound_clean or "").lower().strip()
+        is_aadhiran = tenant_ctx.get("is_aadhiran", False)
+        is_vetrivel = tenant_ctx.get("is_vetrivel", False)
+        is_boldlabs = tenant_ctx.get("is_boldlabs", False)
+        is_abinayaa = tenant_ctx.get("is_abinayaa", False)
+        facility_term = tenant_ctx.get("facility_term", "clinic")
+
+        # 0. Vetrivel Language Guard & Strict Location Grounding
+        if is_vetrivel:
+            vetrivel_map = tenant_ctx.get("google_maps_url") or "https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+            is_vetrivel_loc_inquiry = any(w in inbound_clean for w in [
+                "where", "location", "address", "landmark", "direction", "directions", "route",
+                "enga", "irukku", "evlo thooram", "route", "எங்கே", "முகவரி", "வழி", "ரூட்",
+                "இடம்", "clinic location", "place"
+            ])
+            has_bogus_vetrivel_loc = any(b in text.lower() for b in [
+                "bengaluru", "bangalore", "jayanagar", "indiranagar", "chennai",
+                "பெங்களூரு", "பெங்களூர்", "ஜெயநாகர்", "இந்திரா நகர்"
+            ]) or any(b in text for b in ["பெங்களூரு", "பெங்களூர்", "ஜெயநாகர்", "இந்திரா நகர்"])
+
+            if is_vetrivel_loc_inquiry or has_bogus_vetrivel_loc:
+                text = f"எங்கள் வெற்றிவேல் கிளினிக் முகவரி: விழுப்புரம் - செஞ்சி மெயின் ரோடு, அப்பம்பட்டு, மீனம்பூர் அஞ்சல், செஞ்சி, 604205.\nகூகுள் மேப்: {vetrivel_map}\nநீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+            else:
+                vetrivel_roster = {
+                    "pallavan": {
+                        "name_ta": "டாக்டர் பல்லவன்",
+                        "qual": "MCh",
+                        "spec_ta": "நரம்பியல் அறுவை சிகிச்சை நிபுணர்",
+                        "fee": 300,
+                        "days": ["Sunday"],
+                        "stems": ["pallavan", "palavan", "பல்லவன்", "பல்லவா", "neuro", "நரம்பியல்"],
+                        "canonical": "டாக்டர் பல்லவன் (MCh - நரம்பியல் அறுவை சிகிச்சை நிபுணர்) ஞாயிற்றுக்கிழமை மட்டும் மதியம் 1:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹300. உங்களுக்கு ஞாயிற்றுக்கிழமை நேரம் முன்பதிவு செய்யலாமா?",
+                        "off_day_msg": "டாக்டர் பல்லவன் (MCh - நரம்பியல் அறுவை சிகிச்சை நிபுணர்) ஞாயிற்றுக்கிழமை மட்டுமே ஆலோசனை வழங்குவார் (மதியம் 1:00 PM முதல் 2:00 PM வரை, கட்டணம்: ₹300). அவர் பிற நாட்களில் இருக்க மாட்டார். உங்களுக்கு ஞாயிற்றுக்கிழமை நேரம் முன்பதிவு செய்யலாமா?"
+                    },
+                    "tamilmani": {
+                        "name_ta": "டாக்டர் தமிழ்மணி",
+                        "qual": "MD",
+                        "spec_ta": "பொது மருத்துவம்",
+                        "fee": 200,
+                        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                        "stems": ["tamilmani", "thamizhmani", "tamizmani", "தமிழ்மணி"],
+                        "canonical": "டாக்டர் தமிழ்மணி (MD - பொது மருத்துவம்) தினமும் மதியம் 1:30 PM முதல் 3:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                    },
+                    "anbarasan": {
+                        "name_ta": "டாக்டர் அன்பரசன்",
+                        "qual": "MS",
+                        "spec_ta": "பொது அறுவை சிகிச்சை நிபுணர்",
+                        "fee": 200,
+                        "days": ["Wednesday", "Friday"],
+                        "stems": ["anbarasan", "anbuarasan", "anbarasu", "அன்பரசன்"],
+                        "canonical": "டாக்டர் அன்பரசன் (MS - பொது அறுவை சிகிச்சை நிபுணர்) புதன் மற்றும் வெள்ளி நாட்களில் மதியம் 12:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?",
+                        "off_day_msg": "டாக்டர் அன்பரசன் (MS - பொது அறுவை சிகிச்சை நிபுணர்) புதன் மற்றும் வெள்ளி நாட்களில் மட்டுமே மதியம் 12:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200."
+                    },
+                    "nethaji": {
+                        "name_ta": "டாக்டர் நேதாஜி",
+                        "qual": "MS",
+                        "spec_ta": "எலும்பு மற்றும் மூட்டு அறுவை சிகிச்சை நிபுணர்",
+                        "fee": 200,
+                        "days": ["Monday", "Friday"],
+                        "stems": ["nethaji", "netaji", "நேதாஜி", "நேதாஜீ"],
+                        "canonical": "டாக்டர் நேதாஜி (MS - எலும்பு மற்றும் மூட்டு அறுவை சிகிச்சை நிபுணர்) திங்கள் மற்றும் வெள்ளி நாட்களில் மதியம் 12:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?",
+                        "off_day_msg": "டாக்டர் நேதாஜி (MS - எலும்பு மற்றும் மூட்டு அறுவை சிகிச்சை நிபுணர்) திங்கள் மற்றும் வெள்ளி நாட்களில் மட்டுமே மதியம் 12:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200."
+                    },
+                    "raju": {
+                        "name_ta": "டாக்டர் ராஜு",
+                        "qual": "MD",
+                        "spec_ta": "தோல் மருத்துவ நிபுணர்",
+                        "fee": 200,
+                        "days": ["Wednesday"],
+                        "stems": ["raju", "ராஜு", "ராஜூ"],
+                        "canonical": "டாக்டர் ராஜு (MD - தோல் மருத்துவ நிபுணர்) புதன்கிழமை மட்டும் மதியம் 1:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?",
+                        "off_day_msg": "டாக்டர் ராஜு (MD - தோல் மருத்துவ நிபுணர்) புதன்கிழமை மட்டுமே மதியம் 1:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200."
+                    },
+                    "thamizharasan": {
+                        "name_ta": "டாக்டர் தமிழரசன்",
+                        "qual": "MD",
+                        "spec_ta": "குழந்தைகள் நல மருத்துவர்",
+                        "fee": 200,
+                        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                        "stems": ["thamizharasan", "tamizharasan", "tamilarasan", "thamilarasan", "தமிழரசன்", "குழந்தை மருத்துவர்", "குழந்தை", "pediatric"],
+                        "canonical": "டாக்டர் தமிழரசன் (MD - குழந்தைகள் நல மருத்துவர்) தினமும் மாலை 4:00 PM முதல் 5:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                    },
+                    "nithiya": {
+                        "name_ta": "டாக்டர் நிதியா பிரியதர்ஷினி",
+                        "qual": "MD",
+                        "spec_ta": "மகளிர் மற்றும் மகப்பேறு மருத்துவ நிபுணர்",
+                        "fee": 200,
+                        "days": [],
+                        "stems": ["nithiya", "nithya", "nitya", "priyadharshini", "நிதியா", "நித்யா", "பிரியதர்ஷினி", "gynec"],
+                        "canonical": "டாக்டர் நிதியா பிரியதர்ஷினி (MD - மகளிர் மற்றும் மகப்பேறு மருத்துவ நிபுணர்) முன்பதிவு மூலம் மட்டுமே ஆலோசனை வழங்குகிறார். நேரத்தை உறுதிப்படுத்த 8925722432 என்ற எண்ணில் தொடர்பு கொள்ளலாம். கன்சல்டேஷன் கட்டணம் ₹200."
+                    },
+                    "kamaraj": {
+                        "name_ta": "டாக்டர் கமராஜ்",
+                        "qual": "MD",
+                        "spec_ta": "ஆயுஷ் மருத்துவர்",
+                        "fee": 200,
+                        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                        "stems": ["kamaraj", "kaamaraj", "கமராஜ்", "காமராஜ்", "ayush", "ஆயுஷ்"],
+                        "canonical": "டாக்டர் கமராஜ் (MD - ஆயுஷ் மருத்துவர்) தினமும் காலை 9:00 AM முதல் மாலை 6:00 PM வரை கிளினிக்கில் இருப்பார். கன்சல்டேஷன் கட்டணம் ₹200. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                    },
+                    "prathiba": {
+                        "name_ta": "டாக்டர் பிரதிபா",
+                        "qual": "BSMS",
+                        "spec_ta": "சித்த மருத்துவர்",
+                        "fee": 200,
+                        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                        "stems": ["prathiba", "pratibha", "பிரதிபா", "பிரதீபா", "siddha", "சித்தா"],
+                        "canonical": "டாக்டர் பிரதிபா (BSMS - சித்த மருத்துவர்) தினமும் காலை 10:00 AM முதல் மதியம் 1:00 PM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹200. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                    },
+                    "sakthivel": {
+                        "name_ta": "டாக்டர் சக்திவேல்",
+                        "qual": "MBBS",
+                        "spec_ta": "பொது மருத்துவர்",
+                        "fee": 150,
+                        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                        "stems": ["sakthivel", "shaktivel", "சக்திவேல்"],
+                        "canonical": "டாக்டர் சக்திவேல் (MBBS - பொது மருத்துவர்) தினமும் மாலை 6:00 PM முதல் காலை 6:00 AM வரை ஆலோசனை வழங்குவார். கன்சல்டேஷன் கட்டணம் ₹150. நீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                    }
+                }
+
+                matched_vdoc = None
+                for v_key, v_info in vetrivel_roster.items():
+                    matched = False
+                    for stem in v_info["stems"]:
+                        if re.search(r'[\u0B80-\u0BFF]', stem):
+                            if stem in inbound_clean:
+                                matched = True
+                                break
+                        else:
+                            if re.search(rf'\b{re.escape(stem)}\b', inbound_clean):
+                                matched = True
+                                break
+                    if matched:
+                        matched_vdoc = v_info
+                        break
+
+                if matched_vdoc:
+                    is_off_day_inquiry = False
+                    if matched_vdoc["days"] and len(matched_vdoc["days"]) < 7:
+                        day_stems = {
+                            "Monday": ["monday", "thingal", "திங்கள்", "திங்கட்"],
+                            "Tuesday": ["tuesday", "sevvai", "செவ்வாய்"],
+                            "Wednesday": ["wednesday", "budhan", "புதன்"],
+                            "Thursday": ["thursday", "viyazhan", "வியாழ"],
+                            "Friday": ["friday", "velli", "வெள்ளி"],
+                            "Saturday": ["saturday", "sani", "சனி"],
+                            "Sunday": ["sunday", "ஞாயிறு", "ஞாயிற்று"]
+                        }
+                        off_days = [d for d in day_stems.keys() if d not in matched_vdoc["days"]]
+                        for od in off_days:
+                            if any(stem in inbound_clean for stem in day_stems[od]):
+                                is_off_day_inquiry = True
+                                break
+
+                    has_kamaraj_hallucination = (matched_vdoc["name_ta"] == "டாக்டர் கமராஜ்" and any(w in text for w in ["ஓர்த்தோ", "ஆர்த்தோ", "ortho", "சனி", "500", "₹500"]))
+                    has_pallavan_hallucination = (matched_vdoc["name_ta"] == "டாக்டர் பல்லவன்" and any(w in text for w in ["ஓர்த்தோ", "ஆர்த்தோ", "ortho", "200", "₹200", "150"]))
+                    has_missing_tamil = not bool(re.search(r'[\u0B80-\u0BFF]', text))
+                    has_wrong_qual = bool(matched_vdoc["qual"] not in text and (matched_vdoc["name_ta"] in text or any(stem in text.lower() for stem in matched_vdoc["stems"])))
+
+                    if is_off_day_inquiry and "off_day_msg" in matched_vdoc:
+                        text = matched_vdoc["off_day_msg"]
+                    elif has_kamaraj_hallucination or has_pallavan_hallucination or has_missing_tamil:
+                        text = matched_vdoc["canonical"]
+                    elif matched_vdoc["name_ta"] not in text or matched_vdoc["qual"] not in text or "₹" not in text:
+                        text = matched_vdoc["canonical"]
+                    elif has_wrong_qual:
+                        qual_formatted = f"{matched_vdoc['name_ta']} ({matched_vdoc['qual']} - {matched_vdoc['spec_ta']})"
+                        if matched_vdoc["name_ta"] in text:
+                            text = text.replace(matched_vdoc["name_ta"], qual_formatted, 1)
+                        else:
+                            text = matched_vdoc["canonical"]
+                elif any(w in inbound_clean for w in ["யாரு", "யார்", "doctor", "டாக்டர்", "மருத்துவர்", "இருப்பார்", "இருப்பாங்க", "available"]) and any(w in inbound_clean for w in ["நாளை", "இன்று", "today", "tomorrow", "ஞாயிறு", "திங்கள்", "செவ்வாய்", "புதன்", "வியாழன்", "வெள்ளி", "சனி", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]):
+                    tz_val = tenant_ctx.get("timezone")
+                    try:
+                        import zoneinfo
+                        tz_obj = zoneinfo.ZoneInfo(tz_val) if isinstance(tz_val, str) else (tz_val or datetime.timezone.utc)
+                    except Exception:
+                        tz_obj = datetime.timezone.utc
+                    now_local = datetime.datetime.now(tz_obj)
+                    target_day_name = None
+                    if any(w in inbound_clean for w in ["நாளை", "tomorrow", "nalaiku", "naalaiku"]):
+                        target_day_name = (now_local + datetime.timedelta(days=1)).strftime("%A")
+                    elif any(w in inbound_clean for w in ["இன்று", "today", "inniki", "iniku"]):
+                        target_day_name = now_local.strftime("%A")
+                    else:
+                        for d_en, stems in [
+                            ("Sunday", ["ஞாயிறு", "ஞாயிற்று", "sunday", "sun"]),
+                            ("Monday", ["திங்கள்", "திங்கட்", "monday", "mon"]),
+                            ("Tuesday", ["செவ்வாய்", "tuesday", "tue"]),
+                            ("Wednesday", ["புதன்", "wednesday", "wed"]),
+                            ("Thursday", ["வியாழன்", "thursday", "thu"]),
+                            ("Friday", ["வெள்ளி", "friday", "fri"]),
+                            ("Saturday", ["சனி", "saturday", "sat"]),
+                        ]:
+                            if any(s in inbound_clean for s in stems):
+                                target_day_name = d_en
+                                break
+
+                    day_ta_map = {
+                        "Sunday": "ஞாயிற்றுக்கிழமை", "Monday": "திங்கட்கிழமை", "Tuesday": "செவ்வாய்க்கிழமை",
+                        "Wednesday": "புதன்கிழமை", "Thursday": "வியாழக்கிழமை", "Friday": "வெள்ளிக்கிழமை", "Saturday": "சனிக்கிழமை"
+                    }
+                    if target_day_name:
+                        day_label = f"நாளை ({day_ta_map.get(target_day_name, target_day_name)})" if any(w in inbound_clean for w in ["நாளை", "tomorrow", "nalaiku", "naalaiku"]) else day_ta_map.get(target_day_name, target_day_name)
+                        avail_docs = [vi for vk, vi in vetrivel_roster.items() if target_day_name in vi["days"]]
+                        doc_strs = [f"{ad['name_ta']} ({ad['qual']} - {ad['spec_ta']}, கட்டணம் ₹{ad['fee']})" for ad in avail_docs]
+                        if doc_strs:
+                            text = f"{day_label} எங்கள் வெற்றிவேல் கிளினிக்கில் {', '.join(doc_strs)} ஆகியோர் ஆலோசனை வழங்குவார்கள். நீங்கள் யாரை சந்திக்க விரும்புகிறீர்கள்?"
+                elif not bool(re.search(r'[\u0B80-\u0BFF]', text)):
+                    if any(w in inbound_clean for w in ["24", "hours", "open", "close", "timing", "நேரம்", "எப்போது", "மூடு"]):
+                        text = "வெற்றிவேல் கிளினிக் 24 மணி நேரமும் (24/7) அனைத்து நாட்களிலும் இரவு பகலாக தொடர்ந்து செயல்படுகிறது. நீங்கள் எப்போது வேண்டுமானாலும் வரலாம்."
+                    elif any(w in inbound_clean for w in ["fee", "fees", "cost", "கட்டணம்"]):
+                        text = "நமது வெற்றிவேல் கிளினிக்கில் பொது மருத்துவ ஆலோசனை கட்டணம் ₹150, சிறப்பு மருத்துவர் கட்டணம் ₹200 மற்றும் நரம்பியல் சிறப்பு மருத்துவர் கட்டணம் ₹300 ஆகும்."
+
+        # 1. Doctor verification
+        doctors = tenant_ctx.get("doctors") or []
+        primary_language = tenant_ctx.get("primary_language", "auto")
+        if not doctors:
+            if re.search(r'\b(?:dr\.|doctor)\s+[A-Za-z]+', text, re.I) or "டாக்டர்" in text:
+                if is_aadhiran:
+                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'our therapist', text)
+                    text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது சிகிச்சை நிபுணர்', text)
+                elif is_boldlabs:
+                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'Rakshaya', text)
+                elif is_abinayaa or facility_term in ("diagnostic", "diagnostics", "lab"):
+                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'our lab technician', text)
+                elif facility_term in ("center", "wellness", "spa", "salon"):
+                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'our therapist', text)
+                    text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது சிகிச்சை நிபுணர்', text)
+                else:
+                    admin_rep = tenant_ctx.get("admin_name") if tenant_ctx.get("admin_name") and tenant_ctx.get("admin_name") != tenant_ctx.get("tenant_name") else "our specialist"
+                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', admin_rep, text)
+                    text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது நிபுணர்', text)
+
+        # Facility Terminology Cross-Contamination Guard
+        if facility_term in ("store", "shop"):
+            text = re.sub(r'\b(?:at|in|to)\s+(?:the|our)\s+clinic\b', f'at our {facility_term}', text, flags=re.I)
+            text = re.sub(r'\bclinic\b', facility_term, text, flags=re.I)
+        elif facility_term in ("business", "company", "office"):
+            text = re.sub(r'\b(?:at|in|to)\s+(?:the|our)\s+clinic\b', f'at our {facility_term}', text, flags=re.I)
+            text = re.sub(r'\bclinic\b', facility_term, text, flags=re.I)
+
+        elif not is_vetrivel:
+            # Dynamic Doctor Schedule & Off-day Guard for ANY clinic tenant
+            for doc in doctors:
+                d_name = doc.get("name", "")
+                d_days = doc.get("available_days", [])
+                d_fee = doc.get("fee")
+                d_sched = doc.get("schedule", "")
+                d_clean_name = re.sub(r'(?i)\bdr\.?\s*', '', d_name).strip().lower()
+                if d_clean_name and (d_clean_name in inbound_clean or d_clean_name in text.lower()):
+                    if d_days and len(d_days) < 7:
+                        day_stems = {
+                            "Monday": ["monday", "thingal", "திங்கள்", "திங்கட்"],
+                            "Tuesday": ["tuesday", "sevvai", "செவ்வாய்"],
+                            "Wednesday": ["wednesday", "budhan", "புதன்"],
+                            "Thursday": ["thursday", "viyazhan", "வியாழ"],
+                            "Friday": ["friday", "velli", "வெள்ளி"],
+                            "Saturday": ["saturday", "sani", "சனி"],
+                            "Sunday": ["sunday", "ஞாயிறு", "ஞாயிற்று"]
+                        }
+                        off_days = [d for d in day_stems.keys() if d not in d_days]
+                        has_off_day_inquiry = False
+                        for od in off_days:
+                            if any(stem in inbound_clean for stem in day_stems[od]):
+                                has_off_day_inquiry = True
+                                break
+                        if has_off_day_inquiry or not any(any(stem in text.lower() for stem in day_stems[vd]) for vd in d_days):
+                            days_str = ", ".join(d_days)
+                            if is_vetrivel or primary_language == "tamil":
+                                if "pallavan" in d_clean_name or "பல்லவன்" in d_clean_name:
+                                    text = "டாக்டர் பல்லவன் (MCh - நரம்பியல் அறுவை சிகிச்சை நிபுணர்) ஞாயிற்றுக்கிழமை மட்டும் மதியம் 1:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார் (கட்டணம்: ₹300). உங்களுக்கு ஞாயிற்றுக்கிழமை நேரம் முன்பதிவு செய்யலாமா?"
+                                else:
+                                    fee_str = f" (கட்டணம்: ₹{d_fee})" if d_fee else ""
+                                    text = f"{d_name} ({doc.get('specialty', 'சிறப்பு மருத்துவர்')}) {days_str} மட்டுமே ஆலோசனை வழங்குவார்{fee_str}. உங்களுக்கு {days_str} நேரம் முன்பதிவு செய்யலாமா?"
+                            else:
+                                fee_str = f" (Fee: ₹{d_fee})" if d_fee else ""
+                                text = f"{d_name} ({doc.get('specialty', 'Specialist')}) is available only on {days_str}{fee_str}. Would you like to book a slot for {days_str}?"
+
+        # 2. Pricing verification
+        if is_aadhiran:
+            if any(w in inbound_clean for w in ["full body", "relaxation", "massage", "relax", "மசாஜ்", "price", "fee", "cost", "offer", "discount", "எவ்வளவு", "விலை", "கட்டணம்"]):
+                wrong_prices = [500, 600, 700, 800, 1000, 1100, 1200, 1500, 450, 550, 650]
+                for wp in wrong_prices:
+                    if f"₹{wp}" in text or f"Rs. {wp}" in text or f"Rs.{wp}" in text or f" {wp} " in text:
+                        text = re.sub(rf'[₹Rs.]*\s*{wp}\b', '₹999', text)
+                if "700" in text:
+                    text = re.sub(r'[₹Rs.]*\s*700', '₹999', text)
+        elif is_vetrivel:
+            if any(w in inbound_clean for w in ["fee", "fees", "cost", "charge", "price", "கட்டணம்", "doctor", "consult", "டாக்டர்"]):
+                for wp in [400, 500, 600, 800, 1000, 250, 350, 450]:
+                    if f"₹{wp}" in text or f"Rs. {wp}" in text:
+                        if any(w in text.lower() or w in inbound_clean for w in ["sakthivel", "general op", "op", "சக்திவேல்"]):
+                            text = re.sub(rf'[₹Rs.]*\s*{wp}\b', '₹150', text)
+                        elif any(w in text.lower() or w in inbound_clean for w in ["pallavan", "neuro", "பல்லவன்"]):
+                            text = re.sub(rf'[₹Rs.]*\s*{wp}\b', '₹300', text)
+                        else:
+                            text = re.sub(rf'[₹Rs.]*\s*{wp}\b', '₹200', text)
+
+            # Doctor-specific exact fee guards
+            has_multi_docs = sum(1 for d in ["சக்திவேல்", "பல்லவன்", "கமராஜ்", "நேதாஜி", "அன்பரசன்", "ராஜு", "தமிழரசன்", "தமிழ்மணி", "பிரதிபா", "நிதியா"] if d in text) > 1
+            if has_multi_docs:
+                text = re.sub(r'(டாக்டர் சக்திவேல்[^₹\n]*?)[₹Rs.]*\s*(?:200|250|300|500)\b', r'\1₹150', text)
+                text = re.sub(r'(டாக்டர் பல்லவன்[^₹\n]*?)[₹Rs.]*\s*(?:150|200|250|500)\b', r'\1₹300', text)
+                for s_doc in ["கமராஜ்", "காமராஜ்", "நேதாஜி", "அன்பரசன்", "ராஜு", "தமிழரசன்", "தமிழ்மணி", "பிரதிபா", "நிதியா"]:
+                    text = re.sub(rf'(டாக்டர் {s_doc}[^₹\n]*?)[₹Rs.]*\s*(?:150|250|300|350|400|500)\b', r'\1₹200', text)
+            else:
+                if any(w in text.lower() or w in inbound_clean for w in ["sakthivel", "சக்திவேல்", "general op"]):
+                    for wrong_f in [200, 250, 300, 500]:
+                        text = re.sub(rf'[₹Rs.]*\s*{wrong_f}\b', '₹150', text)
+                elif any(w in text.lower() or w in inbound_clean for w in ["pallavan", "பல்லவன்", "neuro"]):
+                    for wrong_f in [150, 200, 250, 500]:
+                        text = re.sub(rf'[₹Rs.]*\s*{wrong_f}\b', '₹300', text)
+                elif any(w in text.lower() or w in inbound_clean for w in [
+                    "kamaraj", "கமராஜ்", "nethaji", "நேதாஜி", "anbarasan", "அன்பரசன்", "raju", "ராஜு",
+                    "thamizharasan", "தமிழரசன்", "tamilmani", "தமிழ்மணி", "prathiba", "பிரதிபா", "nithiya", "நிதியா"
+                ]):
+                    for wrong_f in [150, 250, 300, 350, 400, 500]:
+                        text = re.sub(rf'[₹Rs.]*\s*{wrong_f}\b', '₹200', text)
+
+            # Doctor name & qualification formatting guards across outbound text
+            v_qual_map = [
+                ("டாக்டர் கமராஜ்", "டாக்டர் கமராஜ் (MD - ஆயுஷ் மருத்துவர்)", ["(md", "md -", "ஆயுஷ்"]),
+                ("டாக்டர் நேதாஜி", "டாக்டர் நேதாஜி (MS - எலும்பு மற்றும் மூட்டு அறுவை சிகிச்சை நிபுணர்)", ["(ms", "ms -", "எலும்பு"]),
+                ("டாக்டர் பல்லவன்", "டாக்டர் பல்லவன் (MCh - நரம்பியல் அறுவை சிகிச்சை நிபுணர்)", ["(mch", "mch -", "நரம்பியல்"]),
+                ("டாக்டர் அன்பரசன்", "டாக்டர் அன்பரசன் (MS - பொது அறுவை சிகிச்சை நிபுணர்)", ["(ms", "ms -", "அறுவை"]),
+                ("டாக்டர் ராஜு", "டாக்டர் ராஜு (MD - தோல் மருத்துவ நிபுணர்)", ["(md", "md -", "தோல்"]),
+                ("டாக்டர் தமிழரசன்", "டாக்டர் தமிழரசன் (MD - குழந்தைகள் நல மருத்துவர்)", ["(md", "md -", "குழந்தை"]),
+                ("டாக்டர் தமிழ்மணி", "டாக்டர் தமிழ்மணி (MD - பொது மருத்துவம்)", ["(md", "md -", "பொது மருத்துவம்"]),
+                ("டாக்டர் பிரதிபா", "டாக்டர் பிரதிபா (BSMS - சித்த மருத்துவர்)", ["(bsms", "bsms -", "சித்த"]),
+                ("டாக்டர் சக்திவேல்", "டாக்டர் சக்திவேல் (MBBS - பொது மருத்துவர்)", ["(mbbs", "mbbs -"]),
+                ("டாக்டர் நிதியா பிரியதர்ஷினி", "டாக்டர் நிதியா பிரியதர்ஷினி (MD - மகளிர் மற்றும் மகப்பேறு மருத்துவ நிபுணர்)", ["(md", "md -", "மகளிர்"]),
+            ]
+            for raw_dn, full_dn, qual_indicators in v_qual_map:
+                if raw_dn in text and not any(qi in text.lower() for qi in qual_indicators):
+                    text = text.replace(raw_dn, full_dn, 1)
+        elif is_boldlabs:
+            for bp in ["2630", "3499", "4999", "1999", "2999"]:
+                if bp in text:
+                    text = re.sub(rf'[₹Rs.]*\s*{bp}(?:/month|\s*per\s*month)?', '₹2499/month', text)
+        elif is_abinayaa:
+            if "basic" in inbound_clean or "basic" in text.lower():
+                text = re.sub(r'[₹Rs.]*\s*(?:599|699|799|899|1099)\b', '₹999', text)
+
+        # 3. Operating hours verification
+        if is_vetrivel:
+            bogus_hours_vetrivel = [
+                r'\b0?9:00\s*AM\s*(?:to|-)\s*0?8:00\s*PM\b',
+                r'\b0?9:00\s*AM\s*(?:to|-)\s*0?9:00\s*PM\b',
+                r'\b9\s*am\s*to\s*8\s*pm\b',
+                r'\b9\s*am\s*to\s*9\s*pm\b',
+                r'\b9\s*am\s*முதல்\s*8\s*pm\b',
+            ]
+            for pat in bogus_hours_vetrivel:
+                if re.search(pat, text, re.I):
+                    text = re.sub(pat, '24 மணி நேரமும் (24/7)', text, flags=re.I)
+        elif is_aadhiran:
+            bogus_hours_aadhiran = [
+                r'\b0?9:00\s*AM\s*(?:to|-)\s*0?8:00\s*PM\b',
+                r'\b0?9:00\s*AM\s*(?:to|-)\s*0?9:00\s*PM\b',
+                r'\b9\s*am\s*to\s*8\s*pm\b',
+            ]
+            for pat in bogus_hours_aadhiran:
+                if re.search(pat, text, re.I):
+                    text = re.sub(pat, 'morning 6:00 AM to night 10:00 PM', text, flags=re.I)
+
+        # 4. Facility terminology
+        if is_aadhiran:
+            text = re.sub(r'(?i)\baadhiran\s+clinics?\b', 'Aadhiran Center', text)
+            text = re.sub(r'(?i)\bour\s+clinics?\b', 'our center', text)
+            text = re.sub(r'\bClinic\b', 'Center', text)
+            text = re.sub(r'\bclinic\b', 'center', text)
+            text = re.sub(r'கிளினிக்', 'சென்டர்', text)
+
+        # 5. Location, Physical Address & Google Maps Link Guard
+        google_maps_url = (tenant_ctx.get("google_maps_url") or "").strip()
+        physical_address = (tenant_ctx.get("physical_address") or "").strip()
+        location_keywords = [
+            "where", "location", "address", "landmark", "direction", "directions",
+            "route", "enga irukku", "enga irukinga", "enga irukkinga", "evlo thooram",
+            "how to reach", "map link", "google map", "send location", "share location",
+            "vazhi", "edam", "முகவரி", "எங்கு", "எங்கே", "இடம்", "மேப்"
+        ]
+        is_location_query = any(w in inbound_clean for w in location_keywords)
+
+        # A. Ensure physical address is present if customer explicitly asked for location/address
+        if physical_address and is_location_query:
+            addr_tokens = [tok.strip().lower() for tok in physical_address.split(',') if len(tok.strip()) > 3]
+            if addr_tokens and not any(tok in text.lower() for tok in addr_tokens):
+                if tenant_ctx.get("primary_language") == "tamil" or any('\u0b80' <= c <= '\u0bff' for c in text):
+                    text = f"முகவரி: {physical_address}\n{text}"
+                else:
+                    text = f"Address: {physical_address}\n{text}"
+
+        # B. Ensure Google Maps link is included if tenant has one
+        if google_maps_url and is_location_query:
+            if (
+                google_maps_url not in text
+                and "maps.app.goo.gl" not in text
+                and "google.com/maps" not in text
+                and "goo.gl/maps" not in text
+                and "share.google" not in text
+            ):
+                if is_aadhiran or tenant_ctx.get("primary_language") == "tanglish":
+                    text = f"{text}\nGoogle Map: {google_maps_url}"
+                elif tenant_ctx.get("primary_language") == "tamil" or any('\u0b80' <= c <= '\u0bff' for c in text):
+                    text = f"{text}\nகூகுள் மேப்: {google_maps_url}"
+                else:
+                    text = f"{text}\nGoogle Maps: {google_maps_url}"
+
+        return text.strip()
 
     async def _get_live_occupied_slots(self, tenant_id: str, tenant_tz, force_refresh: bool = False) -> tuple[list[dict], bool]:
         """
@@ -2518,6 +3757,7 @@ end
         inbound_clean: str = "",
         matched_doc_obj: Optional[dict] = None,
         is_doctor_query: bool = False,
+        tenant_ctx: Optional[dict] = None,
     ) -> str:
         """
         Global strict tenant isolation firewall.
@@ -2648,6 +3888,20 @@ end
                 else:
                     text = f"Our consulting specialist doctors are available for appointments. Which doctor or specialty would you like to consult?"
 
+        # ── Deterministic Fact Guards (Single Source of Truth) ──
+        if tenant_ctx is None:
+            clean_s = (tenant_slug or "").strip().lower()
+            tenant_ctx = {
+                "tenant_slug": clean_s,
+                "tenant_name": tenant_name,
+                "services_text": services_text or "",
+                "is_aadhiran": "aadhiran" in clean_s or "aadhiran" in (tenant_name or "").lower(),
+                "is_vetrivel": "vetrivel" in clean_s or "vetrivel" in (tenant_name or "").lower(),
+                "is_boldlabs": "boldlabs" in clean_s or "boldlabs" in (tenant_name or "").lower(),
+                "is_abinayaa": "abinayaa" in clean_s or "abinayaa" in (tenant_name or "").lower(),
+            }
+        text = self._verify_and_guard_facts(text, tenant_ctx, inbound_clean=inbound_clean)
+
         # Strip all markdown asterisks so bold/italic asterisks never leak into WhatsApp
         if text and "*" in text:
             text = text.replace("*", "")
@@ -2660,6 +3914,7 @@ end
         history: list[dict],
         stored_language: Optional[str] = None,
         is_aadhiran: bool = False,
+        is_vetrivel: bool = False,
     ) -> dict:
         """
         Analyzes customer's incoming message, chat history, and stored customer language preference to identify:
@@ -2685,7 +3940,8 @@ end
             neutral_acks = {
                 "ok", "okay", "k", "kk", "yes", "yeah", "yep", "ya", "no", "nah", "nope",
                 "sure", "done", "fine", "cool", "alright", "thx", "thanks", "thank",
-                "you", "ty", "noted", "got", "it", "super", "great", "welcome", "am", "pm"
+                "you", "ty", "noted", "got", "it", "super", "great", "welcome", "am", "pm",
+                "morning", "afternoon", "evening", "night", "today", "tomorrow", "tonight", "daily"
             }
             is_neutral = len(tokens_curr) <= 3 and (len(tokens_curr) == 0 or tokens_curr.issubset(neutral_acks))
 
@@ -2699,7 +3955,7 @@ end
                         "CRITICAL AADHIRAN CENTER MANDATE: You MUST respond 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்).\n"
                         "ABSOLUTE PROHIBITION ON ENGLISH: Never write in English! Zero English sentences allowed under any circumstance.\n"
                         "RESPECTFUL FORM: ALWAYS address the patient respectfully as 'உங்களுக்கு' (NEVER use disrespectful 'உனக்கு' or 'நீ').\n"
-                        "PRICE DIGITS: Always write prices in standard digits with Rupee symbol: ₹700, ₹999, ₹1499.\n"
+                        "PRICE & NUMBER DIGITS MANDATE: ALWAYS write all prices, fees, duration minutes, and numbers strictly in standard numerical digits (e.g. ₹700, ₹999, ₹1399, ₹1499, 60 நிமிடங்கள்). STRICTLY NEVER write numbers in Tamil words (e.g. NEVER write 'ஆயிரத்து முனுநூற்று தொண்ணூறு', 'ஆயிரத்து நானூறு', 'எழுநூறு', 'அறுபது').\n"
                         "Keep your reply to 1-2 natural sentences (20-40 words max), zero hyphens, zero emojis."
                     )
                 }
@@ -2712,6 +3968,7 @@ end
                     "directive": (
                         "The customer sent a brief neutral acknowledgment ('ok' / 'yes' / 'sure') in an ongoing Tamil conversation.\n"
                         "CRITICAL AADHIRAN CENTER MANDATE: Continue 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்). Never switch to English!\n"
+                        "PRICE & NUMBER DIGITS MANDATE: ALWAYS write all prices and numbers strictly in numerical digits (e.g. ₹700, ₹999, ₹1399, 60 நிமிடங்கள்). NEVER write numbers in Tamil words.\n"
                         "Keep your reply to 1-2 natural sentences, zero hyphens, zero emojis."
                     )
                 }
@@ -2732,17 +3989,54 @@ end
                     "COLLOQUIAL TANGLISH PATTERNS:\n"
                     "- General / English inquiry: 'Vanakkam sir! Ungalukku entha service pathi details thevai nu sollunga, kandippa help panrom!'\n"
                     "- Timings: 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir. Ungalukku entha timing convenient-ah irukkum?'\n"
-                    "- Pricing: 'Full Body Relaxation Massage 60 mins offer price ₹700 sir (regular ₹999). Ungalukku intha session book pannalama?'\n"
+                    "- Duration: If customer asks about duration (e.g. '2 hours ku iruka ?', '1 hour massage', 'duration evlo'): Clarify therapy session duration ('Aama sir, 2 hours session kandippa irukku. Namma standard session 60 mins, neenga 2 hours venumna extended massage or combo treatment ah eduthukalam sir. Ungalukku entha treatment venum?'). NEVER confuse therapy duration with clinic operating hours!\n"
+                    "- Pricing / Price list: For single price inquiry: 'Full Body Relaxation Massage 60 mins price ₹999 sir. Ungalukku intha session book pannalama?'. For all services / price list: 'Full Body Relaxation Massage (60 mins) ₹999, Abhyangam ₹1399, Powder Massage ₹1499, Stress Relief Therapy ₹1499, Sirodhara ₹999, Steam Bath ₹299. Ungalukku entha treatment prefer pandringa sir?'\n"
                     "- Services: 'Full Body Relaxation Massage, Udwarthanam, Abhyangam and other wellness therapies irukku sir. Ungalukku enna therapy thevai nu solla mudiyuma?'\n"
+                    "- Room / Center Photos: If customer asks for photos ('rum photo', 'photo send pannunga', 'photos kedaikuma'): 'Kandippa sir! Namma center matrum rooms photos-ah engal team seekkiram inga WhatsApp-la send pannuvanga. Ungalukku entha treatment thevai paduthu nu sonninga na slot kooda book pannidalam sir!'\n"
                     "- Location: 'Namma center 14/18, M.G.R Nagar, 5th Street, P.N. Road East, Tiruppur la irukku sir.'\n"
                     "- Voice Notes: Answer the query directly in natural spoken WhatsApp Tanglish.\n"
                     "- Deferral / Think about it: 'Kandippa sir, take your time. Ungalukku eppo convenient-o appo sollunga, slot book pannidalam!'\n"
                     "- Gratitude: 'Romba nandri sir! Feel free to reach out anytime. Have a wonderful day!'\n"
                     "STRICT GUIDELINES:\n"
                     "- NEVER write formal bookish Tamil transliterated into English (never say 'namathu', 'uuzhiya neram', 'mathum', 'seiyalama').\n"
-                    "- ALWAYS write prices using standard digits with Rupee symbol: ₹700, ₹999, ₹1499.\n"
+                    "- ALWAYS write prices using standard digits with Rupee symbol: ₹999, ₹1399, ₹1499.\n"
                     "- ALWAYS address the customer respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee').\n"
                     "- Keep your reply to 1-2 natural conversational sentences (20-40 words max), zero hyphens, zero emojis."
+                )
+            }
+
+        # ── VETRIVEL CLINIC SPECIALIZED LANGUAGE PROTOCOL (100% TAMIL SCRIPT - ZERO ENGLISH TO PATIENTS) ──
+        if is_vetrivel:
+            # Explicit English request ONLY:
+            if any(sw in text_lower for sw in ["speak in english", "talk in english", "in english please", "reply in english", "english please", "only english"]):
+                return {
+                    "dialect": "indian_english",
+                    "language": "indian_english",
+                    "label": "Easy Indian English (Explicitly Requested)",
+                    "directive": (
+                        "The customer explicitly requested English. Reply in clear, warm, friendly Indian English. "
+                        "Keep your reply to 1-2 natural sentences, zero hyphens, zero emojis."
+                    )
+                }
+
+            # In ALL OTHER CASES for Vetrivel Clinic:
+            # (Tamil script, Tanglish, voice notes, greetings like 'hi', doctor names, dates/timings, fee inquiries)
+            # You MUST reply 100% in warm, respectful, polite TAMIL using Tamil script (தமிழ்)!
+            return {
+                "dialect": "tamil_script",
+                "language": "tamil",
+                "label": "Tamil (Tamil Script - Vetrivel Clinic)",
+                "directive": (
+                    "CRITICAL VETRIVEL CLINIC MANDATORY LANGUAGE DIRECTIVE:\n"
+                    "You are the WhatsApp assistant for Vetrivel Clinic in Gingee (செஞ்சி வெற்றிவேல் கிளினிக்).\n"
+                    "You MUST respond 100% in warm, caring, polite TAMIL using Tamil script (தமிழ்).\n"
+                    "ABSOLUTE PROHIBITION ON ENGLISH: Never write in English! Zero English sentences allowed under any circumstance (unless the patient explicitly requested English).\n"
+                    "RESPECTFUL FORM: ALWAYS address the patient respectfully as 'உங்களுக்கு' (NEVER use disrespectful 'உனக்கு' or 'நீ', and NEVER use double pronoun 'உங்களுக்குங்கள்').\n"
+                    "PRICES & TIMES: Always write prices in standard digits with Rupee symbol: ₹150 (Dr. Sakthivel General OP), ₹200 (Specialists: Ortho, Surgery, MD General Medicine, Skin, Paediatrics, Gynecology, AYUSH, Siddha, Physiotherapy), ₹300 (Dr. Pallavan Neurosurgeon, Cardio Surgery). Times in digits: 10:00 AM, 1:30 PM, 6:00 PM.\n"
+                    "DOCTOR & SYMPTOM MATCHING MANDATE: When a patient asks which doctor to see or mentions symptoms (e.g. மூட்டு வலி / joint or bone pain -> டாக்டர் நேதாஜி MS; தோல் பிரச்சனை -> டாக்டர் ராஜு MD; குழந்தை நலன் -> டாக்டர் தமிழரசன் MD): You MUST state the specific doctor's name in Tamil (எ.கா. டாக்டர் நேதாஜி MS), their schedule, and the consultation fee (₹200) directly in Sentence 1! Never say 'எங்கள் நிபுணர் மருத்துவர்' without giving the doctor's name and fee.\n"
+                    "CLINIC HOURS: Mention that Vetrivel Clinic in Gingee operates 24 மணி நேரமும் (24/7 OP available round-the-clock).\n"
+                    "Answer directly and warmly in sentence 1, then guide the patient gently with 1 follow-up question.\n"
+                    "Keep your reply to 1-2 natural sentences (20-40 words max), zero hyphens, zero bullets, zero emojis."
                 )
             }
 
@@ -2867,13 +4161,13 @@ end
                     "- NEVER invent garbled phrases like 'kandam pathu', 'nalla thandham', 'panna thoppu venuma', or 'varikkalama'.\n"
                     "EVERYDAY ENGLISH WORDS IN TANGLISH:\n"
                     "- Real WhatsApp Tanglish naturally keeps common terms in English: timings, slot, booking, appointment, doctor, consultation, treatment, massage, service, center, morning, afternoon, evening, today, tomorrow, convenient, comfortable, package, details, feel free, help.\n"
-                    "- Always write prices using standard digits with Rupee symbol: ₹700, ₹999, ₹1499. NEVER write '700 rupees' or 'rupees 1499' or 'nimishathirku' (write '60 mins-ku ₹700').\n"
+                    "- Always write prices using standard digits with Rupee symbol: ₹999, ₹1399, ₹1499. NEVER write '999 rupees' or 'rupees 1499' or 'nimishathirku' (write '60 mins-ku ₹999').\n"
                     "POLITE COURTESY:\n"
                     "- ALWAYS address the customer respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee').\n"
                     "- 'venum' / 'virumbureenga' means want. 'vendam' means do NOT want. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask 'enta doctor-ai paarka virumbureenga?' or 'consult panna venuma?'.\n"
                     "GOLD-STANDARD NATURAL TANGLISH EXAMPLES (NOTICE: ZERO REPETITIVE BUSINESS NAME INTROS):\n"
                     "- Timings: 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir. Ungalukku entha day entha time convenient-ah irukkum?'\n"
-                    "- Pricing: 'Full Body Relaxation Massage 60 mins offer price ₹700 sir (regular ₹999). Ungalukku intha session book pannalama?'\n"
+                    "- Pricing: 'Full Body Relaxation Massage 60 mins price ₹999 sir. Ungalukku intha session book pannalama?'\n"
                     "- Services: 'Full Body Relaxation Massage, Udwarthanam, Abhyangam and other wellness therapies irukku sir. Ungalukku enna therapy thevai nu solla mudiyuma?'\n"
                     "- Deferral / Think about it: 'Kandippa sir, take your time. Ungalukku eppo convenient-o appo sollunga, slot book pannidalam!'\n"
                     "- Gratitude: 'Romba nandri sir! Feel free to reach out anytime. Have a wonderful day!'\n"
@@ -2962,7 +4256,8 @@ end
         neutral_ack_words = {
             "ok", "okay", "k", "kk", "yes", "yeah", "yep", "ya", "no", "nah", "nope",
             "sure", "done", "fine", "cool", "alright", "thx", "thanks", "thank",
-            "you", "ty", "noted", "got", "it", "super", "great", "welcome", "am", "pm"
+            "you", "ty", "noted", "got", "it", "super", "great", "welcome", "am", "pm",
+            "morning", "afternoon", "evening", "night", "today", "tomorrow", "tonight", "daily"
         }
         # Truly neutral: all tokens are simple acknowledgment words, or purely numbers/times/emojis
         is_truly_neutral_ack = (
@@ -3227,8 +4522,30 @@ end
         creds: Optional[dict],
         inbound_wa_message_id: Optional[str] = None,
         typing_started_at: Optional[float] = None,
+        tenant_ctx: Optional[dict] = None,
     ):
         """Call Gemini / Groq / OpenCode Cascade → fallback to rule engine → send via WhatsApp."""
+
+        # Double guard: verify conversation has not been toggled to human mode or global AI paused
+        conv_check = await self.db_pool.fetchrow(
+            """SELECT c.status, t.settings as tenant_settings
+               FROM conversations c
+               JOIN tenants t ON t.id = c.tenant_id
+               WHERE c.id = $1::uuid AND c.tenant_id = $2::uuid""",
+            conv_id, tenant_id
+        )
+        if conv_check:
+            c_st = (conv_check["status"] or "").lower().strip()
+            if c_st in ("human", "manual", "off", "human_takeover", "false"):
+                logger.info("skipping_generate_reply_conversation_in_human_mode", conv_id=conv_id, tenant_id=tenant_id, status=c_st)
+                return
+            t_set = conv_check["tenant_settings"] or {}
+            if isinstance(t_set, str):
+                try: t_set = json.loads(t_set)
+                except Exception: t_set = {}
+            if isinstance(t_set, dict) and (t_set.get("ai_enabled") is False or t_set.get("ai_paused") is True):
+                logger.info("skipping_generate_reply_global_ai_disabled", conv_id=conv_id, tenant_id=tenant_id)
+                return
 
         # Automated Bot & Auto-Reply Loop Suppression
         inbound_lower = (message_text or "").strip().lower()
@@ -3250,14 +4567,201 @@ end
             logger.warning("bot_to_bot_suppression_triggered", phone=contact_phone, snippet=message_text[:80])
             return
 
+        # Single-Pass Context Fetcher: Ensure tenant context is fully loaded (0-1ms from cache)
+        if not tenant_ctx:
+            tenant_ctx = await self.load_tenant_context(tenant_id)
+        if not creds:
+            creds = tenant_ctx.get("creds")
+
+        # Direct graceful handling for unsupported WhatsApp message formats (e.g. view-once photo/video, poll)
+        # CRITICAL: DO NOT intercept if this is an ad referral, CTWA lead, or first customer contact!
+        is_ad_lead = "[ad referral:" in inbound_lower or "ad referral" in inbound_lower or "hello! can i get more info" in inbound_lower
+
+        is_first_inbound = False
+        if not is_ad_lead:
+            try:
+                inbound_cnt = await self.db_pool.fetchval(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND direction = 'inbound'",
+                    conv_id, tenant_id
+                ) or 0
+                is_first_inbound = (inbound_cnt <= 1)
+            except Exception:
+                is_first_inbound = False
+
+        # Graceful handling for incoming WhatsApp calls (Meta Cloud API numbers cannot receive WhatsApp voice/video calls)
+        is_call_inbound = "incoming whatsapp call" in inbound_lower or "whatsapp call" in inbound_lower
+
+        if is_call_inbound:
+            # 1. Alert Admin on WhatsApp and Web Push (with 10-minute cooldown per customer)
+            admin_call_cooldown_key = f"admin_call_alert_cd:{tenant_id}:{contact_phone}"
+            admin_already_alerted = False
+            if self.redis:
+                try:
+                    admin_already_alerted = bool(await self.redis.get(admin_call_cooldown_key))
+                except Exception:
+                    admin_already_alerted = False
+
+            if not admin_already_alerted:
+                if self.redis:
+                    try:
+                        await self.redis.setex(admin_call_cooldown_key, 600, "1")
+                    except Exception:
+                        pass
+                try:
+                    c_name = await self.db_pool.fetchval(
+                        "SELECT name FROM contacts WHERE id = (SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid)",
+                        conv_id, tenant_id
+                    ) or ""
+                    asyncio.create_task(
+                        self._execute_admin_human_alert(
+                            tenant_id=tenant_id,
+                            conv_id=conv_id,
+                            contact_phone=contact_phone,
+                            customer_name=c_name,
+                            creds=creds,
+                            reason="Customer attempted WhatsApp call to business number",
+                        )
+                    )
+                except Exception as e_alert:
+                    logger.warning("admin_call_alert_failed", error=str(e_alert))
+
+            # 2. Reply to Customer with Call Guidance (with 30-min cooldown so repeated calls don't spam identical replies)
+            call_reply_cooldown_key = f"call_reply_cd:{tenant_id}:{contact_phone}"
+            reply_already_sent = False
+            if self.redis:
+                try:
+                    reply_already_sent = bool(await self.redis.get(call_reply_cooldown_key))
+                except Exception:
+                    reply_already_sent = False
+
+            if not reply_already_sent:
+                if self.redis:
+                    try:
+                        await self.redis.setex(call_reply_cooldown_key, 1800, "1")
+                    except Exception:
+                        pass
+
+                tenant_slug_val = (tenant_ctx.get("tenant_slug") or "").strip().lower()
+                pri_lang = (tenant_ctx.get("primary_language") or "").strip().lower()
+                is_tamil_tenant = pri_lang in ("ta", "tamil") or "aadhiran" in tenant_slug_val or "vetrivel" in tenant_slug_val
+                admin_phone = (tenant_ctx.get("admin_phone") or "").strip()
+
+                if is_tamil_tenant:
+                    if admin_phone:
+                        call_reply = (
+                            f"வணக்கம்! இந்த வாட்ஸ்அப் எண்ணில் நேரடி வாட்ஸ்அப் ஆடியோ / வீடியோ கால்களைப் பெற இயலாது. "
+                            f"தயவுசெய்து உங்கள் கேள்வியை இங்கு மெசேஜாக அனுப்பவும், அல்லது {admin_phone} என்ற எண்ணிற்கு நேரடியாக அழைக்கவும். "
+                            f"எங்கள் குழு விரைவில் உங்களுக்கு உதவும்!"
+                        )
+                    else:
+                        call_reply = (
+                            "வணக்கம்! இந்த வாட்ஸ்அப் எண்ணில் நேரடி வாட்ஸ்அப் ஆடியோ / வீடியோ கால்களைப் பெற இயலாது. "
+                            "தயவுசெய்து உங்கள் தேவையை இங்கு மெசேஜாக அனுப்பவும், எங்கள் குழு விரைவில் உங்களைத் தொடர்பு கொள்ளும்!"
+                        )
+                else:
+                    if admin_phone:
+                        call_reply = (
+                            f"Hello! We are unable to receive direct WhatsApp audio or video calls on this business number. "
+                            f"Please reply with your query or message here, or call us directly on {admin_phone}. "
+                            f"Our team will be glad to assist you!"
+                        )
+                    else:
+                        call_reply = (
+                            "Hello! We are unable to receive direct WhatsApp audio or video calls on this business number. "
+                            "Please reply with your query or message here, and our team will get back to you shortly!"
+                        )
+
+                if creds and creds.get("phone_number_id") and creds.get("access_token"):
+                    try:
+                        w_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=call_reply,
+                        )
+                        out_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            out_msg_id, conv_id, tenant_id, call_reply, w_wa_id
+                        )
+                        await self.db_pool.execute(
+                            "UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                            conv_id, tenant_id
+                        )
+                        logger.info("incoming_call_guidance_reply_sent", conv_id=conv_id, tenant_id=tenant_id, to=contact_phone)
+                    except Exception as e_call:
+                        logger.warning("incoming_call_reply_send_failed", error=str(e_call), tenant_id=tenant_id)
+            else:
+                logger.info("incoming_call_reply_suppressed_cooldown", conv_id=conv_id, contact_phone=contact_phone)
+            return
+
+        # Direct graceful handling for true unsupported formats (view-once photo/video, poll)
+        elif not is_ad_lead and not is_first_inbound and ("unsupported attachment" in inbound_lower or "[unsupported" in inbound_lower or inbound_lower == "[message]" or "[poll" in inbound_lower):
+            unsupp_cooldown_key = f"unsupported_reply_cd:{tenant_id}:{contact_phone}"
+            unsupp_already_sent = False
+            if self.redis:
+                try:
+                    unsupp_already_sent = bool(await self.redis.get(unsupp_cooldown_key))
+                except Exception:
+                    unsupp_already_sent = False
+
+            if not unsupp_already_sent:
+                if self.redis:
+                    try:
+                        await self.redis.setex(unsupp_cooldown_key, 1800, "1")
+                    except Exception:
+                        pass
+                tenant_slug_val = (tenant_ctx.get("tenant_slug") or "").strip().lower()
+                pri_lang = (tenant_ctx.get("primary_language") or "").strip().lower()
+                is_tamil_tenant = pri_lang in ("ta", "tamil") or "aadhiran" in tenant_slug_val or "vetrivel" in tenant_slug_val
+                if is_tamil_tenant:
+                    unsupported_reply = (
+                        "நீங்கள் அனுப்பிய மெசேஜ் வகை (view-once புகைப்படம் அல்லது வாக்கெடுப்பு) எங்களால் பார்க்க இயலவில்லை. "
+                        "தயவுசெய்து சாதாரண புகைப்படம், உரை மெசேஜ் அல்லது வாய்ஸ் நோட் மூலம் அனுப்பவும். எங்கள் குழு உங்களுக்கு உதவும்."
+                    )
+                else:
+                    unsupported_reply = (
+                        "We received your message, but this format (such as a view-once photo or poll) cannot be displayed on our system. "
+                        "Could you please resend it as a standard photo, text message, or voice note so we can assist you?"
+                    )
+                if creds and creds.get("phone_number_id") and creds.get("access_token"):
+                    try:
+                        w_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=unsupported_reply,
+                        )
+                        out_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            out_msg_id, conv_id, tenant_id, unsupported_reply, w_wa_id
+                        )
+                        await self.db_pool.execute(
+                            "UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                            conv_id, tenant_id
+                        )
+                        logger.info("unsupported_message_reply_sent", conv_id=conv_id, tenant_id=tenant_id, to=contact_phone)
+                    except Exception as e_un:
+                        logger.warning("unsupported_reply_send_failed", error=str(e_un), tenant_id=tenant_id)
+            return
+
+        # Normalize message_text for first-time or ad leads if it was originally an unsupported placeholder
+        if "unsupported attachment" in inbound_lower or "[unsupported" in inbound_lower or inbound_lower == "[message]":
+            message_text = "Hello! Can I get more info on this?"
+            inbound_lower = message_text.lower()
+
         # Get AI config, tenant keys (Tier 1), and platform master keys (Tier 2 fallback)
-        ai_cfg = await self._get_ai_config(tenant_id)
+        ai_cfg = tenant_ctx.get("ai_config") or {}
         assistant_name = ai_cfg.get("assistant_name") or "Assistant"
         custom_instructions = ai_cfg.get("system_prompt") or ""
-        services_text = ai_cfg.get("services_text") or ""
-        gemini_key = await self._get_tenant_gemini_key(tenant_id)
-        groq_key = await self._get_tenant_groq_key(tenant_id)
-        opencode_key, opencode_base = await self._get_tenant_opencode_creds(tenant_id)
+        services_text = tenant_ctx.get("services_text") or ai_cfg.get("services_text") or ""
+        gemini_key = tenant_ctx.get("gemini_key")
+        groq_key = tenant_ctx.get("groq_key")
+        opencode_key = tenant_ctx.get("opencode_key")
+        opencode_base = tenant_ctx.get("opencode_base")
         master_keys = self._get_master_ai_keys()
         primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("groq" if groq_key else ("gemini" if gemini_key else "groq"))
         response_style = (ai_cfg.get("response_style") or "short").strip()
@@ -3271,13 +4775,57 @@ end
             )
         )
 
-        # 1. Retrieve full conversation history (up to last 30 messages for deep context) with strict tenant isolation
-        rows = await self.db_pool.fetch(
+        # Single-pass concurrent fetch for conversation history, contact, customer record, and bookings
+        phone_for_bookings = contact_phone or ""
+        msgs_task = self.db_pool.fetch(
             """SELECT direction, body FROM messages
                WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND body IS NOT NULL
                ORDER BY created_at DESC LIMIT 15""",
-            conv_id,
-            tenant_id,
+            conv_id, tenant_id,
+        )
+        contact_task = self.db_pool.fetchrow(
+            """SELECT c.id, c.name, c.wa_profile_name, c.phone, c.tags, c.notes, c.metadata
+               FROM conversations conv
+               JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = $2::uuid
+               WHERE conv.id = $1::uuid AND conv.tenant_id = $2::uuid""",
+            conv_id, tenant_id,
+        )
+        cust_task = self.db_pool.fetchrow(
+            """SELECT id, name, age, location, health_concern, preferred_doctor,
+                      status, lead_probability, followup_date, followup_time,
+                      last_visited_at, last_messaged_at, preferred_language
+               FROM customers
+               WHERE tenant_id = $1::uuid
+                 AND (
+                   phone = $2
+                   OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)
+                 )
+               LIMIT 1""",
+            tenant_id, contact_phone
+        )
+        bookings_task = self.db_pool.fetch(
+            """SELECT b.id, b.service, b.start_time, b.end_time, b.status, b.staff_member, b.notes
+               FROM bookings b
+               WHERE b.tenant_id = $2::uuid
+                 AND (
+                   b.contact_id = (SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid)
+                   OR b.contact_id IN (
+                       SELECT id FROM contacts
+                       WHERE tenant_id = $2::uuid
+                         AND (
+                           phone = $3
+                           OR phone = ('+' || $3)
+                           OR replace(phone, '+', '') = replace($3, '+', '')
+                           OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10)
+                         )
+                   )
+                 )
+               ORDER BY b.start_time DESC LIMIT 10""",
+            conv_id, tenant_id, phone_for_bookings,
+        )
+
+        rows, contact_row, cust_row, booking_rows = await asyncio.gather(
+            msgs_task, contact_task, cust_task, bookings_task
         )
 
         # Check if tenant has a configured welcome message for brand new customers alone (Turn 1 only)
@@ -3289,14 +4837,16 @@ end
                 conv_id, tenant_id
             )
             if outbound_count == 0:
-                t_settings_raw = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-                t_settings = {}
-                if t_settings_raw:
-                    try:
-                        t_settings = json.loads(t_settings_raw) if isinstance(t_settings_raw, str) else dict(t_settings_raw)
-                    except Exception:
-                        t_settings = {}
+                t_settings = tenant_ctx.get("settings") or {}
+                t_slug = (tenant_ctx.get("tenant_slug") or "").lower()
                 welcome_msg = (t_settings.get("welcome_message") or "").strip()
+                # Suppress generic welcome message for Muthra Wellness Center or any short generic one-liner
+                if (
+                    "muthra" in t_slug
+                    or "welcome to muthra" in welcome_msg.lower()
+                    or (len(welcome_msg) < 50 and welcome_msg.lower().startswith("welcome to") and "\n" not in welcome_msg)
+                ):
+                    welcome_msg = ""
                 if welcome_msg and creds and creds.get("phone_number_id") and creds.get("access_token"):
                     try:
                         w_wa_id = await send_text(
@@ -3430,16 +4980,16 @@ end
             "   - Always write prices and currency amounts using standard digits and symbols (e.g. ₹1299 or Rs. 1299). NEVER spell out prices in words like 'twelve ninety nine rupees'.\n"
             "   - Always write appointment times using digits with AM/PM (e.g. 10:00 AM or 6:30 PM). NEVER spell out times in words like 'ten morning' or 'six thirty evening'.\n"
             "   - The restriction on numbered lists only forbids listicle formatting (like '1. Item \n 2. Item'); numbers for prices, times, dates, and phone numbers MUST ALWAYS be written as normal digits.\n"
-            "4. COMPLETE SERVICE DETAILS FIRST & FACTUAL PRICING:\n"
-            "   - When customer asks what you do, what treatments or services you offer, how it works, website, or background, give a direct, informative answer explaining the treatments and services.\n"
-            "   - When customer specifically asks for price or cost (e.g. 'how much', 'price', 'cost', 'fee', 'charges', 'evlo', 'kitna', 'kattanam', 'rate'), quote the exact verified pricing from knowledge base warmly and directly in digits.\n"
-            "   - STRICT ZERO-PRICE-LEAK DIRECTIVE: Under NO circumstance should you mention, quote, or blurt out any prices, rates, fees, or amounts unless the customer's current message EXPLICITLY asks for the price or cost (e.g. 'how much', 'price', 'cost', 'fee', 'charges', 'evlo', 'evalo', 'rate', 'rates'). If the customer asks what services you have, what treatments are available, or says 'tell me' / 'tell you', describe the services and benefits WITHOUT ANY PRICES OR AMOUNTS!\n"
+            "4. FACTUAL SERVICE DETAILS & TRANSPARENT PRICING:\n"
+            "   - When customer asks what you do, what treatments or services you offer, packages, active offers, or background, give a direct, informative answer explaining the treatments, services, and any active package pricing or offers.\n"
+            "   - When customer asks about price, fees, packages, or costs, quote the exact verified pricing from knowledge base warmly and directly in digits (e.g. ₹700, ₹1399, ₹2499/month).\n"
+            "   - If the customer asks a general question about a service, explain the service clearly. You do not need to spam unrelated price lists, but you are NEVER forbidden from sharing accurate pricing, offers, or package rates when relevant.\n"
             "   - Never say 'I don't have this in my records' or give a generic response when the facts exist in the knowledge base below.\n"
             "5. NATURAL CONVERSATION FLOW (NO RIGID TEMPLATES OR IDENTICAL REPLIES):\n"
             "   - Respond organically with the flow of the conversation instead of following strict templates or giving identical repetitive message structures.\n"
             "   - DIRECT FACTUAL INQUIRIES: If the customer asks a direct question (pricing, address, timings, features, specific treatment), answer it directly, clearly, and helpfully in 1 to 2 natural sentences. DO NOT force a diagnostic question or a booking pitch onto every answer!\n"
             "   - CONSULTATIVE TECHNIQUE (USE ONLY WHEN ACTUALLY NEEDED): Use qualification questions only when the customer's requirement is broad, vague, or exploratory (e.g. 'I need help for my clinic' or 'What treatment do you suggest for pain?'). In those cases, briefly explain and ask ONE gentle question to understand their requirement.\n"
-            "   - NATURAL 4 TO 5 TURN DISCOVERY FLOW: Guide new leads naturally through a 4 to 5 turn discovery rhythm. On early turns (Turn 1 to 3), answer their question and ask ONE natural diagnostic question to understand their setup or clinic type. Do NOT rush to ask for appointment times or demo slots until their requirement is diagnosed (Stage 4). Only if the customer gives an explicit date and time does the system confirm the slot immediately.\n"
+            "   - ANSWER FIRST, QUALIFY SECOND: Always prioritize answering the customer's actual question in Sentence 1. If they ask about services, give the services. If they ask about pricing, give the pricing. If they ask about scheduling or timings, help them with timings immediately. Use qualifying questions naturally in Sentence 2 only when needed to assist them further, never to withhold information or stall the conversation.\n"
             "   - TIME / SLOT PROVIDED: When the customer provides a specific time (e.g. '3 pm', 'tomorrow at 11 am'), understand that they are selecting their slot! If today's hours have passed or are closed, resolve the time to TOMORROW. Immediately confirm that exact time with warmth (e.g. 'Got it! I have scheduled your demo for tomorrow at 3:00 PM.'), and MANDATORY append [ACTION:CREATE_BOOKING: ...] with date and time.\n"
             "   - OBJECTIONS / HESITATION: If the customer pushes back on price or says they will think about it, briefly acknowledge their perspective and reframe the value warmly in 1 sentence without pressure.\n"
             "   - CASUAL PINGS & ACKNOWLEDGEMENTS: For simple greetings or acknowledgements ('ok', 'sure', 'thanks'), keep your reply brief, natural, and warm (1 short line).\n"
@@ -3456,36 +5006,7 @@ end
             "   - HUMAN ESCALATION: Append [ACTION:HUMAN_TAKEOVER] ONLY AND EXCLUSIVELY when the customer explicitly demands to stop talking to the AI or demands human staff (e.g. 'stop bot', 'connect me to a real agent', 'talk to human'). NEVER append [ACTION:HUMAN_TAKEOVER] for normal pricing questions, doctor consultations, therapy bookings, or routine medical questions."
         )
 
-        # 2. Retrieve customer profile & bookings memory with strict tenant scoping
-        contact_row = await self.db_pool.fetchrow(
-            """SELECT c.id, c.name, c.wa_profile_name, c.phone, c.tags, c.notes, c.metadata
-               FROM conversations conv
-               JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = $2::uuid
-               WHERE conv.id = $1::uuid AND conv.tenant_id = $2::uuid""",
-            conv_id, tenant_id,
-        )
-        phone_for_bookings = (contact_row["phone"] if contact_row and contact_row.get("phone") else contact_phone) or ""
-        booking_rows = await self.db_pool.fetch(
-            """SELECT b.id, b.service, b.start_time, b.end_time, b.status, b.staff_member, b.notes
-               FROM bookings b
-               WHERE b.tenant_id = $2::uuid
-                 AND (
-                   b.contact_id = (SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid)
-                   OR b.contact_id IN (
-                       SELECT id FROM contacts
-                       WHERE tenant_id = $2::uuid
-                         AND (
-                           phone = $3
-                           OR phone = ('+' || $3)
-                           OR replace(phone, '+', '') = replace($3, '+', '')
-                           OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10)
-                         )
-                   )
-                 )
-               ORDER BY b.start_time DESC LIMIT 10""",
-            conv_id, tenant_id, phone_for_bookings,
-        )
-
+        # 2. Extract customer profile & bookings memory (pre-fetched in single-pass)
         contact_id_val = contact_row["id"] if contact_row else None
         db_name = (contact_row["name"] or "").strip() if contact_row else ""
         wa_name = (contact_row["wa_profile_name"] or "").strip() if contact_row else ""
@@ -3501,7 +5022,6 @@ end
         customer_email = meta_dict.get("email") if isinstance(meta_dict, dict) else None
 
         # Fetch complete customer memory record (name, health_concern, doctor, status, age, location, etc.)
-        cust_row = None
         customer_age = None
         customer_location = None
         customer_health_concern = None
@@ -3512,19 +5032,6 @@ end
         customer_notes_text = ""
 
         try:
-            cust_row = await self.db_pool.fetchrow(
-                """SELECT id, name, age, location, health_concern, preferred_doctor,
-                          status, lead_probability, followup_date, followup_time,
-                          last_visited_at, last_messaged_at, preferred_language
-                   FROM customers
-                   WHERE tenant_id = $1::uuid
-                     AND (
-                       phone = $2
-                       OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)
-                     )
-                   LIMIT 1""",
-                tenant_id, contact_phone
-            )
             if cust_row:
                 customer_id_val = cust_row.get("id")
                 customer_age = cust_row.get("age")
@@ -3619,70 +5126,23 @@ end
             ))
         )
 
-        tenant_timezone_str = "Asia/Kolkata"
-        tenant_currency_str = "INR"
-        tenant_currency_sym = "₹"
-        tenant_country_code = "+91"
-        tenant_row = await self.db_pool.fetchrow("SELECT name, slug, settings FROM tenants WHERE id = $1::uuid", tenant_id)
-        tenant_name = (tenant_row["name"] if tenant_row and tenant_row.get("name") else "")
-        tenant_slug = (tenant_row["slug"] if tenant_row and tenant_row.get("slug") else "")
-        tenant_st_row = tenant_row.get("settings") if tenant_row else None
-        is_mbr = (
-            str(tenant_id) in _PRIVACY_TENANT_IDS
-            or ((tenant_slug or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
-            or ("mind body recovery" in (tenant_name or "").lower())
-        )
-        is_aadhiran = (
-            "aadhiran" in (tenant_slug or "").lower()
-            or "aadhiran" in (tenant_name or "").lower()
-        )
-        facility_term = "center" if (is_aadhiran or "center" in (tenant_name or "").lower() or "wellness" in (tenant_name or "").lower()) else "clinic"
-        if tenant_st_row:
-            if isinstance(tenant_st_row, str):
-                try: tenant_st_row = json.loads(tenant_st_row)
-                except: tenant_st_row = {}
-            if tenant_st_row.get("timezone"):
-                tenant_timezone_str = tenant_st_row.get("timezone").strip()
-            if tenant_st_row.get("currency"):
-                tenant_currency_str = tenant_st_row.get("currency").strip()
-            if tenant_st_row.get("currency_symbol"):
-                tenant_currency_sym = tenant_st_row.get("currency_symbol").strip()
-            if tenant_st_row.get("country_code"):
-                tenant_country_code = tenant_st_row.get("country_code").strip()
-
-        # Extract official verified business location/address early so it is accessible in all prompt blocks and directives
-        full_location = ""
-        if tenant_st_row and isinstance(tenant_st_row, dict):
-            full_location = (tenant_st_row.get("full_location_text") or tenant_st_row.get("location") or "").strip()
-        if not full_location:
-            _ts = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-            if _ts:
-                if isinstance(_ts, str):
-                    try: _ts = json.loads(_ts)
-                    except Exception: _ts = {}
-                full_location = (_ts.get("full_location_text") or _ts.get("location") or "").strip()
-        if not full_location and creds and isinstance(creds, dict):
-            full_location = (creds.get("full_location_text") or "").strip()
-        if not full_location:
-            try:
-                _wa_c = await self.db_pool.fetchval(
-                    "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' LIMIT 1",
-                    tenant_id
-                )
-                if _wa_c:
-                    if isinstance(_wa_c, str):
-                        try: _wa_c = json.loads(_wa_c)
-                        except Exception: _wa_c = {}
-                    if isinstance(_wa_c, dict):
-                        full_location = (_wa_c.get("full_location_text") or "").strip()
-            except Exception:
-                pass
-        if not full_location and custom_instructions:
-            m_addr = re.search(r'[-•*]\s*(?:Address|Location)\s*[:\-]\s*(.+?)(?:\n|$)', custom_instructions, re.IGNORECASE)
-            if m_addr:
-                full_location = m_addr.group(1).strip()
-        if not full_location and "vetrivel" in (tenant_slug or "").lower():
-            full_location = "Villupuram to Gingee Main Road, Appamttu, Meenambur post, Gingee TK, 604205"
+        tenant_name = tenant_ctx.get("tenant_name", "")
+        tenant_slug = tenant_ctx.get("tenant_slug", "")
+        tenant_st_row = tenant_ctx.get("settings") or {}
+        is_mbr = tenant_ctx.get("is_mbr", False)
+        is_aadhiran = tenant_ctx.get("is_aadhiran", False)
+        is_vetrivel = tenant_ctx.get("is_vetrivel", False)
+        is_boldlabs = tenant_ctx.get("is_boldlabs", False)
+        is_abinayaa = tenant_ctx.get("is_abinayaa", False)
+        is_muthra = tenant_ctx.get("is_muthra", False)
+        facility_term = tenant_ctx.get("facility_term", "clinic")
+        tenant_timezone_str = tenant_ctx.get("timezone", "Asia/Kolkata")
+        tenant_currency_str = tenant_ctx.get("currency", "INR")
+        tenant_currency_sym = tenant_ctx.get("currency_symbol", "₹")
+        tenant_country_code = tenant_ctx.get("country_code", "+91")
+        full_location = tenant_ctx.get("full_location", "")
+        google_maps_url = tenant_ctx.get("google_maps_url", "")
+        physical_address = tenant_ctx.get("physical_address", "") or re.sub(r'https?://[^\s]+', '', full_location).strip(' .\n\r-')
 
         import datetime
         import zoneinfo
@@ -3692,22 +5152,8 @@ end
             tenant_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
 
         # Extract official business/admin contact info
-        admin_phone = ""
-        admin_name = ""
-        if creds:
-            admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
-        if tenant_st_row:
-            if not admin_phone:
-                admin_phone = (
-                    tenant_st_row.get("admin_whatsapp_number")
-                    or tenant_st_row.get("business_phone")
-                    or tenant_st_row.get("contact_phone")
-                    or tenant_st_row.get("phone")
-                    or ""
-                ).strip()
-            admin_name = (tenant_st_row.get("admin_name") or tenant_st_row.get("founder_name") or "").strip()
-        if not admin_name:
-            admin_name = (tenant_name or "our team").strip()
+        admin_phone = tenant_ctx.get("admin_phone") or (creds.get("admin_whatsapp_number") if creds else "") or ""
+        admin_name = tenant_ctx.get("admin_name") or (tenant_name or "our team").strip()
 
         now = datetime.datetime.now(tenant_tz)
         time_context = (
@@ -3797,73 +5243,14 @@ end
                 "- If the customer asks to book a new appointment or reschedule a past/missed/cancelled appointment, guide them smoothly by offering available slots from the list below.\n"
             )
 
-        # Extract business operating hours from tenant settings
-        opening_time_raw = "07:00" if is_mbr else "09:00"
-        closing_time_raw = "21:30" if is_mbr else "20:00"
-        if tenant_st_row and isinstance(tenant_st_row, dict):
-            for k in ("opening_time", "open_time", "working_hours_start", "start_time"):
-                if tenant_st_row.get(k):
-                    opening_time_raw = str(tenant_st_row.get(k)).strip()
-                    break
-            for k in ("closing_time", "close_time", "working_hours_end", "end_time"):
-                if tenant_st_row.get(k):
-                    closing_time_raw = str(tenant_st_row.get(k)).strip()
-                    break
-
-        def _fmt_ampm(t_str: str, default_val: str, is_closing: bool = False) -> str:
-            try:
-                s = str(t_str).strip()
-                is_pm = "pm" in s.lower()
-                is_am = "am" in s.lower()
-                s_clean = re.sub(r'[^\d:]', '', s)
-                parts = s_clean.split(":")
-                h = int(parts[0])
-                m = int(parts[1]) if len(parts) > 1 and parts[1] else 0
-                if is_pm and h < 12:
-                    h += 12
-                elif is_am and h == 12:
-                    h = 0
-                elif not is_pm and not is_am and is_closing and h < 12:
-                    h += 12
-                import datetime as dt_mod
-                return dt_mod.time(h, m).strftime("%I:%M %p")
-            except Exception:
-                return default_val
-
-        # Check if tenant operates 24/7 (24 Hours Open)
-        clean_slug = (tenant_slug or "").strip().lower()
-        is_24_7 = bool(
-            (tenant_st_row and isinstance(tenant_st_row, dict) and (
-                tenant_st_row.get("is_24_7") is True
-                or str(tenant_st_row.get("is_24_7")).lower() == "true"
-                or str(tenant_st_row.get("operating_hours", "")).lower() in ("24/7", "24 hours", "24x7")
-                or (str(tenant_st_row.get("opening_time", "")).strip() in ("00:00", "00:00:00", "12:00 AM")
-                    and str(tenant_st_row.get("closing_time", "")).strip() in ("23:59", "23:59:59", "24:00", "11:59 PM"))
-            ))
-            or "vetrivel" in clean_slug
-            or ("24 hours" in (custom_instructions or "").lower() or "24/7" in (custom_instructions or "").lower())
-        )
-
-        if is_24_7:
-            op_hours_display = "Open 24 Hours daily (24/7, all days and nights)"
-            fmt_open = "12:00 AM"
-            fmt_close = "11:59 PM"
-        else:
-            fmt_open = _fmt_ampm(opening_time_raw, '07:00 AM' if is_mbr else '09:00 AM', is_closing=False)
-            fmt_close = _fmt_ampm(closing_time_raw, '09:30 PM' if is_mbr else '08:00 PM', is_closing=True)
-            op_hours_display = f"{fmt_open} to {fmt_close}"
-
-        # Build scheduled leaves & temporary closures block
-        leave_schedules_list = tenant_st_row.get("leave_schedules") if (tenant_st_row and isinstance(tenant_st_row, dict)) else []
-        if not leave_schedules_list:
-            try:
-                _t_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-                if _t_st:
-                    if isinstance(_t_st, str): _t_st = json.loads(_t_st)
-                    if isinstance(_t_st, dict):
-                        leave_schedules_list = _t_st.get("leave_schedules") or []
-            except Exception:
-                leave_schedules_list = []
+        # Extract business operating hours from tenant context
+        is_24_7 = tenant_ctx.get("is_24_7", False)
+        opening_time_raw = tenant_ctx.get("opening_time_raw", "09:00")
+        closing_time_raw = tenant_ctx.get("closing_time_raw", "20:00")
+        fmt_open = tenant_ctx.get("fmt_open", "09:00 AM")
+        fmt_close = tenant_ctx.get("fmt_close", "08:00 PM")
+        op_hours_display = tenant_ctx.get("op_hours_display", f"{fmt_open} to {fmt_close}")
+        leave_schedules_list = tenant_ctx.get("leave_schedules") or []
 
         leave_closure_lines = []
         if leave_schedules_list and isinstance(leave_schedules_list, list):
@@ -3919,12 +5306,12 @@ end
         else:
             leave_closure_block = ""
 
-        # Extract slot scheduling config from tenant settings
-        slot_duration_mins = int(tenant_st_row.get("slot_duration_mins") or 30) if tenant_st_row else 30
-        buffer_mins = int(tenant_st_row.get("buffer_mins") or 0) if tenant_st_row else 0
-        lunch_break_start = (tenant_st_row.get("lunch_break_start") or "") if tenant_st_row else ""
-        lunch_break_end = (tenant_st_row.get("lunch_break_end") or "") if tenant_st_row else ""
-        doctors = (tenant_st_row.get("doctors") or []) if tenant_st_row else []
+        # Extract slot scheduling config from tenant context
+        slot_duration_mins = int(tenant_ctx.get("slot_duration_mins") or 30)
+        buffer_mins = int(tenant_ctx.get("buffer_mins") or 0)
+        lunch_break_start = (tenant_ctx.get("lunch_break_start") or "")
+        lunch_break_end = (tenant_ctx.get("lunch_break_end") or "")
+        doctors = tenant_ctx.get("doctors") or []
 
         # Retrieve all currently booked/occupied slots for this business (next 7 days) from Google Calendar and CRM
         busy_slots, gcal_connected = await self._get_live_occupied_slots(tenant_id, tenant_tz)
@@ -4014,21 +5401,27 @@ end
             for s in busy_slots[:8]
         ]
 
-        # Gate specific calendar slots to Stages 4/5 or when time/slot is explicitly inquired
+        # Gate specific calendar slots when time/slot or booking is inquired or conversation is progressing
         _inbound_raw = (message_text or "").lower()
         _has_time_raw = bool(
             re.search(
                 r'\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|'
                 r'morning|afternoon|evening|night|noon|am|pm|o\'clock|oclock|'
+                r'inniku|innikku|naalai|naalaikku|nalaiku|marunal|kaalai|maalaai|neram|manikku|mani|'
                 r'\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b',
                 _inbound_raw,
                 re.I
             )
         )
         include_detailed_slots = (
-            user_turn_count >= 4
+            user_turn_count >= 2
             or _has_time_raw
-            or any(w in _inbound_raw for w in ["what time", "which time", "what slots", "which slots", "available time", "free slot", "when are you free"])
+            or any(w in _inbound_raw for w in [
+                "slot", "slots", "book", "booking", "schedule", "appointment", "demo", "timing", "timings",
+                "what time", "which time", "what slots", "which slots", "available time", "free slot",
+                "when are you free", "eppo", "neram", "inniku", "naalai", "naalaikku", "nalaiku",
+                "kaalai", "maalai", "manikku", "varalam", "varalama", "varuvom"
+            ])
         )
 
         slots_section = (
@@ -4237,7 +5630,16 @@ end
         ]
         if admin_lower and admin_lower not in ("our team", "assistant", "aadhiran", "doctor", "consultant"):
             explicit_human_keywords.extend([f"talk to {admin_lower}", f"speak to {admin_lower}"])
-        is_human_request = (not is_bot_honesty_check) and any(w in inbound_clean for w in explicit_human_keywords)
+        callback_request_keywords = [
+            "call me", "please call", "pls call", "give me a call", "can you call",
+            "could you call", "call back", "request a call", "request callback",
+            "call pannunga", "call panni pesunga", "call panni", "enakku call", "phone me", "speak on phone"
+        ]
+        is_callback_request = (
+            not any(p in inbound_clean for p in ["i will call", "i'll call", "let me call", "calling you", "why did you call", "why you called", "who called", "missed call", "i called you"])
+            and any(w in inbound_clean for w in callback_request_keywords)
+        )
+        is_human_request = (not is_bot_honesty_check) and (any(w in inbound_clean for w in explicit_human_keywords) or is_callback_request)
 
         is_voice_note = bool(re.search(r'🎤\s*\[voice note(?:\s*-\s*[^\]]+)?\]:', (message_text or ""), flags=re.IGNORECASE))
         voice_note_content = ""
@@ -4320,6 +5722,17 @@ end
             "palavan": "pallavan", "pallava": "pallavan", "palava": "pallavan",
             "kamarajar": "kamaraj", "kaamaraj": "kamaraj", "kamaraju": "kamaraj",
             "raju": "raju", "raj": "raju",
+            # Tamil Script Aliases
+            "பல்லவன்": "pallavan", "பல்லவா": "pallavan",
+            "தமிழ்மணி": "tamilmani", "தமிள்மணி": "tamilmani",
+            "அன்பரசன்": "anbarasan", "அன்பு": "anbarasan", "அன்பரசு": "anbarasan",
+            "நேதாஜி": "nethaji", "நேதாஜீ": "nethaji",
+            "ராஜு": "raju", "ராஜூ": "raju",
+            "தமிழரசன்": "thamizharasan", "தமிளரசன்": "thamizharasan",
+            "நிதியா": "nithiya", "நித்யா": "nithiya", "பிரியதர்ஷினி": "priyadharshini",
+            "கமராஜ்": "kamaraj", "காமராஜ்": "kamaraj", "காமராஜர்": "kamaraj",
+            "பிரதிபா": "prathiba", "பிரதீபா": "prathiba",
+            "சக்திவேல்": "sakthivel", "சக்தி": "sakthivel",
         }
 
         # Doctor phonetic aliases and variations
@@ -4341,7 +5754,12 @@ end
             or any(d_name in inbound_clean for d_name in known_doctor_names)
             or any(d_name in inbound_clean for d_name in [
                 "pallavan", "nethaji", "tamilmani", "anbarasan", "raju", "thamizharasan", "tamilarasan",
-                "kamaraj", "prathiba", "sakthivel", "nithiya", "nithya", "nitya", "priyadharshini"
+                "kamaraj", "prathiba", "sakthivel", "nithiya", "nithya", "nitya", "priyadharshini",
+                "பல்லவன்", "நேதாஜி", "தமிழ்மணி", "அன்பரசன்", "ராஜு", "தமிழரசன்",
+                "கமராஜ்", "காமராஜ்", "பிரதிபா", "பிரதீபா", "சக்திவேல்", "நிதியா", "நித்யா", "பிரியதர்ஷினி"
+            ])
+            or any(d_term in inbound_clean for d_term in [
+                "டாக்டர்", "மருத்துவர்", "ஆர்த்தோ", "நரம்பியல்", "அறுவை சிகிச்சை", "தோல் மருத்துவர்", "குழந்தை மருத்துவர்", "ஆயுஷ்", "சித்தா"
             ])
         )
 
@@ -4461,6 +5879,28 @@ end
             ])
         )
 
+        is_duration_query = bool(
+            re.search(r'\b(?:\d+\s*(?:hrs?|hours?|mins?|minutes?|mani\s*neram)|duration|evlo\s*neram|evvalavu\s*neram|how\s*long)\b', inbound_clean, re.I)
+            and any(w in inbound_clean for w in [
+                "iruka", "irukka", "kedaikuma", "available", "take", "takes", "irukku", "panreengala", "panveengala",
+                "therapy", "massage", "session", "treatment", "service", "ku", "have", "?", "for"
+            ])
+            and not any(w in inbound_clean for w in ["open", "close", "opening", "closing", "reach", "travel", "driving"])
+        )
+
+        is_photo_request = bool(
+            any(w in inbound_clean for w in [
+                "photo", "photos", "pic", "pics", "picture", "pictures",
+                "image", "images", "rum photo", "room photo", "center photo",
+                "புகைப்படம்", "படம்"
+            ])
+            and any(w in inbound_clean for w in [
+                "send", "share", "show", "give", "kedaikuma", "anupu", "anupunga", "podu", "podunga", "katunga",
+                "on", "rum", "room", "center", "clinic", "place", "iruka", "venum", "thevai", "see"
+            ])
+            and not _has_vision_desc
+        )
+
         is_slot_request_pending = bool(
             last_assistant_msg and any(q in last_assistant_msg for q in [
                 "what day and time", "what time works best", "what convenient time", "what time suits",
@@ -4508,7 +5948,7 @@ end
 
         # Check if previous assistant message asked the customer to confirm or book a proposed slot
         is_assistant_asking_to_book = bool(
-            last_assistant_msg and any(q in last_assistant_msg for q in [
+            last_assistant_msg and any(q in last_assistant_msg.lower() for q in [
                 "would you like me to go ahead and book",
                 "would you like me to book",
                 "would you like to book",
@@ -4550,6 +5990,28 @@ end
                 "does that work for you",
                 "does that time work for you",
                 "let me know if you would like me to book",
+                # Tanglish slot confirmation phrases
+                "book pannalama",
+                "book pannidalama",
+                "book pannidalaama",
+                "book pannattuma",
+                "book panlama",
+                "confirm pannalama",
+                "confirm pannidalama",
+                "confirm pannidalaama",
+                "slot book pannidalam",
+                "slot book pannalama",
+                "slot confirm pannalama",
+                "intha slot",
+                "intha session book",
+                "lock pannalama",
+                "fix pannalama",
+                # Tamil script slot confirmation phrases
+                "முன்பதிவு செய்யலாமா",
+                "முன்பதிவு செய்யவா",
+                "புக் பண்ணலாமா",
+                "உறுதி செய்யலாமா",
+                "இந்த ஸ்லாட்",
             ])
         )
 
@@ -4557,13 +6019,13 @@ end
         is_user_confirming_slot = bool(
             is_assistant_asking_to_book and (
                 re.search(
-                    r'\b(?:yes|yeah|yep|sure|ok|okay|please|go ahead|do it|ha|haa|aama|aam|seri|confirm|proceed|fine|perfect|done|correct|plz|book it|confirm it|yes please|sure please|yes proceed|works|works for me|good for me|suits me|lock it)\b',
+                    r'\b(?:yes|yeah|yep|sure|ok|okay|please|go ahead|do it|ha|haa|aama|aam|seri|confirm|proceed|fine|perfect|done|correct|plz|book it|confirm it|yes please|sure please|yes proceed|works|works for me|good for me|suits me|lock it|pannunga|pannidunga|podunga|ஆம்|சரி|புக் பண்ணுங்க|உறுதி)\b',
                     inbound_clean,
                     re.I
                 )
                 or has_explicit_booking_command
             )
-            and not any(w in inbound_clean for w in ["no", "dont", "don't", "cancel", "not now", "wait", "change", "different", "wrong", "another time"])
+            and not any(w in inbound_clean for w in ["no", "dont", "don't", "cancel", "not now", "wait", "change", "different", "wrong", "another time", "வேண்டாம்", "இல்லை"])
         )
 
         is_cancel_confirmation = bool(
@@ -4609,6 +6071,7 @@ end
             history,
             stored_language=customer_preferred_language,
             is_aadhiran=is_aadhiran,
+            is_vetrivel=is_vetrivel,
         )
         
         # Persist detected customer language preference if vernacular or updated
@@ -4617,6 +6080,8 @@ end
         if detected_lang and detected_lang in ("tamil", "tanglish", "hindi", "hinglish", "telugu", "malayalam", "kannada", "arabic", "indian_english"):
             if is_aadhiran:
                 target_to_persist = "tamil_script" if (detected_dialect == "tamil_script" or detected_lang == "tamil") else "tanglish"
+            elif is_vetrivel:
+                target_to_persist = "tamil_script" if (detected_dialect == "tamil_script" or detected_lang == "tamil") else "indian_english"
             else:
                 target_to_persist = detected_dialect
                 if detected_dialect in ("casual_slang", "formal_business", "ultra_short") or detected_lang == "indian_english":
@@ -4629,9 +6094,11 @@ end
         matched_doc_obj = None
         is_asking_fee = bool(any(w in inbound_clean for w in [
             "price", "pricing", "how much", "cost", "costs", "fee", "fees", "charges", "charge",
-            "rate", "rates", "evlo", "evalo", "evvalavu", "yevlo", "kitna", "amount",
-            "கட்டணம்", "விலை", "எவ்வளவு", "எவ்ளோ", "katnam", "kattanam", "rupees", "rs",
-            "offer", "offers", "discount", "discounts", "special", "deal", "deals", "package", "packages"
+            "charger", "chargers", "chargs", "rate", "rates", "rate-u", "rateu", "evlo", "evalo",
+            "evvalavu", "yevlo", "yevalo", "kitna", "amount", "rupees", "rs", "inr", "rupee", "₹",
+            "கட்டணம்", "விலை", "எவ்வளவு", "எவ்ளோ", "katnam", "kattanam", "vila", "vilai", "panam",
+            "offer", "offers", "discount", "discounts", "special", "deal", "deals", "package", "packages",
+            "plan", "plans", "subscription", "pricing plan", "how mch", "how mcuh"
         ]))
         services_names_only = self._strip_pricing_from_services_text(services_text)
 
@@ -4641,7 +6108,7 @@ end
         elif "abinaya" in clean_slug:
             target_service = resolved_pkg_name
         elif "aadhiran" in clean_slug:
-            target_service = resolved_pkg_name or customer_health_concern or "Consultation & Treatment"
+            target_service = (resolved_pkg_name if resolved_pkg_name != "Consultation" else None) or customer_health_concern or "Full Body Relaxation Massage (60 mins)"
         elif "mindbody" in clean_slug:
             target_service = "Consultation"
         else:
@@ -4664,9 +6131,9 @@ end
             conf_host = admin_name or "our lab team"
         elif "aadhiran" in clean_slug:
             # Full Body Relaxation Massage is unified to 60 mins (No 45m/90m split).
-            # Regular ₹999, active 4-day offer ₹700 from 2/10/2026 to 5/10/2026.
-            pricing_prompt_hint = "Full Body Relaxation Massage 60 mins offer price ₹700 (regular price ₹999, active 4-day offer from 2nd to 5th Oct)"
-            discovery_question_hint = "ungalukku slot book pannalama nu natural Tanglish-la kekkanum"
+            # Price: ₹999.
+            pricing_prompt_hint = "Full Body Relaxation Massage 60 mins price ₹999"
+            discovery_question_hint = "what wellness therapy or relaxation treatment they are looking for (e.g. 'Ungalukku eppadi help pannanum sir? Entha treatment thevai paduthu?')"
             qualification_question_hint = "what day and convenient time works best for their session"
             walkthrough_label = "their relaxation massage session"
             conf_host = admin_name or "our wellness specialist"
@@ -4896,13 +6363,15 @@ end
                 or any(w in last_assistant_msg.lower() for w in [
                     "this slot", "this timing", "slot at", "time works", "tomorrow morning", "tomorrow afternoon",
                     "today morning", "today afternoon", "today evening", "day after tomorrow", "evening consultation",
-                    "morning consultation", "afternoon consultation", "ready to be locked in", "open for a demo at", "scheduled your demo for"
+                    "morning consultation", "afternoon consultation", "ready to be locked in", "open for a demo at", "scheduled your demo for",
+                    "intha slot", "intha time", "intha timing", "nalaiku", "naalaikku", "inniku", "marunal", "நாளை", "இன்று", "மசாஜ்",
+                    "book pannidalaama", "confirm pannalama", "available ah irukku", "available irukku"
                 ])
             )
         )
         is_user_confirming_concrete_slot = bool(
             is_user_confirming_slot
-            and (has_specific_time_of_day or assistant_proposed_concrete_slot or any(w in inbound_clean for w in ["book it", "confirm it", "lock it", "proceed with this slot"]))
+            and (has_specific_time_of_day or assistant_proposed_concrete_slot or any(w in inbound_clean for w in ["book it", "confirm it", "lock it", "proceed with this slot", "pannidunga", "book pannunga", "pannunga"]))
         )
         should_finalize_booking = bool(
             is_user_confirming_concrete_slot
@@ -4953,12 +6422,20 @@ end
             )
         elif is_human_request:
             funnel_stage = "HUMAN_TAKEOVER_REQUEST"
-            stage_directive = (
-                f"The customer explicitly requested to speak with a human staff member or customer care agent instead of the AI. "
-                f"1. Reassure them: 'I will have a team member connect with you directly!' "
-                + (f"2. You can also share that they can reach us directly at {admin_phone}. " if admin_phone else "")
-                + f"3. Append [ACTION:HUMAN_TAKEOVER] at the very end of your reply on a new line."
-            )
+            if is_callback_request:
+                stage_directive = (
+                    f"The customer requested a phone call or callback. "
+                    f"1. Warmly reassure them: 'Sure! I have notified our team to give you a call directly on this number shortly!' "
+                    + (f"2. You can also mention they can reach us directly at {admin_phone}. " if admin_phone else "")
+                    + f"3. Reassure them that our staff has been alerted to call them soon. Do NOT append [ACTION:HUMAN_TAKEOVER] so AI stays active."
+                )
+            else:
+                stage_directive = (
+                    f"The customer explicitly requested to speak with a human staff member or customer care agent instead of the AI. "
+                    f"1. Reassure them: 'I will have a team member connect with you directly!' "
+                    + (f"2. You can also share that they can reach us directly at {admin_phone}. " if admin_phone else "")
+                    + f"3. Append [ACTION:HUMAN_TAKEOVER] at the very end of your reply on a new line."
+                )
         elif _has_vision_desc:
             funnel_stage = "IMAGE_VISION_RESPONSE"
             _vision_desc = message_text.split("Image content:", 1)[-1].strip() if "Image content:" in message_text else message_text
@@ -4997,6 +6474,23 @@ end
                 + (f"Directly provide our official contact number: '{admin_phone}'. Mention they can reach or call {admin_name or 'our team'} directly at {admin_phone}. " if admin_phone else f"State that {admin_name or 'our team'} will call them directly on WhatsApp at their scheduled time, or ask if they want a call right away. ") +
                 f"CRITICAL: The customer's phone number is {contact_phone}. NEVER GIVE {contact_phone} TO THE CUSTOMER AS OUR NUMBER!"
             )
+        elif is_photo_request:
+            funnel_stage = "PHOTO_MEDIA_REQUEST"
+            if is_aadhiran or "aadhiran" in clean_slug:
+                stage_directive = (
+                    f"The customer is asking to see photos of our center, therapy rooms, or facilities: '{message_text}'.\n"
+                    f"1. Warmly confirm in 1-2 natural sentences that our team will share the center and room photos directly on WhatsApp!\n"
+                    f"   - In Tanglish: 'Kandippa sir! Namma center matrum therapy rooms photos-ah engal team seekkiram inga WhatsApp-la send pannuvanga. Ungalukku entha treatment thevai paduthu nu sonninga na slot kooda book pannidalam sir!'\n"
+                    f"   - In Tamil: 'கண்டிப்பாக! எங்கள் மையம் மற்றும் சிகிச்சை அறைகளின் புகைப்படங்களை எங்கள் குழுவினர் விரைவில் வாட்ஸ்அப்பில் அனுப்புவார்கள். உங்களுக்கு எந்த சிகிச்சை விவரங்கள் தேவை?'\n"
+                    f"2. STRICT PROHIBITION: Do NOT act confused and NEVER ask 'what photo do you need?'.\n"
+                    f"3. STRICT LANGUAGE: Output ONLY in {style_profile['label']}. Never English!"
+                )
+            else:
+                stage_directive = (
+                    f"The customer is asking for photos of our clinic/center/rooms: '{message_text}'.\n"
+                    f"1. Warmly state that our team will send photos of our facility right here on WhatsApp shortly.\n"
+                    f"2. Ask how we can assist them further or which service they are looking to book."
+                )
         elif is_cancellation_intent and has_upcoming:
             funnel_stage = "BOOKING_CANCELLATION"
             b_first = upcoming_active_bookings[0]
@@ -5082,10 +6576,38 @@ end
             funnel_stage = "EVALUATION_PRICING"
             is_tanglish_aadhiran = (is_aadhiran or "aadhiran" in clean_slug) and style_profile.get("dialect") == "tanglish"
             is_tamil_aadhiran = (is_aadhiran or "aadhiran" in clean_slug) and style_profile.get("dialect") == "tamil_script"
+            is_asking_all_or_list = any(w in inbound_clean for w in [
+                "list", "all", "menu", "treatments", "services", "types", "packages", "ella", "ellam", "full list",
+                "rate card", "rates", "fees", "எல்லா", "அனைத்து", "லிஸ்ட்", "விவரம்"
+            ])
             if is_tamil_aadhiran:
-                pricing_action_hint = "2. தமிழில் நேரடியாக கூறுங்கள்: 'முழு உடல் தளர்வு மசாஜ் 60 நிமிட சிறப்பு சலுகை கட்டணம் ₹700 (வழக்கமான கட்டணம் ₹999). உங்களுக்கு இந்த சிகிச்சை முன்பதிவு செய்யலாமா?'\n"
+                if is_asking_all_or_list:
+                    pricing_action_hint = (
+                        "2. தமிழில் அனைத்து முக்கிய சிகிச்சைகளின் கட்டணங்களை தெளிவாக எண்களில் (digits) பட்டியலிடுங்கள்:\n"
+                        "   - முழு உடல் தளர்வு மசாஜ் (60 நிமிடங்கள்): ₹999\n"
+                        "   - அப்யங்கம் / ஆயுர்வேத மசாஜ்: ₹1399\n"
+                        "   - பவுடர் மசாஜ் / உத்வர்த்தனம்: ₹1499\n"
+                        "   - மன அழுத்த நிவாரண சிகிச்சை: ₹1499\n"
+                        "   - சிரோதாரா / பாத சிகிச்சை: ₹999\n"
+                        "   - ஸ்டீம் பாத்: ₹299\n"
+                        "   அடுத்து கேளுங்கள்: 'உங்களுக்கு எந்த சிகிச்சை முன்பதிவு செய்ய வேண்டும்?'\n"
+                    )
+                else:
+                    pricing_action_hint = "2. தமிழில் நேரடியாக கூறுங்கள்: 'முழு உடல் தளர்வு மசாஜ் 60 நிமிட கட்டணம் ₹999. உங்களுக்கு இந்த சிகிச்சை முன்பதிவு செய்யலாமா?'\n"
             elif is_tanglish_aadhiran:
-                pricing_action_hint = "2. In Tanglish, quote directly: 'Full Body Relaxation Massage 60 mins offer price ₹700 sir (regular ₹999). Ungalukku intha session book pannalama?'\n"
+                if is_asking_all_or_list:
+                    pricing_action_hint = (
+                        "2. In Tanglish, quote the key treatment rates clearly in digits:\n"
+                        "   - Full Body Relaxation Massage (60 mins): ₹999\n"
+                        "   - Abhyangam / Ayurvedic Massage: ₹1399\n"
+                        "   - Powder Massage / Udwarthanam: ₹1499\n"
+                        "   - Stress Relief Therapy: ₹1499\n"
+                        "   - Sirodhara / Reflexology: ₹999\n"
+                        "   - Steam Bath: ₹299\n"
+                        "   Then ask: 'Ungalukku entha treatment prefer pandringa sir?'\n"
+                    )
+                else:
+                    pricing_action_hint = "2. In Tanglish, quote directly: 'Full Body Relaxation Massage 60 mins price ₹999 sir. Ungalukku intha session book pannalama?'\n"
             else:
                 pricing_action_hint = f"2. In Sentence 2, anchor the core value, and ask 1 diagnostic question: {discovery_question_hint}.\n"
             stage_directive = (
@@ -5093,7 +6615,8 @@ end
                 f"1. Quote {pricing_prompt_hint} transparently in digits in Sentence 1.\n"
                 + pricing_action_hint
                 + f"3. MANDATORY LANGUAGE: You MUST write your response 100% in {style_profile['label']}! Never switch to English if customer texted in Tanglish or Tamil!\n"
-                + "4. Keep your reply concise (1-2 sentences, 25-45 words max)."
+                + "4. CRITICAL NUMBER DIGITS: Write all prices, fees, and minutes strictly in numerical digits (e.g. ₹700, ₹999, ₹1399, ₹1499, 60 mins). NEVER write numbers in Tamil words!\n"
+                + "5. Keep your reply concise (1-2 sentences, 25-45 words max)."
             )
         elif not extract_address(message_text) and (
             any(w in inbound_clean for w in [
@@ -5101,19 +6624,39 @@ end
                 "enga irukku", "enga irukinga", "enga irukkinga", "evlo thooram", "route",
                 "branch", "branches", "other branch", "other branches", "other place", "other places",
                 "other area", "other areas", "only in", "near to", "closer to", "how about",
-                "which branch", "any branch", "other center", "other clinic", "different branch"
+                "which branch", "any branch", "other center", "other clinic", "different branch",
+                "எங்கே", "முகவரி", "வழி", "ரூட்"
             ])
-            or (re.search(r'\b(?:branch|branches|center|clinic|location|place)\b', inbound_clean, re.I) and any(w in inbound_clean for w in ["other", "another", "any", "which", "near", "have", "only"]))
+            or (re.search(r'\b(?:branch|branches|center|clinic|location|place)\b', inbound_clean, re.I) and any(w in inbound_clean for w in ["other", "another", "any", "which", "near", "have", "only", "clinic"]))
         ):
             funnel_stage = "EVALUATION_LOCATION"
-            if full_location:
+            if is_vetrivel or "vetrivel" in clean_slug:
+                vetrivel_map = google_maps_url or "https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+                stage_directive = (
+                    "The patient is asking about our clinic location, address, route, or directions in Tamil.\n"
+                    "1. Directly state our official verified clinic address in Tamil in Sentence 1:\n"
+                    "   'எங்கள் வெற்றிவேல் கிளினிக் முகவரி: விழுப்புரம் - செஞ்சி மெயின் ரோடு, அப்பம்பட்டு, மீனம்பூர் அஞ்சல், செஞ்சி, 604205.'\n"
+                    f"2. Include our verified Google Maps link: '{vetrivel_map}'.\n"
+                    "3. STRICT SINGLE LOCATION MANDATE: This clinic operates EXCLUSIVELY in Appampattu, Gingee (செஞ்சி அப்பம்பட்டு). There are NO other branches. Always and only state this verified address.\n"
+                    "4. Output 100% in Tamil script (தமிழ்)."
+                )
+            elif full_location:
+                maps_mandate = ""
+                if google_maps_url:
+                    maps_mandate = (
+                        f"CRITICAL MANDATORY INSTRUCTION FOR LOCATION INQUIRIES:\n"
+                        f"- You MUST provide BOTH our full physical address ('{physical_address or full_location}') AND our official Google Maps link ('{google_maps_url}') in your reply!\n"
+                        f"- Never send only the address without the map link, and never send only the link without the address. Send BOTH!\n"
+                    )
                 stage_directive = (
                     f"The customer is asking about our location, address, or branches.\n"
-                    f"1. Directly state our official verified business address: '{full_location}'.\n"
-                    f"2. STRICT SINGLE LOCATION & ZERO-BRANCH MANDATE: This business operates EXCLUSIVELY from our verified center: '{full_location}'. "
+                    f"1. Directly state our official verified business address: '{physical_address or full_location}'.\n"
+                    + (f"2. Include our official Google Maps link: '{google_maps_url}'.\n" if google_maps_url else "")
+                    + f"{maps_mandate}"
+                    + f"3. STRICT SINGLE LOCATION & ZERO-BRANCH MANDATE: This business operates EXCLUSIVELY from our verified center: '{physical_address or full_location}'. "
                     f"We DO NOT have any branches in any other areas (such as Mannady, Anna Nagar, Adyar, Nungambakkam, Velachery, Parrys, etc.) or other cities. "
-                    f"If the customer asks about other branches, asks 'how about [area]?', or mentions an area near them, firmly and politely clarify that we operate ONLY from our single verified location in '{full_location}'.\n"
-                    f"3. Never confirm, invent, or adopt any branch location suggested by the customer or seen in past messages/images. Ask if they can visit our center in '{full_location}'."
+                    f"If the customer asks about other branches, asks 'how about [area]?', or mentions an area near them, firmly and politely clarify that we operate ONLY from our single verified location in '{physical_address or full_location}'.\n"
+                    f"4. Never confirm, invent, or adopt any branch location suggested by the customer or seen in past messages/images. Ask if they can visit our center in '{physical_address or full_location}'."
                 )
             else:
                 stage_directive = (
@@ -5121,7 +6664,26 @@ end
                     "1. State that our team will share the exact location and directions shortly. "
                     "CRITICAL: No address is configured in the system. STRICTLY NEVER invent or hallucinate any address!"
                 )
-        elif not is_doctor_query and any(w in inbound_clean for w in [
+        elif is_duration_query:
+            funnel_stage = "EVALUATION_DURATION"
+            if is_aadhiran or "aadhiran" in clean_slug:
+                stage_directive = (
+                    f"The customer is asking about therapy / massage session duration: '{message_text}'.\n"
+                    f"1. DIRECT ANSWER IN SENTENCE 1:\n"
+                    f"   - Standard Full Body Massage session is 60 mins (1 hour).\n"
+                    f"   - If customer asks about 2 hours (2 hrs): Confirm warmly that 2 hours session is definitely available! They can take an extended 2-hour session or combine massage with steam bath / therapy.\n"
+                    f"   - In Tanglish: 'Aama sir, 2 hours session kandippa irukku. Namma standard session 60 mins, neenga 2 hours venumna extended massage or combo treatment ah eduthukalam sir. Ungalukku entha treatment prefer pandringa?'\n"
+                    f"   - In Tamil: 'ஆம், 2 மணி நேர சிகிச்சை வசதி உள்ளது. எங்களின் நிலையான சிகிச்சை நேரம் 60 நிமிடங்கள். நீங்கள் 2 மணி நேரம் விரும்பினால் விரிவான மசாஜ் அல்லது காம்போ சிகிச்சையாக எடுத்துக்கொள்ளலாம். உங்களுக்கு எந்த சிகிச்சை வேண்டும்?'\n"
+                    f"2. STRICT PROHIBITION: Do NOT quote clinic opening or closing hours (6 AM to 10 PM) for session duration questions!\n"
+                    f"3. STRICT LANGUAGE: Output ONLY in {style_profile['label']}. Never English!"
+                )
+            else:
+                stage_directive = (
+                    f"The customer is asking about session duration or how long a service/consultation takes: '{message_text}'.\n"
+                    f"1. Answer directly and transparently based on this business's service catalog in Sentence 1.\n"
+                    f"2. Warmly ask if they would like to book or if they have a preferred day and time."
+                )
+        elif not is_doctor_query and not is_duration_query and any(w in inbound_clean for w in [
             "timing", "timings", "hours", "open", "opening time", "closing time",
             "opening hours", "operating hours", "clinic time", "clinic timing", "clinic timings",
             "working hours", "work hours", "when are you open", "what time do you open",
@@ -5174,7 +6736,8 @@ end
                     f"The customer explicitly commanded or confirmed the booking: '{message_text}'.\n"
                     f"1. Warmly confirm their appointment for {target_day_display} at {target_time_display} with {conf_host}.\n"
                     f"   - ALWAYS write the confirmed date and time clearly inside your text sentence (e.g. 'Great, your appointment is confirmed for {target_day_display} at {target_time_display} with {conf_host}!'). The [ACTION:...] tag is hidden backend metadata that will be removed, so your text sentence MUST be 100% complete on its own!\n"
-                    f"2. Confirm who will connect with or assist them ({conf_host}).\n"
+                    + (f"   - FOR AADHIRAN CENTER: Confirm in 100% natural Tanglish (e.g. 'Super sir! Ungalukku {target_day_display} at {target_time_display} slot confirm pannitom. Namma team ungalai seekkiram connect pannuvanga!') or in Tamil if customer messaged in Tamil script. Never use English!\n" if (is_aadhiran or "aadhiran" in clean_slug) else "")
+                    + f"2. Confirm who will connect with or assist them ({conf_host}).\n"
                     + fee_mention
                     + fasting_inst
                     + f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on its own line at the very end:\n"
@@ -5217,12 +6780,50 @@ end
                 for doc_item in tenant_doctors_list:
                     if isinstance(doc_item, dict):
                         d_name_raw = doc_item.get("name", "").lower().replace("dr.", "").replace("dr", "").strip()
-                        doc_clean_tokens = [re.sub(r'[^a-z]', '', tok) for tok in re.split(r'[\s\-.]+', d_name_raw) if len(tok) >= 3]
-                        # Exact containment check in message or recent context
+                        d_name_ta = doc_item.get("name_ta", "").strip()
+                        doc_spec_lower = (doc_item.get("specialty") or "").lower()
+
+                        # Exact containment check in message or recent context (English and Tamil)
                         if d_name_raw and (d_name_raw in inbound_clean or (is_doctor_timing_followup and d_name_raw in recent_context_snippet)):
                             matched_doc_obj = doc_item
                             break
+                        if d_name_ta and (d_name_ta in inbound_clean or (is_doctor_timing_followup and d_name_ta in recent_context_snippet)):
+                            matched_doc_obj = doc_item
+                            break
 
+                        # Specialized keywords per doctor (English & Tamil)
+                        if any(kw in inbound_clean for kw in ["pallavan", "பல்லவன்", "neuro", "நரம்பியல்"]) and "neuro" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["kamaraj", "கமராஜ்", "காமராஜ்", "ayush", "ஆயுஷ்"]) and "ayush" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["nethaji", "netaji", "நேதாஜி", "ortho", "ஆர்த்தோ", "மூட்டு", "எலும்பு"]) and "ortho" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["anbarasan", "அன்பரசன்", "surgery", "surgeon", "அறுவை"]) and "surgeon" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["raju", "ராஜு", "skin", "derma", "தோல்"]) and "dermatologist" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["thamizharasan", "tamilarasan", "தமிழரசன்", "pediatric", "குழந்தை"]) and "paediatrician" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["tamilmani", "தமிழ்மணி", "general medicine"]) and "general medicine" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["prathiba", "பிரதிபா", "siddha", "சித்தா"]) and "siddha" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["sakthivel", "சக்திவேல்", "general op"]) and "general physician" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+                        if any(kw in inbound_clean for kw in ["nithiya", "nithya", "priyadharshini", "நிதியா", "gynec", "மகளிர்"]) and "gynecologist" in doc_spec_lower:
+                            matched_doc_obj = doc_item
+                            break
+
+                        doc_clean_tokens = [re.sub(r'[^a-z]', '', tok) for tok in re.split(r'[\s\-.]+', d_name_raw) if len(tok) >= 3]
                         token_matched = False
                         for utok in all_search_tokens:
                             if len(utok) < 3 or utok in ("doctor", "consult", "available", "timing", "timings", "schedule", "sir", "mam", "irukangala", "irupangala", "varuvangala"):
@@ -5359,11 +6960,17 @@ end
                     + doc_mismatch_clarification + "\n"
                     + f"   - NEVER claim that unlisted specialist doctors are available on {matched_query_day}!\n"
                     + (f"   - Note: If visiting specialists are not scheduled on {matched_query_day}, warmly explain that our daily consulting doctors are available on {day_display_phrase} ({day_docs_summary}).\n" if not specialist_day_docs else "")
-                    + f"   - STRICT PRICING RULE: Do NOT mention consultation fees or prices unless the customer explicitly asked for fee/cost!\n"
-                    f"2. NEXT STEP: Warmly ask which doctor or department they wish to consult on {day_display_phrase}.\n"
-                    f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
-                    f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
-                    f"   - Keep reply concise (25 to 45 words max). No bullets, no hyphens, no asterisks."
+                    + (f"   - Consultation fee: state OP consultation fee in digits if customer asked about fees.\n" if is_asking_fee else "")
+                    + (
+                        f"   - MANDATORY FOR VETRIVEL CLINIC: When stating available doctors, explicitly include each doctor's name, qualification (MD, MBBS, MS, BSMS, MCh), schedule, and their consultation fee (e.g. Dr. Sakthivel ₹150, Dr. Kamaraj ₹200, Dr. Tamilmani ₹200) in 100% natural Tamil script.\n"
+                        if (is_vetrivel or "vetrivel" in clean_slug) else ""
+                    )
+                    + (
+                        f"2. NEXT STEP: Warmly ask which doctor or department they wish to consult on {day_display_phrase}.\n"
+                        f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                        f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                        f"   - Keep reply concise (25 to 45 words max). No bullets, no hyphens, no asterisks."
+                    )
                 )
             elif matched_doc_obj:
                 doc_name_full = matched_doc_obj.get("name", "our consulting doctor")
@@ -5372,47 +6979,80 @@ end
                 doc_fee = matched_doc_obj.get("fee")
                 fee_hint = f" (Consultation fee: ₹{doc_fee})" if (doc_fee and is_asking_fee) else ""
 
-                is_appt_only = "appointment only" in doc_sched.lower() or (not matched_doc_obj.get("available_days") and "daily" not in doc_sched.lower())
-                if is_appt_only:
-                    stage_directive = (
-                        f"The customer is asking specifically about doctor availability / timing for {doc_name_full} ({doc_spec}): '{message_text}'.\n"
-                        f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Check ### 2. DOCTORS AND SCHEDULE. "
-                        f"State that {doc_name_full} ({doc_spec}) is available strictly by Appointment Only. "
-                        f"Share the clinic contact number 8925722432 so our team can fix a convenient appointment time with the doctor{fee_hint}.\n"
-                        f"   - NEVER claim {doc_name_full} is not in our records! {doc_name_full} is our verified Gynecologist!\n"
-                        + ("   - STRICT PRICING RULE: Do NOT mention the consultation fee unless the customer explicitly asked for fee/cost!\n" if not is_asking_fee else "")
-                        + f"2. NEXT STEP: Warmly ask what symptoms or health concern they wish to consult for.\n"
-                        f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
-                        f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
-                        f"4. Keep reply concise (25 to 40 words max). No bullets, no hyphens, no asterisks."
-                    )
+                if is_vetrivel or "vetrivel" in clean_slug:
+                    doc_name_ta = matched_doc_obj.get("name_ta") or doc_name_full
+                    doc_qual = matched_doc_obj.get("qualification") or ""
+                    doc_spec_ta = matched_doc_obj.get("specialty_ta") or doc_spec
+                    doc_sched_ta = matched_doc_obj.get("schedule_ta") or doc_sched
+                    qual_label = f" ({doc_qual} - {doc_spec_ta})" if doc_qual else f" ({doc_spec_ta})"
+                    is_v_appt_only = "appointment only" in doc_sched.lower() or "முன்பதிவு" in doc_sched_ta
+
+                    if is_v_appt_only:
+                        stage_directive = (
+                            f"The patient is asking specifically about doctor availability / timing for {doc_name_ta} ({doc_qual} - {doc_spec_ta}): '{message_text}'.\n"
+                            f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Output 100% in Tamil script:\n"
+                            f"   '{doc_name_ta}{qual_label} முன்பதிவு மூலம் மட்டுமே ஆலோசனை வழங்குகிறார். நேரத்தை உறுதிப்படுத்த 8925722432 என்ற எண்ணில் தொடர்பு கொள்ளலாம். கன்சல்டேஷன் கட்டணம் ₹{doc_fee}.'\n"
+                            f"2. NEXT STEP: Warmly ask what symptoms or health concern they wish to consult for in polite Tamil ('உங்களுக்கு').\n"
+                            f"3. STRICT PROHIBITION: Zero English allowed. State doctor name, qualification ({doc_qual}), and fee (₹{doc_fee}). No bullets, no asterisks."
+                        )
+                    else:
+                        stage_directive = (
+                            f"The patient is asking specifically about doctor availability / timing for {doc_name_ta} ({doc_qual} - {doc_spec_ta}): '{message_text}'.\n"
+                            f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Output 100% in Tamil script:\n"
+                            f"   State their exact name, qualification ({doc_qual}), specialty ({doc_spec_ta}), consultation timings ({doc_sched_ta}), and fee (₹{doc_fee}):\n"
+                            f"   '{doc_name_ta}{qual_label} {doc_sched_ta} கிளினிக்கில் இருப்பார். கன்சல்டேஷன் கட்டணம் ₹{doc_fee}.'\n"
+                            f"   - NEVER confuse or state wrong specialty or wrong days (e.g. Dr. Kamaraj is AYUSH MD daily 9 AM to 6 PM, fee ₹200; Dr. Pallavan is Neuro MCh Sunday only 1 PM to 2 PM, fee ₹300; Dr. Sakthivel is General Physician MBBS daily 6 PM to 6 AM, fee ₹150)!\n"
+                            f"2. NEXT STEP: Warmly ask if they would like to visit during {doc_name_ta}'s consultation hours or what symptoms they are experiencing.\n"
+                            f"3. STRICT LANGUAGE: 100% pure Tamil in Tamil script (தமிழ்). Zero asterisks, zero bullets, zero English."
+                        )
                 else:
-                    stage_directive = (
-                        f"The customer is asking specifically about doctor availability / timing for {doc_name_full} ({doc_spec}): '{message_text}'.\n"
-                        f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Check ### 2. DOCTORS AND SCHEDULE (or doctor roster). State the EXACT verified days and consultation hours for {doc_name_full}{fee_hint}."
-                        + (f" Note: {doc_name_full}'s verified schedule is {doc_sched}." if doc_sched else "") + "\n"
-                        f"   - NEVER fabricate, invent, or guess days or hours for this doctor! If {doc_name_full} is available only on specific days (e.g. Sunday only), state that strictly!\n"
-                        + ("   - STRICT PRICING RULE: Do NOT mention the consultation fee or price unless the customer explicitly asked for fee/cost! The customer asked about doctor availability, NOT the price.\n" if not is_asking_fee else "")
-                        + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: The customer asked for timing ('{message_text}'). Directly state {doc_name_full}'s exact consultation hours ({doc_sched}) in digits! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
-                        + f"2. NEXT STEP: Warmly ask if they would like to visit during {doc_name_full}'s consultation hours, or ask what symptoms they are experiencing.\n"
-                        f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
-                        f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
-                        f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
-                        f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
-                        f"5. Keep reply concise (25 to 40 words max). No bullets, no hyphens, no asterisks."
-                    )
+                    is_appt_only = "appointment only" in doc_sched.lower() or (not matched_doc_obj.get("available_days") and "daily" not in doc_sched.lower())
+                    if is_appt_only:
+                        stage_directive = (
+                            f"The customer is asking specifically about doctor availability / timing for {doc_name_full} ({doc_spec}): '{message_text}'.\n"
+                            f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Check ### 2. DOCTORS AND SCHEDULE. "
+                            f"State that {doc_name_full} ({doc_spec}) is available strictly by Appointment Only. "
+                            f"Share the clinic contact number 8925722432 so our team can fix a convenient appointment time with the doctor{fee_hint}.\n"
+                            f"   - NEVER claim {doc_name_full} is not in our records! {doc_name_full} is our verified Gynecologist!\n"
+                            + (f"   - Consultation fee: {fee_hint}.\n" if (fee_hint and is_asking_fee) else "")
+                            + (
+                                f"2. NEXT STEP: Warmly ask what symptoms or health concern they wish to consult for.\n"
+                                f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                                f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                                f"4. Keep reply concise (25 to 40 words max). No bullets, no hyphens, no asterisks."
+                            )
+                        )
+                    else:
+                        stage_directive = (
+                            f"The customer is asking specifically about doctor availability / timing for {doc_name_full} ({doc_spec}): '{message_text}'.\n"
+                            f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Check ### 2. DOCTORS AND SCHEDULE (or doctor roster). State the EXACT verified days and consultation hours for {doc_name_full}{fee_hint}."
+                            + (f" Note: {doc_name_full}'s verified schedule is {doc_sched}." if doc_sched else "") + "\n"
+                            f"   - NEVER fabricate, invent, or guess days or hours for this doctor! If {doc_name_full} is available only on specific days (e.g. Sunday only), state that strictly!\n"
+                            + (f"   - Consultation fee: {fee_hint}.\n" if (fee_hint and is_asking_fee) else "")
+                            + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: The customer asked for timing ('{message_text}'). Directly state {doc_name_full}'s exact consultation hours ({doc_sched}) in digits! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
+                            + (
+                                f"2. NEXT STEP: Warmly ask if they would like to visit during {doc_name_full}'s consultation hours, or ask what symptoms they are experiencing.\n"
+                                f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                                f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                                f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
+                                f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
+                                f"5. Keep reply concise (25 to 40 words max). No bullets, no hyphens, no asterisks."
+                            )
+                        )
             else:
                 stage_directive = (
                     f"The customer is asking about doctor details or consultation timings: '{message_text}'.\n"
                     f"1. DIRECT ANSWER IN SENTENCE 1: {doc_mention}\n"
                     + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: Directly state the consultation hours of our specialist doctors in digits from ### 2. DOCTORS AND SCHEDULE! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
-                    + ("   - STRICT PRICING RULE: Do NOT quote consultation fees unless the customer explicitly asked about fee/cost!\n" if not is_asking_fee else "")
-                    + f"2. NEXT STEP: Warmly ask what specific symptoms they are experiencing or which specialty doctor they wish to consult.\n"
-                    f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
-                    f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
-                    f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
-                    f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
-                    f"5. Do NOT propose arbitrary booking slots until they request a time."
+                    + (f"   - Consultation fee: state verified fee in digits if customer asked about fee/cost.\n" if is_asking_fee else "")
+                    + (
+                        f"2. NEXT STEP: Warmly ask what specific symptoms they are experiencing or which specialty doctor they wish to consult.\n"
+                        f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                        f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                        f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
+                        f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
+                        f"5. Do NOT propose arbitrary booking slots until they request a time."
+                    )
                 )
         elif is_symptom_or_treatment_query and not (has_specific_time_of_day and has_explicit_booking_command):
             # ── CLINICAL SYMPTOM & TREATMENT INQUIRY ──
@@ -5427,7 +7067,6 @@ end
                 f"Explain clearly how our consulting doctor / specialist helps this condition (e.g. for neck/joint pain: our Ortho / General Medicine doctor conducts a comprehensive physical examination to assess cervical strain, posture, or muscle spasm, and provides targeted medical treatment, pain management, and physio/posture advice). "
                 f"Draw directly from this {facility_term}'s verified services and doctor specialties ({services_names_only or target_service}).\n"
                 + (f"2. TRANSPARENT FEE: Clearly state the OP consultation fee in digits (e.g. {pricing_prompt_hint}).\n" if (pricing_prompt_hint and is_asking_fee) else "")
-                + ("2. PRICING RULE: Do NOT quote consultation fees or prices unless the customer asked about cost. Focus on empathy, doctor specialty, and how to consult.\n" if not is_asking_fee else "")
                 + f"3. NEXT STEP: Ask if they would like to consult our doctor or what day/time works best for them to visit our {facility_term} in {full_location or f'our {facility_term}'}.\n"
                 f"4. BREVITY & LANGUAGE: Keep your reply to 2-3 crisp, natural, professional sentences. Match their language (Tamil / Tanglish / English) seamlessly.\n"
                 f"5. STRICTLY FORBIDDEN: Do NOT propose arbitrary slots (like 6:00 AM) and do NOT finalize any booking until they request a time."
@@ -5488,59 +7127,28 @@ end
                 f"3. STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append any [ACTION:CREATE_BOOKING] tag until an exact date and time are provided!\n"
                 f"4. Keep response under 2 short sentences."
             )
-        elif user_turn_count <= 1:
-            # ── STAGE 1: FIRST TOUCHPOINT / AD WELCOME & FIRST DISCOVERY QUESTION ──
-            funnel_stage = "STAGE_1_WELCOME_DISCOVERY"
-            stage_directive = (
-                "STAGE 1: FIRST TOUCHPOINT & DISCOVERY.\n"
-                "The customer reached out (e.g. from an ad or initial enquiry).\n"
-                "1. Warmly welcome them and briefly answer what they asked or expressed in Sentence 1 using ONLY this business's verified details.\n"
-                f"2. Ask EXACTLY ONE natural qualifying/discovery question to understand {discovery_question_hint}.\n"
-                "3. STRICTLY FORBIDDEN: Do NOT ask what day or time works for an appointment, do NOT propose appointment slots, and do NOT mention whether today or tomorrow is booked or available.\n"
-                "4. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max). Pure conversational texting flow."
-            )
-        elif user_turn_count == 2:
-            # ── STAGE 2: EMPATHY & PROBLEM UNDERSTANDING ──
-            funnel_stage = "STAGE_2_EMPATHY_PROBLEM"
-            stage_directive = (
-                "STAGE 2: EMPATHY & PROBLEM UNDERSTANDING.\n"
-                "The customer answered your first question.\n"
-                "1. Validate what they shared with brief, sincere empathy in Sentence 1.\n"
-                "2. Briefly connect how this business solves that specific problem in Sentence 2.\n"
-                f"3. Ask ONE follow-up qualification question regarding {qualification_question_hint}.\n"
-                "4. STRICTLY FORBIDDEN: Do NOT quote prices, do NOT pitch packages or consultation fees, and do NOT ask to book an appointment yet.\n"
-                "5. BREVITY: Keep your reply strictly between 20 to 35 words max. Maximum 2 short sentences."
-            )
-        elif user_turn_count == 3:
-            # ── STAGE 3: SOLUTION MATCH & VALUE PRESENTATION ──
-            funnel_stage = "STAGE_3_SOLUTION_VALUE"
-            stage_directive = (
-                "STAGE 3: SOLUTION MATCH & VALUE PRESENTATION.\n"
-                "1. Connect their exact requirement to our specific service or solution in 1-2 crisp sentences.\n"
-                f"2. If pricing was asked or is relevant, state {pricing_prompt_hint}.\n"
-                f"3. Check their readiness: ask if they would like to arrange {walkthrough_label}.\n"
-                "4. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max)."
-            )
         elif (
             any(w in inbound_clean for w in [
                 "demo", "show me", "call me", "book", "appointment", "schedule",
                 "get started", "proceed", "yes", "sure", "ok book", "interested",
-                "booking", "slot", "வர விரும்புகிறேன்", "புக் பண்ண", "அப்பாயிண்ட்மென்ட்"
+                "booking", "slot", "slots", "வர விரும்புகிறேன்", "புக் பண்ண", "அப்பாயிண்ட்மென்ட்",
+                "புக்", "பதிவு", "நேரம்", "varalam"
             ])
             and not is_consideration_deferred
             and not is_testing_message
             and not is_gratitude_wrapup
             and not already_asked_timing
         ):
-            # ── STAGE 4: SOFT SCHEDULING PREFERENCE ──
-            funnel_stage = "STAGE_4_SOFT_SCHEDULING"
+            # ── SCHEDULING PREFERENCE (CUSTOMER READY / INTERESTED TO BOOK) ──
+            funnel_stage = "SCHEDULING_PREFERENCE"
             stage_directive = (
-                "STAGE 4: SOFT SCHEDULING PREFERENCE.\n"
-                f"The lead is diagnosed and qualified. Offer {walkthrough_label}.\n"
-                "1. Enthusiastically accept in Sentence 1.\n"
-                f"2. Softly invite them to share their timing preference (e.g. 'Would tomorrow morning or afternoon work better for {walkthrough_label}?').\n"
-                "3. Do NOT force arbitrary slots and do NOT claim today is fully booked.\n"
-                "4. BREVITY: Keep your reply to 1-2 short natural sentences (25-40 words max)."
+                f"SCHEDULING PREFERENCE:\n"
+                f"The customer expressed interest in scheduling, booking, or taking the next step for {walkthrough_label}.\n"
+                f"1. DIRECT CONFIRMATION IN SENTENCE 1: Warmly accept and confirm readiness to schedule for {walkthrough_label} in Sentence 1.\n"
+                f"2. TIMING PREFERENCE: Ask what day and convenient time works best for them (e.g. 'What day and time works best for you?').\n"
+                f"3. TRANSPARENCY: If pricing or packages were asked, state {pricing_prompt_hint or 'the verified pricing'} clearly.\n"
+                f"4. Do NOT force arbitrary slots and do NOT claim today is fully booked.\n"
+                f"5. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max)."
             )
         elif is_no_more_questions:
             funnel_stage = "NO_MORE_QUESTIONS_FINALIZE_SLOT"
@@ -5551,22 +7159,31 @@ end
                 f"2. CRITICAL ANTI-REPETITION: Do NOT ask if they have questions again! Do NOT repeat 'anything else you would like to know'!\n"
                 f"3. Keep response under 2 short sentences."
             )
-        elif is_ongoing_conversation:
-            funnel_stage = "CONSIDERATION_PROGRESSION"
+        elif user_turn_count <= 1:
+            # ── WELCOME & DIRECT ASSISTANCE (NEW CONVERSATION / FIRST MESSAGE) ──
+            funnel_stage = "WELCOME_AND_DIRECT_ASSISTANCE"
             stage_directive = (
-                "Ongoing conversation. Directly and clearly address what they just said in the context of the prior chat messages. "
-                "Seamlessly pick up right where the conversation left off from your previous message. "
-                "CRITICAL ANTI-REPETITION DIRECTIVE: "
-                + ("You ALREADY asked for their timing preference in recent messages. Do NOT ask for morning/afternoon or timing again! " if already_asked_timing else "")
-                + ("You ALREADY asked if they want to book or demo. Do NOT repeat that question! " if already_asked_readiness else "")
-                + "Answer their latest message directly and guide them toward their consultation or appointment without re-asking questions you already asked."
+                "WELCOME & DIRECT ASSISTANCE (FIRST TOUCHPOINT):\n"
+                "The customer reached out to this business on WhatsApp.\n"
+                "1. DIRECT ANSWER FIRST: If the customer asked a question (pricing, services, hours, doctor, treatment, duration, location), your FIRST sentence MUST directly and accurately answer what they asked using verified business details.\n"
+                "2. GREETING: If they only sent a greeting ('Hi', 'Hello', 'Vanakkam'), warmly greet them and ask how we can assist them today.\n"
+                f"3. NATURAL FOLLOW-UP: In Sentence 2, ask a natural qualifying or guiding question (e.g. regarding {discovery_question_hint} or their preferred service/timing).\n"
+                "4. FULL TRANSPARENCY: Zero prohibitions on quoting prices, packages, or booking. If asked, provide verified details transparently.\n"
+                "5. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max). Pure conversational texting flow."
             )
         else:
-            funnel_stage = "DISCOVERY"
+            # ── CONVERSATIONAL PROGRESSION (ONGOING DIALOGUE) ──
+            funnel_stage = "CONVERSATIONAL_PROGRESSION"
             stage_directive = (
-                "Warmly welcome them and understand what brings them in. "
-                "Carefully answer their specific query using ONLY this tenant's business details in 1-2 lines. "
-                "Ask one natural, gentle discovery question to understand their situation."
+                "CONVERSATIONAL PROGRESSION:\n"
+                "1. ANSWER FIRST: Directly and accurately address what the customer just asked or said in Sentence 1. "
+                "If they asked about pricing, doctor availability, services, duration, or procedure, provide the exact facts immediately from the knowledge base.\n"
+                "2. EMPATHY & PROBLEM UNDERSTANDING: If the customer shared symptoms, pain, or health concerns, validate warmly with brief sincere empathy and explain how this business helps in Sentence 2.\n"
+                f"3. NEXT STEP / GUIDING: In Sentence 2 or 3, gently guide them toward their next step ({walkthrough_label} or consultation).\n"
+                "4. CRITICAL ANTI-REPETITION:\n"
+                + ("   - You ALREADY asked for their timing preference in recent messages. Do NOT ask for morning/afternoon or timing again!\n" if already_asked_timing else "")
+                + ("   - You ALREADY asked if they want to book or demo. Do NOT repeat that question!\n" if already_asked_readiness else "")
+                + "5. BREVITY: Keep your reply strictly to 1-2 crisp, natural sentences (25-45 words max)."
             )
 
         if is_voice_note and funnel_stage != "VOICE_NOTE_INBOUND":
@@ -5577,11 +7194,12 @@ end
             )
 
         funnel_stage_block = (
-            f"### CONVERSATION FUNNEL STATE: [{funnel_stage}]\n"
+            f"### CONVERSATION INTENT & STAGE: [{funnel_stage}]\n"
             f"- Inbound Turn Number: {user_turn_count} (Assistant Replies Sent: {assistant_turn_count})\n"
             f"- Current Stage Objective: {stage_directive}\n"
-            "- CRITICAL PROGRESSION MANDATE: Follow this exact stage objective. "
-            "Real humans on WhatsApp ask one thoughtful question at a time and never rush to close or schedule before understanding the customer's need."
+            "- CORE CONVERSATIONAL PRINCIPLE: ANSWER FIRST, QUALIFY SECOND. "
+            "Always answer what the customer asked FIRST and accurately from the verified knowledge base. "
+            "Never dodge questions, never give generic evasive scripts, and never refuse to answer pricing or scheduling questions."
         )
 
         assistant_name = ai_cfg.get("assistant_name") or "Assistant"
@@ -5756,7 +7374,7 @@ end
             "  * EXPLICIT CONFIRMATION OR COMMAND ('Yes', 'Sure', 'Book it', 'Please book tomorrow 4 pm'): IMMEDIATELY confirm the booking in your text sentence AND append [ACTION:CREATE_BOOKING: ...].",
             "  * NEVER end two consecutive messages with the same closing sentence, CTA, or website link.",
             f"- OPERATING HOURS INTEGRITY: If asked about clinic / business timings or hours, directly state '{op_hours_display} daily'. Never guess from calendar slot lists.",
-            "- STAGE-ALIGNED PROGRESSION: Strictly adhere to the current Conversation Funnel Stage above. In Stages 1, 2, and 3, focus on diagnosing their requirement with 1 gentle question. In Stage 4B, propose availability and ask for confirmation. In Stage 5, finalize and lock the booking.",
+            "- ANSWER FIRST, QUALIFY SECOND: Directly answer what the customer asked in Sentence 1 using verified business data. In Sentence 2, guide them forward or ask a natural next-step question. If the customer proposes or asks about an appointment time, propose availability and ask for confirmation. When explicit confirmation is given, finalize and lock the booking.",
             "- NATURAL BREVITY: Keep your reply concise (1 to 2 short natural sentences, 25 to 45 words max). Pure conversational WhatsApp texting flow.",
             "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis.",
             "- PRICES & TIMES IN DIGITS: ALWAYS write prices in standard digits with currency (e.g. ₹1299 or Rs. 1299). ALWAYS write times with digits (e.g. 10:00 AM or 6:30 PM).",
@@ -5773,10 +7391,21 @@ end
                 "  You are the WhatsApp assistant for Aadhiran Center. You MUST reply ONLY in Tanglish or Tamil (Tamil script).\n"
                 "  STRICT RULE: NEVER reply in English! If the customer sent a message in English or an English voice message, you MUST reply in natural conversational spoken WhatsApp Tanglish. If the customer sent a message in Tamil, you MUST reply in Tamil using Tamil script. Zero English sentences allowed under any circumstance!"
             )
+        if is_vetrivel:
+            reinforcement_parts.append(
+                "- CRITICAL VETRIVEL CLINIC MANDATORY LANGUAGE MANDATE (100% TAMIL SCRIPT):\n"
+                "  You are the WhatsApp assistant for Vetrivel Clinic in Gingee (செஞ்சி வெற்றிவேல் கிளினிக்).\n"
+                "  You MUST respond 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்).\n"
+                "  ABSOLUTE PROHIBITION ON ENGLISH: Never write in English! Zero English sentences allowed under any circumstance (unless the patient explicitly requested English).\n"
+                "  RESPECTFUL FORM: ALWAYS address the patient respectfully as 'உங்களுக்கு' (NEVER use 'உனக்கு' or 'நீ', and NEVER 'உங்களுக்குங்கள்').\n"
+                "  DOCTOR FEES: Dr. Sakthivel General OP ₹150, Specialists ₹200 (MD General Medicine Dr. Tamilmani, Ortho Dr. Nethaji, Surgeon Dr. Anbarasan, Skin Dr. Raju, Child Dr. Thamizharasan, Gyn Dr. Nithiya Priyadharshini, AYUSH, Siddha, Physiotherapy), Neurosurgeon Dr. Pallavan ₹300, Cardio ₹300. Open 24 மணி நேரமும் (24/7)."
+            )
         if is_voice_note:
             v_note_rule = "- VOICE NOTE INBOUND: Reply DIRECTLY to what the customer asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any variant acknowledging the voice format. Just answer their question naturally."
             if is_aadhiran:
                 v_note_rule += " For Aadhiran Center, reply ONLY in Tanglish or Tamil script (NEVER in English)."
+            if is_vetrivel:
+                v_note_rule += " For Vetrivel Clinic, reply 100% in warm, polite TAMIL script (தமிழ்)."
             reinforcement_parts.append(v_note_rule)
         if is_media_only:
             reinforcement_parts.append("- UNREAD MEDIA: A video/document was shared that we cannot analyze. Politely ask them to type what they need.")
@@ -5813,11 +7442,15 @@ end
             )
         )
 
+        # Single Source of Truth (SSOT) Grounding Block
+        ssot_block = self._build_single_source_of_truth_block(tenant_ctx, now)
+
         if is_unified_kb:
             # ── UNIFIED MASTER KNOWLEDGE BASE PIPELINE (HIGH ACCURACY & SUB-SECOND PREFILL) ──
             prompt_blocks = [
                 time_context,
                 tenant_isolation_boundary,
+                ssot_block,
                 f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
                 # Official Operating Hours Ground Truth
                 (
@@ -5839,13 +7472,15 @@ end
                 # Official Business Location Ground Truth
                 (
                     f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH (MANDATORY {facility_term.upper()} ADDRESS):\n"
-                    f"- Verified Business / {facility_term.title()} Address: {full_location}\n"
-                    f"- MANDATORY LOCATION & SINGLE-BRANCH MANDATE:\n"
-                    f"  1. When the customer asks about business location, {facility_term} address, landmark, directions, or where we are located, ALWAYS provide: '{full_location}'.\n"
-                    f"  2. Unless multiple branches are explicitly listed in this prompt, this business operates EXCLUSIVELY from this single verified location. We have NO branches in other areas or cities (such as Anna Nagar, Adyar, Mannady, Nungambakkam, Velachery, Parrys, Tambaram, etc.).\n"
+                    f"- Verified Business / {facility_term.title()} Physical Address: {physical_address or full_location}\n"
+                    + (f"- Official Verified Google Maps Link: {google_maps_url}\n" if google_maps_url else "")
+                    + f"- MANDATORY LOCATION & SINGLE-BRANCH MANDATE:\n"
+                    f"  1. When the customer asks about business location, {facility_term} address, landmark, directions, or where we are located, ALWAYS provide our verified physical address: '{physical_address or full_location}'.\n"
+                    + (f"  2. MANDATORY GOOGLE MAPS LINK: You MUST include BOTH the physical address ('{physical_address or full_location}') AND the Google Maps link ('{google_maps_url}') in your reply! Never omit the map link.\n" if google_maps_url else "")
+                    + f"  3. Unless multiple branches are explicitly listed in this prompt, this business operates EXCLUSIVELY from this single verified location. We have NO branches in other areas or cities (such as Anna Nagar, Adyar, Mannady, Nungambakkam, Velachery, Parrys, Tambaram, etc.).\n"
                     f"     INTENT NOTE: Only apply this mandate when the customer EXPLICITLY asks whether you have a branch in another city/area, or asks 'do you operate in X area?' — if the customer merely mentions their city/area as personal context (e.g. 'I live in Dharmapuri'), or asks about staff/therapists/qualifications, answer their ACTUAL question — do NOT fire this branch mandate.\n"
-                    f"  3. IMMUNITY FROM CHAT HISTORY & MEDIA: Never claim or confirm any other branch, even if the customer asks 'how about Anna Nagar?' or sends a document/flyer showing other areas, or if past messages mistakenly mentioned another branch. Firmly and politely clarify that we operate ONLY at '{full_location}'.\n"
-                    f"  4. NEVER confuse the customer's personal living area or workplace with the {facility_term} location!"
+                    f"  4. IMMUNITY FROM CHAT HISTORY & MEDIA: Never claim or confirm any other branch, even if the customer asks 'how about Anna Nagar?' or sends a document/flyer showing other areas, or if past messages mistakenly mentioned another branch. Firmly and politely clarify that we operate ONLY at '{physical_address or full_location}'.\n"
+                    f"  5. NEVER confuse the customer's personal living area or workplace with the {facility_term} location!"
                     if full_location else
                     f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH:\n- No {facility_term} address configured yet. NEVER invent, fabricate, or hallucinate any location or address!"
                 ),
@@ -5887,6 +7522,7 @@ end
             prompt_blocks = [
                 time_context,
                 tenant_isolation_boundary,
+                ssot_block,
                 f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
                 # ── SECTION 0 (TOP PRIORITY): GLOBAL RULES, FORMATTING & CLOSING FRAMEWORK ──
                 # Anchors global settings and strict behavioral rules before all other context.
@@ -5906,11 +7542,11 @@ end
                 )
 
             if services_text.strip():
-                services_catalog_display = services_names_only if not is_asking_fee else services_text.strip()
+                services_catalog_display = services_text.strip()
                 catalog_instructions = (
-                    "- STRICT PRICING RULE: The customer did NOT ask about pricing or fees in this message! Strictly describe services without quoting fees, prices, or amounts!"
-                    if not is_asking_fee else
-                    "- Always quote pricing and service details according to the verified pricing logic and tiers defined in this business's instructions above. Never invent unlisted services or prices."
+                    "- PRICING & SERVICE DETAILS: Always quote accurate pricing, active offers, and service details directly from the verified catalog and business instructions above. "
+                    "If the customer asks about fees, packages, or costs, provide them clearly and transparently in digits (e.g. ₹700, ₹1399). "
+                    "If they ask general questions about a service, explain the service clearly. Never fabricate unlisted services or prices."
                 )
                 prompt_blocks.append(
                     "### VERIFIED SERVICES CATALOG:\n"
@@ -6094,7 +7730,7 @@ end
             "when is appointment", "what time is appointment"
         ])
 
-        # Inbound Human Takeover Request Intent (Distinguish from bot honesty queries like "are you a real person or bot?")
+        # Inbound Human Takeover & Callback Request Intent
         is_bot_honesty_q = any(q in inbound_lower for q in ["are you", "is this", "am i talking", "am i speaking", "who are you"]) and any(w in inbound_lower for w in ["ai", "bot", "robot", "real person", "human"])
         explicit_human_phrases = [
             "human agent", "talk to human", "speak to human", "talk to a human", "speak to a human",
@@ -6103,8 +7739,43 @@ end
             "want a real person", "need a real person", "stop bot", "stop ai", "switch to human",
             "human mode"
         ]
-        human_request_intent = (not is_bot_honesty_q) and any(w in inbound_lower for w in explicit_human_phrases)
-        if human_request_intent:
+        callback_phrases = [
+            "call me", "please call", "pls call", "give me a call", "can you call",
+            "could you call", "call back", "request a call", "request callback",
+            "call pannunga", "call panni pesunga", "call panni", "enakku call", "phone me", "speak on phone"
+        ]
+        is_callback_intent = (
+            not any(p in inbound_lower for p in ["i will call", "i'll call", "let me call", "calling you", "why did you call", "why you called", "who called", "missed call", "i called you"])
+            and any(w in inbound_lower for w in callback_phrases)
+        )
+        is_explicit_human_intent = (not is_bot_honesty_q) and any(w in inbound_lower for w in explicit_human_phrases)
+        human_request_intent = is_explicit_human_intent or is_callback_intent
+        if is_callback_intent:
+            # Phone call / callback requested: do NOT set status = 'human' (AI remains active for future customer messages).
+            # Instead, mark callback_requested in wa_context to suppress automated followup messages.
+            await self.db_pool.execute(
+                """UPDATE conversations 
+                   SET wa_context = jsonb_set(
+                       jsonb_set(coalesce(wa_context, '{}'::jsonb), '{callback_requested}', 'true'::jsonb),
+                       '{callback_requested_at}', to_jsonb(now()::text)
+                   ),
+                   updated_at = now() 
+                   WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                conv_id, tenant_id
+            )
+            response_text = "I have notified our team. A staff member will give you a call on this number shortly!"
+            asyncio.create_task(
+                self._execute_admin_human_alert(
+                    tenant_id=tenant_id,
+                    conv_id=conv_id,
+                    contact_phone=contact_phone,
+                    customer_name=customer_name,
+                    creds=creds,
+                    reason="Customer requested a phone call / callback",
+                )
+            )
+        elif is_explicit_human_intent:
+            # Explicit demand to talk to human / stop bot: switch status to 'human'
             await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             response_text = "I have notified our team. A staff member will take over this conversation shortly!"
             asyncio.create_task(
@@ -6114,22 +7785,38 @@ end
                     contact_phone=contact_phone,
                     customer_name=customer_name,
                     creds=creds,
+                    reason="Customer requested human support",
                 )
             )
 
         if response_text:
             # 1. Intercept [ACTION:HUMAN_TAKEOVER]
             if "[ACTION:HUMAN_TAKEOVER]" in response_text:
-                # SAFEGUARD: Only switch conversation status to human if customer ACTUALLY requested human takeover!
-                # Do NOT switch to human mode on pricing inquiries, greetings, or consultation questions.
-                is_real_human_request = human_request_intent or is_human_request or (
-                    any(w in inbound_clean for w in [
+                is_callback_triggered = is_callback_intent or is_callback_request or any(w in inbound_clean for w in [
+                    "call me", "please call", "pls call", "give me a call", "can you call",
+                    "could you call", "call back", "request a call", "request callback",
+                    "call pannunga", "call panni pesunga", "call panni", "enakku call", "phone me", "speak on phone"
+                ])
+                is_explicit_human = (not is_bot_honesty_q) and (
+                    is_explicit_human_intent or any(w in inbound_clean for w in [
                         "talk to human", "speak to human", "talk to agent", "speak to agent",
                         "talk to staff", "connect to agent", "human support", "stop bot", "human mode"
-                    ]) and not is_bot_honesty_q
+                    ])
                 )
-                if is_real_human_request:
-                    await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                if is_callback_triggered:
+                    # For phone call / callback requests: NEVER switch status to 'human'! AI remains active for future customer queries.
+                    # Mark callback_requested in wa_context to suppress automated followup messages.
+                    await self.db_pool.execute(
+                        """UPDATE conversations 
+                           SET wa_context = jsonb_set(
+                               jsonb_set(coalesce(wa_context, '{}'::jsonb), '{callback_requested}', 'true'::jsonb),
+                               '{callback_requested_at}', to_jsonb(now()::text)
+                           ),
+                           updated_at = now() 
+                           WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                        conv_id, tenant_id
+                    )
+                    alert_reason = "Customer requested a phone call / callback"
                     asyncio.create_task(
                         self._execute_admin_human_alert(
                             tenant_id=tenant_id,
@@ -6137,9 +7824,25 @@ end
                             contact_phone=contact_phone,
                             customer_name=customer_name,
                             creds=creds,
+                            reason=alert_reason,
                         )
                     )
-                    logger.info("human_takeover_confirmed", conv_id=conv_id, tenant_id=tenant_id)
+                    logger.info("callback_request_confirmed_ai_kept_active", conv_id=conv_id, tenant_id=tenant_id, reason=alert_reason)
+                elif is_explicit_human:
+                    # Explicit demand to talk to human / stop bot: switch status to 'human'
+                    await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                    alert_reason = "Customer requested human support"
+                    asyncio.create_task(
+                        self._execute_admin_human_alert(
+                            tenant_id=tenant_id,
+                            conv_id=conv_id,
+                            contact_phone=contact_phone,
+                            customer_name=customer_name,
+                            creds=creds,
+                            reason=alert_reason,
+                        )
+                    )
+                    logger.info("human_takeover_confirmed", conv_id=conv_id, tenant_id=tenant_id, reason=alert_reason)
                 else:
                     logger.warning("human_takeover_tag_ignored_for_non_human_intent", conv_id=conv_id, inbound=inbound_clean[:60])
                 response_text = response_text.replace("[ACTION:HUMAN_TAKEOVER]", "").strip()
@@ -6727,7 +8430,7 @@ end
                             f"RULES:\n"
                             f"- Output ONLY the Tanglish translation. No preamble.\n"
                             f"- Write natural spoken WhatsApp Tanglish (e.g. 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir', 'offer price ₹700 sir (regular ₹999)').\n"
-                            f"- Keep standard digits for prices (₹700, ₹999, ₹1499) and times (6:00 AM, 10:00 PM).\n"
+                            f"- Keep standard digits for prices (₹999, ₹1399, ₹1499) and times (6:00 AM, 10:00 PM).\n"
                             f"- Polite address: 'sir' or 'Ungalukku'.\n"
                             f"- 1-2 short natural sentences, zero hyphens, zero emojis.\n"
                             f"- ABSOLUTELY NO ENGLISH."
@@ -6758,19 +8461,81 @@ end
                         except Exception as e_conv:
                             logger.error("aadhiran_tanglish_conversion_error", error=str(e_conv))
 
+            # 3d. Vetrivel Clinic Strict English Elimination Firewall
+            # Under NO circumstance should Vetrivel Clinic send an English reply to patients (unless explicitly requested).
+            if is_vetrivel or "vetrivel" in clean_slug or "vetrivel" in (tenant_name or "").lower():
+                is_explicit_english = any(sw in (message_text or "").lower() for sw in ["speak in english", "talk in english", "in english please", "reply in english", "english please", "only english"])
+                if not is_explicit_english:
+                    has_tamil_chars = bool(re.search(r'[\u0B80-\u0BFF]', response_text))
+                    if not has_tamil_chars:
+                        words_clean = set(re.findall(r'\b[a-z]+\b', response_text.lower()))
+                        if len(words_clean) >= 3:
+                            logger.warning("vetrivel_english_response_intercepted_translating", conv_id=conv_id, english_snippet=response_text[:80])
+                            conv_prompt = (
+                                f"Convert this English response for Vetrivel Clinic (செஞ்சி வெற்றிவேல் கிளினிக்) into 100% natural, polite, caring TAMIL using Tamil script (தமிழ்):\n"
+                                f"\"{response_text}\"\n\n"
+                                f"RULES:\n"
+                                f"- Output ONLY the Tamil translation in Tamil script. No English, no preamble.\n"
+                                f"- Clinic location is strictly in Appampattu, Gingee (விழுப்புரம் - செஞ்சி மெயின் ரோடு, அப்பம்பட்டு, மீனம்பூர் அஞ்சல், செஞ்சி, 604205). NEVER invent or translate as Bengaluru or any other city!\n"
+                                f"- Address patient respectfully as 'உங்களுக்கு' (NEVER 'உனக்கு' or 'நீ', and NEVER 'உங்களுக்குங்கள்').\n"
+                                f"- Keep prices in digits with Rupee symbol: ₹150, ₹200, ₹300.\n"
+                                f"- Keep times in digits: 10:00 AM, 1:30 PM, etc.\n"
+                                f"- 1-2 short natural sentences, zero hyphens, zero bullets, zero emojis."
+                            )
+                            try:
+                                t_converted, _ = await call_llm_cascade(
+                                    messages=[{"role": "user", "content": conv_prompt}],
+                                    system_prompt="You are an expert Tamil medical front-desk translator for Vetrivel Clinic in Gingee. Output only natural, polite Tamil text in Tamil script with zero hyphens, zero bullets, and zero emojis.",
+                                    gemini_key=gemini_key,
+                                    groq_key=groq_key,
+                                    opencode_key=opencode_key,
+                                    opencode_base_url=opencode_base,
+                                    master_gemini_key=master_keys.get("gemini_key"),
+                                    master_groq_key=master_keys.get("groq_key"),
+                                    master_opencode_key=master_keys.get("opencode_key"),
+                                    master_opencode_base_url=master_keys.get("opencode_base_url"),
+                                    primary_provider=primary_provider,
+                                    gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
+                                    max_tokens=256,
+                                    temperature=0.1,
+                                    timeout_seconds=4.0,
+                                    tenant_id=tenant_id,
+                                    single_line=False,
+                                )
+                                if t_converted and t_converted.strip():
+                                    response_text = t_converted.strip()
+                                    logger.info("vetrivel_english_converted_to_tamil", conv_id=conv_id, result_snippet=response_text[:80])
+                            except Exception as e_conv:
+                                logger.error("vetrivel_tamil_conversion_error", error=str(e_conv))
+
             # Business location hallucination interceptor:
             # If the tenant has a verified business address and the LLM mentions an unverified external address/city (e.g. Indiranagar, Bengaluru)
             if full_location:
                 fl_lower = full_location.lower()
                 if "bengaluru" not in fl_lower and "bangalore" not in fl_lower:
-                    if any(w in response_text.lower() for w in ["indiranagar", "100 feet road", "city mall", "bengaluru", "bangalore"]):
+                    bogus_location_triggers = [
+                        "indiranagar", "100 feet road", "city mall", "bengaluru", "bangalore", "jayanagar", "jaya nagar",
+                        "பெங்களூரு", "பெங்களூர்", "ஜெயநாகர்", "இந்திரா நகர்"
+                    ]
+                    if any(w in response_text.lower() for w in bogus_location_triggers) or any(w in response_text for w in ["பெங்களூரு", "பெங்களூர்", "ஜெயநாகர்", "இந்திரா நகர்"]):
                         logger.warning("hallucinated_location_intercepted", tenant_id=tenant_id, text=response_text[:100])
                         # Detect if customer or response is in Tamil/Tanglish
-                        _is_tam = any(w in (message_text or "").lower() for w in ["enga", "irukku", "solunga", "sollunga"]) or any('\u0b80' <= c <= '\u0bff' for c in (response_text or ""))
-                        if _is_tam:
-                            response_text = f"எங்கள் முகவரி: {full_location}. மேப் விவரங்கள் அல்லது நேரம் முன்பதிவு செய்ய உதவவா?"
+                        maps_suffix = f"\nGoogle Map: {google_maps_url}" if google_maps_url else ""
+                        if is_vetrivel or "vetrivel" in clean_slug:
+                            vetrivel_map = google_maps_url or "https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+                            response_text = f"எங்கள் வெற்றிவேல் கிளினிக் முகவரி: விழுப்புரம் - செஞ்சி மெயின் ரோடு, அப்பம்பட்டு, மீனம்பூர் அஞ்சல், செஞ்சி, 604205.\nகூகுள் மேப்: {vetrivel_map}\nநீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                        elif is_aadhiran or "aadhiran" in clean_slug:
+                            _is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (response_text or "")) or any('\u0b80' <= c <= '\u0bff' for c in (message_text or ""))
+                            if _is_tam_script:
+                                response_text = f"எங்கள் ஆதீரன் மையம் முகவரி: {physical_address or full_location}.{maps_suffix} உங்களுக்கு வழி விவரங்கள் அல்லது நேரம் முன்பதிவு செய்ய உதவவா?"
+                            else:
+                                response_text = f"Namma Aadhiran Center address: {physical_address or full_location}.{maps_suffix} Ungalukku directions thevaiya sir?"
                         else:
-                            response_text = f"We are located at {full_location}. Would you like directions or help booking a visit?"
+                            _is_tam = any(w in (message_text or "").lower() for w in ["enga", "irukku", "solunga", "sollunga"]) or any('\u0b80' <= c <= '\u0bff' for c in (response_text or ""))
+                            if _is_tam:
+                                response_text = f"எங்கள் முகவரி: {physical_address or full_location}.{maps_suffix} மேப் விவரங்கள் அல்லது நேரம் முன்பதிவு செய்ய உதவவா?"
+                            else:
+                                response_text = f"We are located at {physical_address or full_location}.{maps_suffix} Would you like directions or help booking a visit?"
 
                 # Intercept non-existent branch claims for single-location businesses (especially MBR)
                 if is_mbr:
@@ -6904,6 +8669,12 @@ end
                                 if should_finalize_booking:
                                     if clean_slug == "boldlabs":
                                         response_text = f"Got it! I have scheduled your demo for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
+                                    elif is_aadhiran or "aadhiran" in clean_slug:
+                                        _is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (message_text or ""))
+                                        if _is_tam_script:
+                                            response_text = f"சிறப்பு! {date_friendly} {stated_time} மணிக்கு {dynamic_service} சிகிச்சைக்கான முன்பதிவு உறுதி செய்யப்பட்டது."
+                                        else:
+                                            response_text = f"Super sir! Ungalukku {date_friendly} {stated_time}-ku {dynamic_service} slot confirm pannitom."
                                     else:
                                         response_text = f"Got it! We have scheduled your appointment for {dynamic_service} on {date_friendly} at {stated_time}."
                                     if not booking_action:
@@ -6918,6 +8689,12 @@ end
                                     host_lbl = conf_host or "our team"
                                     if clean_slug == "boldlabs":
                                         response_text = f"{date_friendly.capitalize()} at {stated_time} is open for a demo! Would you like me to go ahead and book this slot for you?"
+                                    elif is_aadhiran or "aadhiran" in clean_slug:
+                                        _is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (message_text or ""))
+                                        if _is_tam_script:
+                                            response_text = f"{date_friendly} {stated_time} மணிக்கு ஸ்லாட் உள்ளது. உங்களுக்காக இதை முன்பதிவு செய்யலாமா?"
+                                        else:
+                                            response_text = f"{date_friendly.capitalize()} at {stated_time} slot available ah irukku sir. Ungalukku intha slot book pannalama?"
                                     else:
                                         response_text = f"{date_friendly.capitalize()} at {stated_time} is available with {host_lbl}! Would you like me to go ahead and book this slot for you?"
                                     booking_action = None
@@ -7000,33 +8777,88 @@ end
                 inbound_clean=inbound_clean,
                 matched_doc_obj=matched_doc_obj,
                 is_doctor_query=is_doctor_query,
+                tenant_ctx=tenant_ctx,
             )
 
             # Conversational Brevity Guard: Ensure total words never exceed conversational limit
             resp_words = (response_text or "").split()
-            max_words_allowed = 75 if is_doctor_query else 55
+            is_clinical_or_package = (
+                is_doctor_query
+                or is_symptom_or_treatment_query
+                or "checkup" in clean_slug
+                or any(w in inbound_clean for w in ["package", "packages", "treatment", "doctor", "specialist"])
+            )
+            max_words_allowed = 110 if is_clinical_or_package else 85
             if len(resp_words) > max_words_allowed:
                 act_tags = re.findall(r'\[ACTION:[^\]]+\]', response_text)
                 no_act = re.sub(r'\[ACTION:[^\]]+\]', '', response_text).strip()
                 sents = _safe_split_sentences(no_act)
                 if len(sents) >= 2:
-                    if len(sents[0].split()) <= 4 and len(sents) >= 3:
-                        core_part = f"{sents[0]} {sents[1]}"
-                        tail = sents[2:]
+                    cand_full = " ".join(sents[:3]).strip()
+                    if len(sents) <= 3 and len(cand_full.split()) <= (max_words_allowed + 15):
+                        no_act = cand_full
                     else:
-                        core_part = sents[0]
-                        tail = sents[1:]
+                        if len(sents[0].split()) <= 4 and len(sents) >= 3:
+                            core_part = f"{sents[0]} {sents[1]}"
+                            tail = sents[2:]
+                        else:
+                            core_part = sents[0]
+                            tail = sents[1:]
 
-                    if tail and tail[-1].endswith('?'):
-                        cand = f"{core_part} {tail[-1]}".strip()
-                    else:
-                        cand = " ".join([core_part] + tail[:1]).strip()
+                        if tail and tail[-1].endswith('?'):
+                            cand = f"{core_part} {tail[-1]}".strip()
+                        else:
+                            cand = " ".join([core_part] + tail[:1]).strip()
 
-                    if len(cand.split()) <= (max_words_allowed + 10):
-                        no_act = cand
-                    else:
-                        no_act = core_part.strip()
+                        if len(cand.split()) <= (max_words_allowed + 15):
+                            no_act = cand
+                        else:
+                            no_act = core_part.strip()
                 response_text = f"{no_act}\n" + "\n".join(act_tags) if act_tags else no_act
+
+        # Final Aadhiran Language Firewall: ensure zero English leaks to Aadhiran customers
+        if response_text and (is_aadhiran or "aadhiran" in clean_slug or "aadhiran" in (tenant_name or "").lower()):
+            has_tam_script = bool(re.search(r'[\u0B80-\u0BFF]', response_text))
+            if not has_tam_script:
+                w_clean = set(re.findall(r'\b[a-z]+\b', response_text.lower()))
+                t_markers = {
+                    "irukku", "irukka", "irukkum", "iruntha", "irundhuchu", "ungalukku", "sollunga",
+                    "pannalama", "pannalam", "namma", "kandippa", "vanakkam", "thevai", "varalaam",
+                    "varalama", "mudiyum", "mudiyadhu", "therinjikka", "seri", "apram", "appuram",
+                    "intha", "antha", "enakku", "illai", "mattum", "enga", "eppo", "epdi", "kedaikkum",
+                    "kedaikuma", "pannidalam", "panrom", "pesalam", "virumbureenga", "paththi", "kooda",
+                    "romba", "nandri", "seekkiram", "paravala", "edhuvum", "avlo", "ivlo", "panreenga",
+                    "panrenga", "theriyum", "theriyala", "open-ah", "convenient-ah", "details-ah",
+                    "sir", "nalaiku", "naalaikku", "inniku", "marunal", "kaalai", "maalaai", "neram",
+                    "pannunga", "pannidunga", "kedaikum"
+                }
+                if not bool(w_clean.intersection(t_markers)) and len(w_clean) >= 4:
+                    logger.warning("aadhiran_final_firewall_intercepted_english", text=response_text[:80])
+                    if "located at" in response_text.lower():
+                        maps_suffix = f"\nGoogle Map: {google_maps_url}" if google_maps_url else ""
+                        response_text = f"Namma Aadhiran Center address: {physical_address or full_location}.{maps_suffix} Ungalukku directions thevaiya sir?"
+                    elif "scheduled your" in response_text.lower() or "confirmed" in response_text.lower():
+                        response_text = f"Super sir! Ungal appointment confirm pannitom. Namma team ungalai seekkiram connect pannuvanga!"
+                    else:
+                        try:
+                            conv_p = f"Convert this message to natural spoken WhatsApp Tanglish for Aadhiran Center in Tiruppur:\n\"{response_text}\""
+                            t_c, _ = await call_llm_cascade(
+                                messages=[{"role": "user", "content": conv_p}],
+                                system_prompt="Convert English to natural colloquial WhatsApp Tanglish. Output only Tanglish.",
+                                gemini_key=gemini_key,
+                                groq_key=groq_key,
+                                opencode_key=opencode_key,
+                                master_gemini_key=master_keys.get("gemini_key"),
+                                master_groq_key=master_keys.get("groq_key"),
+                                master_opencode_key=master_keys.get("opencode_key"),
+                                primary_provider=primary_provider,
+                                timeout_seconds=4.0,
+                                tenant_id=tenant_id
+                            )
+                            if t_c and t_c.strip():
+                                response_text = t_c.strip()
+                        except Exception as e_f:
+                            logger.error("aadhiran_final_firewall_error", error=str(e_f))
 
         # Final WhatsApp sanitization: Remove any markdown asterisks
         if response_text and "*" in response_text:
@@ -7820,6 +9652,17 @@ end
                 )
                 logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt), price=eff_price)
 
+            # Clear any pending callback request since customer successfully completed booking
+            try:
+                await self.db_pool.execute(
+                    """UPDATE conversations
+                       SET wa_context = coalesce(wa_context, '{}'::jsonb) - 'callback_requested' - 'callback_requested_at'
+                       WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                    conv_id, tenant_id
+                )
+            except Exception as e_clear_cb:
+                logger.debug("clear_callback_on_booking_failed", error=str(e_clear_cb))
+
             try:
                 await self.db_pool.execute(
                     """UPDATE customers
@@ -7937,27 +9780,32 @@ end
                     if len(clean_admin_phone) == 10:
                         clean_admin_phone = f"91{clean_admin_phone}"
 
-                    formatted_date = st_dt.strftime("%d-%m-%Y")
-                    formatted_time = st_dt.strftime("%I:%M %p")
-                    admin_pending_text = (
-                        f"⏳ *New Booking Request (Payment Pending)* 📅\n\n"
-                        f"• *Customer:* {name}\n"
-                        f"• *Phone:* {contact_phone}\n"
-                        f"• *Service:* {service_name}\n"
-                        f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                        f"• *Amount Due:* {fee_curr} {eff_price:g}\n\n"
-                        f"Payment link sent to customer. Booking will auto-confirm once paid."
-                    )
-                    try:
-                        await send_text(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=clean_admin_phone,
-                            body=admin_pending_text,
+                    bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
+                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, contact_phone)
+                    if is_self:
+                        logger.info("ai_booking_admin_pending_alert_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
+                    else:
+                        formatted_date = st_dt.strftime("%d-%m-%Y")
+                        formatted_time = st_dt.strftime("%I:%M %p")
+                        admin_pending_text = (
+                            f"⏳ *New Booking Request (Payment Pending)* 📅\n\n"
+                            f"• *Customer:* {name}\n"
+                            f"• *Phone:* {contact_phone}\n"
+                            f"• *Service:* {service_name}\n"
+                            f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                            f"• *Amount Due:* {fee_curr} {eff_price:g}\n\n"
+                            f"Payment link sent to customer. Booking will auto-confirm once paid."
                         )
-                        logger.info("ai_booking_admin_pending_alert_sent", to=clean_admin_phone, booking_id=booking_id)
-                    except Exception as e_adm:
-                        logger.warning("ai_booking_admin_pending_alert_failed", error=str(e_adm))
+                        try:
+                            await send_text(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=clean_admin_phone,
+                                body=admin_pending_text,
+                            )
+                            logger.info("ai_booking_admin_pending_alert_sent", to=clean_admin_phone, booking_id=booking_id)
+                        except Exception as e_adm:
+                            logger.warning("ai_booking_admin_pending_alert_failed", error=str(e_adm))
                 return
 
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -8068,20 +9916,51 @@ end
                     and ("home" in service_name.lower() or "home" in (notes or "").lower() or ("collection" in service_name.lower() and booking_loc))
                 )
 
-                if is_boldlabs:
-                    # Boldlabs: Online Live Demo is confirmed via Meta template and conversational reply.
-                    # Do NOT send an extra text message to avoid duplicate confirmation spam.
-                    pass
+                is_virtual_booking = bool(
+                    is_boldlabs
+                    or any(w in service_name.lower() for w in ["demo", "online", "screen-share", "screenshare", "virtual", "zoom", "google meet", "video call"])
+                    or any(w in (notes or "").lower() for w in ["online", "virtual", "zoom", "google meet"])
+                )
+
+                if is_virtual_booking:
+                    virtual_msg = (
+                        f"💻 Online Meeting & Demo Details:\n\n"
+                        f"• Session: {service_name}\n"
+                        f"• Format: Online Screen-share / Google Meet\n"
+                        f"• Date & Time: {formatted_date} at {formatted_time}\n\n"
+                        f"Our team will send the direct meeting link right here on WhatsApp before the session starts."
+                    )
+                    await asyncio.sleep(1.0)
+                    try:
+                        v_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=virtual_msg,
+                        )
+                        v_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            v_msg_id, conv_id, tenant_id, virtual_msg, v_wa_id
+                        )
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                        logger.info("virtual_meeting_details_sent_to_customer", to=contact_phone)
+                    except Exception as e:
+                        logger.warning("virtual_meeting_details_send_failed", error=str(e))
                 elif is_home_booking:
                     home_conf_addr = booking_loc or "Your registered address"
                     fee_line_home = f"• Package Fee: ₹{eff_price:g} (Payable at sample collection)\n" if eff_price > 0 else ""
+                    fasting_line_home = (
+                        "• Fasting Note: Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n"
+                        if ("checkup" in service_name.lower() or "trufit" in service_name.lower())
+                        else ""
+                    )
                     home_msg = (
                         f"🏡 Home Sample Collection Details:\n\n"
-                        f"• Package / Test: {service_name}\n"
-                        f"{fee_line_home}"
                         f"• Collection Address: {home_conf_addr}\n"
-                        f"• Date & Time: {formatted_date} at {formatted_time}\n"
-                        f"• Fasting Note: Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n\n"
+                        f"{fee_line_home}"
+                        f"{fasting_line_home}\n"
                         f"Our technician / phlebotomist will arrive with a sealed, sanitized collection kit."
                     )
                     await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
@@ -8159,39 +10038,15 @@ end
                         )
                     )
 
-                    if is_lab_tenant:
-                        visit_title = "Lab Visit Details & Directions:"
-                        service_header = "Package / Test:"
-                        fee_line = f"• Package Fee: ₹{eff_price:g} (Payable at lab)\n" if eff_price > 0 else ""
-                    elif is_wellness_tenant:
-                        visit_title = "Wellness Center Visit Details & Directions:"
-                        service_header = "Therapy / Service:"
-                        fee_line = ""
-                    elif is_service_center:
-                        visit_title = "Service Center Visit Details & Directions:"
-                        service_header = "Service / Device Repair:"
-                        fee_line = ""
-                    elif is_clinic_tenant:
-                        visit_title = "Clinic Visit Details & Directions:"
-                        service_header = "Appointment / Consultation:"
-                        fee_line = ""
-                    else:
-                        visit_title = "Visit Details & Directions:"
-                        service_header = "Service / Appointment:"
-                        fee_line = ""
-
                     fasting_line = (
-                        "• Fasting Note: Please ensure 8 to 12 hours of overnight fasting prior to test (only plain water is permitted).\n"
+                        "\n\nFasting Note: Please ensure 8 to 12 hours of overnight fasting prior to test (only plain water is permitted)."
                         if (is_lab_tenant and ("checkup" in service_name.lower() or "trufit" in service_name.lower()))
                         else ""
                     )
                     loc_msg = (
-                        f"📍 {visit_title}\n\n"
-                        f"• {service_header} {service_name}\n"
-                        f"{fee_line}"
-                        f"• Date & Time: {formatted_date} at {formatted_time}\n"
+                        f"📍 Location & Directions:\n"
+                        f"{full_location}"
                         f"{fasting_line}"
-                        f"• Location:\n{full_location}"
                     )
                     await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
                     try:
@@ -8228,46 +10083,51 @@ end
                     if len(clean_admin_phone) == 10:
                         clean_admin_phone = f"91{clean_admin_phone}"
 
-                    admin_alert_text = (
-                        f"🔔 *New Booking Confirmed!* 📅\n\n"
-                        f"• *Customer:* {name}\n"
-                        f"• *Phone:* {contact_phone}\n"
-                        f"• *Service:* {service_name}\n"
-                        + (f"• *Fee / Amount:* ₹{eff_price:g}\n" if eff_price > 0 else "")
-                        + f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                        + (f"• *Address:* {booking_loc}\n" if booking_loc else "")
-                        + f"• *Email:* {customer_email or 'Not provided'}\n\n"
-                        f"✅ Confirmed by WhatsApp AI Assistant & logged in CRM."
-                    )
-                    admin_template = (
-                        creds.get("template_admin_notification") or
-                        (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or
-                        "admin_notification"
-                    )
-                    admin_components = [
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": name},
-                                {"type": "text", "text": contact_phone},
-                                {"type": "text", "text": service_name},
-                                {"type": "text", "text": formatted_date},
-                                {"type": "text", "text": formatted_time},
-                            ]
-                        }
-                    ]
-                    try:
-                        await send_template(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=clean_admin_phone,
-                            template_name=admin_template,
-                            language_code="en",
-                            components=admin_components,
+                    bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
+                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, contact_phone)
+                    if is_self:
+                        logger.info("admin_notification_template_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
+                    else:
+                        admin_alert_text = (
+                            f"🔔 *New Booking Confirmed!* 📅\n\n"
+                            f"• *Customer:* {name}\n"
+                            f"• *Phone:* {contact_phone}\n"
+                            f"• *Service:* {service_name}\n"
+                            + (f"• *Fee / Amount:* ₹{eff_price:g}\n" if eff_price > 0 else "")
+                            + f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                            + (f"• *Address:* {booking_loc}\n" if booking_loc else "")
+                            + f"• *Email:* {customer_email or 'Not provided'}\n\n"
+                            f"✅ Confirmed by WhatsApp AI Assistant & logged in CRM."
                         )
-                        logger.info("admin_notification_template_sent", template=admin_template, to=clean_admin_phone)
-                    except Exception as e:
-                        logger.warning("admin_notification_template_failed_text_suppressed", error=str(e), template=admin_template)
+                        admin_template = (
+                            creds.get("template_admin_notification") or
+                            (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or
+                            "admin_notification"
+                        )
+                        admin_components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": contact_phone},
+                                    {"type": "text", "text": service_name},
+                                    {"type": "text", "text": formatted_date},
+                                    {"type": "text", "text": formatted_time},
+                                ]
+                            }
+                        ]
+                        try:
+                            await send_template(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=clean_admin_phone,
+                                template_name=admin_template,
+                                language_code="en",
+                                components=admin_components,
+                            )
+                            logger.info("admin_notification_template_sent", template=admin_template, to=clean_admin_phone)
+                        except Exception as e:
+                            logger.warning("admin_notification_template_failed_text_suppressed", error=str(e), template=admin_template)
 
             # 3. Google Calendar Event Creation & Email Invite to Both Customer & Admin
             gcal_row = await self.db_pool.fetchrow(
@@ -8515,6 +10375,12 @@ end
                                 concerns_catalog.append(str(c).strip())
                 except Exception as e_t:
                     logger.debug("tenant_settings_services_fetch_err", error=str(e_t))
+
+                # Match against Ad Referral if present
+                ad_ref_m = re.search(r'\[Ad Referral:\s*([^\]]+)\]', user_full_text, re.IGNORECASE)
+                if ad_ref_m:
+                    extracted_concern = ad_ref_m.group(1).strip()
+                    lead_prob = "hot"
 
                 # Match against services catalog
                 for svc in services_catalog:
@@ -9020,57 +10886,62 @@ end
                     if len(clean_admin_phone) == 10:
                         clean_admin_phone = f"91{clean_admin_phone}"
 
-                    admin_cancel_text = (
-                        f"⚠️ *Booking Cancelled Notice!* 📅\n\n"
-                        f"• *Customer:* {name}\n"
-                        f"• *Phone:* {contact_phone}\n"
-                        f"• *Service:* {service_name}\n"
-                        f"• *Original Date & Time:* {formatted_date} at {formatted_time}\n\n"
-                        f"❌ The booking has been marked cancelled in CRM and removed from Google Calendar."
-                    )
-                    # Send Meta Template FIRST (immune to 24h customer window)
-                    admin_cancel_template = (
-                        creds.get("template_admin_cancellation_notice") or
-                        (tenant_st_row.get("template_admin_cancellation_notice") if tenant_st_row else None) or
-                        "admin_cancellation_notice"
-                    )
-                    admin_cancel_components = [
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": name},
-                                {"type": "text", "text": contact_phone},
-                                {"type": "text", "text": service_name},
-                                {"type": "text", "text": formatted_date},
-                                {"type": "text", "text": formatted_time},
-                            ]
-                        }
-                    ]
-                    try:
-                        await send_template(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=clean_admin_phone,
-                            template_name=admin_cancel_template,
-                            language_code="en",
-                            components=admin_cancel_components,
+                    bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
+                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, contact_phone)
+                    if is_self:
+                        logger.info("admin_cancellation_template_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
+                    else:
+                        admin_cancel_text = (
+                            f"⚠️ *Booking Cancelled Notice!* 📅\n\n"
+                            f"• *Customer:* {name}\n"
+                            f"• *Phone:* {contact_phone}\n"
+                            f"• *Service:* {service_name}\n"
+                            f"• *Original Date & Time:* {formatted_date} at {formatted_time}\n\n"
+                            f"❌ The booking has been marked cancelled in CRM and removed from Google Calendar."
                         )
-                        logger.info("admin_cancellation_template_sent", template=admin_cancel_template, to=clean_admin_phone)
-                    except Exception as e:
-                        logger.warning("admin_cancellation_template_failed_trying_fallback", error=str(e), template=admin_cancel_template)
-                        fallback_template = creds.get("template_admin_notification") or (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or "admin_notification"
+                        # Send Meta Template FIRST (immune to 24h customer window)
+                        admin_cancel_template = (
+                            creds.get("template_admin_cancellation_notice") or
+                            (tenant_st_row.get("template_admin_cancellation_notice") if tenant_st_row else None) or
+                            "admin_cancellation_notice"
+                        )
+                        admin_cancel_components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": contact_phone},
+                                    {"type": "text", "text": service_name},
+                                    {"type": "text", "text": formatted_date},
+                                    {"type": "text", "text": formatted_time},
+                                ]
+                            }
+                        ]
                         try:
                             await send_template(
                                 phone_number_id=creds["phone_number_id"],
                                 access_token=creds["access_token"],
                                 to=clean_admin_phone,
-                                template_name=fallback_template,
+                                template_name=admin_cancel_template,
                                 language_code="en",
                                 components=admin_cancel_components,
                             )
-                            logger.info("admin_cancellation_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
-                        except Exception as e_fb:
-                            logger.warning("admin_cancellation_fallback_failed_text_suppressed", error=str(e_fb))
+                            logger.info("admin_cancellation_template_sent", template=admin_cancel_template, to=clean_admin_phone)
+                        except Exception as e:
+                            logger.warning("admin_cancellation_template_failed_trying_fallback", error=str(e), template=admin_cancel_template)
+                            fallback_template = creds.get("template_admin_notification") or (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or "admin_notification"
+                            try:
+                                await send_template(
+                                    phone_number_id=creds["phone_number_id"],
+                                    access_token=creds["access_token"],
+                                    to=clean_admin_phone,
+                                    template_name=fallback_template,
+                                    language_code="en",
+                                    components=admin_cancel_components,
+                                )
+                                logger.info("admin_cancellation_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
+                            except Exception as e_fb:
+                                logger.warning("admin_cancellation_fallback_failed_text_suppressed", error=str(e_fb))
 
             # 5. Direct Gmail API Cancellation Email to Admin & Customer
             gcal_row = await self.db_pool.fetchrow(
@@ -9150,22 +11021,26 @@ end
         contact_phone: str,
         customer_name: str,
         creds: Optional[dict],
+        reason: str = "Customer requested human support",
     ):
-        """Sends instant WhatsApp alert and Meta template to Admin when human takeover is requested."""
+        """Sends instant WhatsApp alert and Meta template to Admin when human takeover or callback is requested."""
         try:
             name = customer_name or "A customer"
+            is_call = "call" in reason.lower()
+            notif_title = f"Callback Requested: {name}" if is_call else f"Staff Takeover Requested: {name}"
+            notif_body = f"{contact_phone} requested a phone call / callback." if is_call else f"{contact_phone} requested to speak with a human team member."
 
-            # Dispatch Web Push Notification for Human Takeover Request
+            # Dispatch Web Push Notification for Human Takeover / Callback Request
             try:
                 asyncio.create_task(
                     dispatch_push_notification(
                         pool=self.db_pool,
                         tenant_id=tenant_id,
-                        title=f"Staff Takeover Requested: {name}",
-                        body=f"{contact_phone} requested to speak with a human team member.",
-                        notif_type="human_request",
+                        title=notif_title,
+                        body=notif_body,
+                        notif_type="callback_request" if is_call else "human_request",
                         url="/dashboard#inbox",
-                        data={"contact_phone": contact_phone, "conversation_id": conv_id}
+                        data={"contact_phone": contact_phone, "conversation_id": conv_id, "reason": reason}
                     )
                 )
             except Exception as pe:
@@ -9185,11 +11060,13 @@ end
                 if not clean_admin.startswith("+"):
                     clean_admin = f"+91{clean_admin}" if len(clean_admin) == 10 else f"+{clean_admin}"
 
+                alert_icon = "📞" if is_call else "👤"
+                alert_heading = "Callback Requested!" if is_call else "Staff Takeover Requested!"
                 alert_text = (
-                    f"🚨 *Staff Takeover Requested!* 👤\n\n"
+                    f"🚨 *{alert_heading}* {alert_icon}\n\n"
                     f"• *Customer:* {name}\n"
                     f"• *Phone:* {contact_phone}\n\n"
-                    f"💬 The customer requested to speak with a human team member. AI automation has been paused for this chat. Please open your CRM dashboard to reply."
+                    f"💬 {reason}. AI automation has been paused for this chat. Please call the customer or open your CRM dashboard."
                 )
                 admin_template = (
                     creds.get("template_admin_human_request") or
@@ -9202,12 +11079,12 @@ end
                         "parameters": [
                             {"type": "text", "text": name},
                             {"type": "text", "text": contact_phone},
-                            {"type": "text", "text": "Customer requested human support"},
+                            {"type": "text", "text": reason},
                         ]
                     }
                 ]
                 try:
-                    await send_template(
+                    w_wa_id = await send_template(
                         phone_number_id=creds["phone_number_id"],
                         access_token=creds["access_token"],
                         to=clean_admin,
@@ -9215,9 +11092,30 @@ end
                         language_code="en",
                         components=components,
                     )
-                    logger.info("admin_human_alert_template_sent", template=admin_template, to=clean_admin)
+                    logger.info("admin_human_alert_template_sent", template=admin_template, to=clean_admin, reason=reason, wa_message_id=w_wa_id)
+                    try:
+                        admin_cid = await self._upsert_contact(tenant_id, clean_admin, "Admin")
+                        admin_conv_id, _ = await self._get_or_create_conversation(tenant_id, admin_cid)
+                        await self.db_pool.execute("""
+                            INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, template_name, ai_used_fallback)
+                            VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, 'sent', $5, $6, false)
+                        """, str(uuid.uuid4()), admin_conv_id, tenant_id, f"📋 [Admin Alert: {admin_template}] Customer: {name} ({contact_phone}) - Reason: {reason}", w_wa_id, admin_template)
+                    except Exception as e_rec:
+                        logger.debug("admin_alert_message_record_skipped", error=str(e_rec))
                 except Exception as e:
-                    logger.warning("admin_human_alert_template_failed_text_suppressed", error=str(e), template=admin_template)
+                    logger.warning("admin_human_alert_template_failed", error=str(e), template=admin_template)
+                    # Attempt text fallback if template fails
+                    try:
+                        from providers.whatsapp_sender import send_whatsapp_message
+                        await send_whatsapp_message(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_admin,
+                            text=alert_text,
+                        )
+                        logger.info("admin_human_alert_text_fallback_sent", to=clean_admin)
+                    except Exception as te:
+                        logger.warning("admin_human_alert_text_fallback_failed", error=str(te))
         except Exception as e:
             logger.error("execute_admin_human_alert_failed", error=str(e))
 
@@ -9638,50 +11536,55 @@ end
                     if len(clean_admin_phone) == 10:
                         clean_admin_phone = f"91{clean_admin_phone}"
 
-                    # Send Meta Template FIRST (immune to 24h customer window)
-                    admin_template = (
-                        creds.get("template_admin_reschedule_notice") or
-                        (tenant_st_row.get("template_admin_reschedule_notice") if tenant_st_row else None) or
-                        "admin_reschedule_notice"
-                    )
-                    admin_components = [
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": name},
-                                {"type": "text", "text": contact_phone},
-                                {"type": "text", "text": service_name},
-                                {"type": "text", "text": formatted_date},
-                                {"type": "text", "text": formatted_time},
-                            ]
-                        }
-                    ]
-                    try:
-                        await send_template(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=clean_admin_phone,
-                            template_name=admin_template,
-                            language_code="en",
-                            components=admin_components,
+                    bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
+                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, contact_phone)
+                    if is_self:
+                        logger.info("admin_reschedule_template_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
+                    else:
+                        # Send Meta Template FIRST (immune to 24h customer window)
+                        admin_template = (
+                            creds.get("template_admin_reschedule_notice") or
+                            (tenant_st_row.get("template_admin_reschedule_notice") if tenant_st_row else None) or
+                            "admin_reschedule_notice"
                         )
-                        logger.info("admin_reschedule_template_sent", template=admin_template, to=clean_admin_phone)
-                    except Exception as e:
-                        logger.warning("admin_reschedule_template_failed_trying_fallback", error=str(e), template=admin_template)
-                        # Fallback to approved admin_notification template if specific reschedule template is pending in Meta
-                        fallback_template = creds.get("template_admin_notification") or "admin_notification"
+                        admin_components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": contact_phone},
+                                    {"type": "text", "text": service_name},
+                                    {"type": "text", "text": formatted_date},
+                                    {"type": "text", "text": formatted_time},
+                                ]
+                            }
+                        ]
                         try:
                             await send_template(
                                 phone_number_id=creds["phone_number_id"],
                                 access_token=creds["access_token"],
                                 to=clean_admin_phone,
-                                template_name=fallback_template,
+                                template_name=admin_template,
                                 language_code="en",
                                 components=admin_components,
                             )
-                            logger.info("admin_reschedule_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
-                        except Exception as e_fb:
-                            logger.warning("admin_reschedule_fallback_template_failed_text_suppressed", error=str(e_fb))
+                            logger.info("admin_reschedule_template_sent", template=admin_template, to=clean_admin_phone)
+                        except Exception as e:
+                            logger.warning("admin_reschedule_template_failed_trying_fallback", error=str(e), template=admin_template)
+                            # Fallback to approved admin_notification template if specific reschedule template is pending in Meta
+                            fallback_template = creds.get("template_admin_notification") or "admin_notification"
+                            try:
+                                await send_template(
+                                    phone_number_id=creds["phone_number_id"],
+                                    access_token=creds["access_token"],
+                                    to=clean_admin_phone,
+                                    template_name=fallback_template,
+                                    language_code="en",
+                                    components=admin_components,
+                                )
+                                logger.info("admin_reschedule_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
+                            except Exception as e_fb:
+                                logger.warning("admin_reschedule_fallback_template_failed_text_suppressed", error=str(e_fb))
         except Exception as e:
             logger.error("execute_ai_reschedule_failed", error=str(e), tenant_id=tenant_id)
         finally:
@@ -9824,26 +11727,32 @@ end
         except Exception as e:
             logger.warning("auto_assign_lead_error", error=str(e), tenant_id=tenant_id)
 
+        is_global_off = (settings_obj.get("ai_enabled") is False or settings_obj.get("ai_paused") is True)
+        default_status = "human" if is_global_off else "bot"
+
         new_id = str(uuid.uuid4())
         await self.db_pool.execute(
             """INSERT INTO conversations (id, tenant_id, contact_id, status, assigned_to)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, 'bot', $4)""",
-            new_id, tenant_id, contact_id, assigned_user_id
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)""",
+            new_id, tenant_id, contact_id, default_status, assigned_user_id
         )
-        return new_id, "bot"
+        return new_id, default_status
 
     async def _persist_message(self, tenant_id: str, conversation_id: str,
                                 wa_message_id: str, direction: str, body: str, content_type: str,
                                 media_url: Optional[str] = None):
         clean_body = str(body).strip() if (body and str(body).strip()) else ""
-        if not clean_body:
-            if content_type == "image": clean_body = "📷 [Photo]"
+        if not clean_body or clean_body == "[Message]":
+            if "[unsupported" in str(clean_body).lower() or content_type == "unsupported":
+                clean_body = "Hello! Can I get more info on this?"
+            elif content_type == "image": clean_body = "📷 [Photo]"
             elif content_type == "video": clean_body = "🎥 [Video]"
             elif content_type == "document": clean_body = "📄 [Document]"
             elif content_type == "audio": clean_body = "🎵 [Audio]"
             elif content_type == "sticker": clean_body = "🏷️ [Sticker]"
             elif content_type == "location": clean_body = "📍 [Location]"
-            else: clean_body = "[Message]"
+            elif content_type == "interactive": clean_body = "🔘 [Interactive Selection]"
+            else: clean_body = "Hello! Can I get more info on this?"
 
         await self.db_pool.execute(
             """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, media_url, status)
@@ -10697,6 +12606,16 @@ end
                         )
                         continue
 
+                    bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
+                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, job.get("phone", ""))
+                    if is_self:
+                        logger.info("scheduled_admin_reminder_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
+                        await self.db_pool.execute(
+                            "UPDATE scheduled_jobs SET status = 'skipped_self_or_contact', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                            job["id"], job["tenant_id"]
+                        )
+                        continue
+
                     template_name = (
                         creds.get("template_admin_appointment_reminder") or
                         t_st.get("template_admin_appointment_reminder") or
@@ -11179,6 +13098,8 @@ end
                       RIGHT(REGEXP_REPLACE(COALESCE(tc.credential_data->>'admin_whatsapp_number', ''), '[^0-9]', '', 'g'), 10),
                       RIGHT(REGEXP_REPLACE(COALESCE(t.settings->>'admin_whatsapp_number', ''), '[^0-9]', '', 'g'), 10)
                   )
+                  -- Exclude conversations where customer requested a phone call / callback
+                  AND COALESCE((c.wa_context->>'callback_requested')::boolean, false) = false
                   -- Multi-touch free window conditions (Touch 1 at 2h+, Touch 2 at 20h+):
                   AND (
                       -- Touch 1: 2h <= inactivity < 19h, and no touch 1 sent for this inbound session
@@ -11247,6 +13168,15 @@ end
                     phone_number_id = wa_creds.get("phone_number_id")
                     access_token = wa_creds.get("access_token")
                     if not phone_number_id or not access_token or not contact_phone:
+                        continue
+
+                    # Exclude conversations where customer requested a phone call / callback
+                    wa_ctx = row["wa_context"] or {}
+                    if isinstance(wa_ctx, str):
+                        try: wa_ctx = json.loads(wa_ctx)
+                        except: wa_ctx = {}
+                    if wa_ctx.get("callback_requested") is True or str(wa_ctx.get("callback_requested")).lower() == "true":
+                        logger.info("incomplete_followup_skipped_callback_requested", conv_id=conv_id, tenant_id=tenant_id)
                         continue
 
                     # 1. Quiet Hours Check based on tenant's timezone & operating hours
@@ -11349,6 +13279,29 @@ end
                         logger.info("skipping_followup_opt_out_detected", conv_id=conv_id, tenant_id=tenant_id)
                         continue
 
+                    # Callback Safety Net: NEVER send automated follow-up if customer asked for a phone call / callback
+                    callback_phrases = [
+                        "call me", "please call", "pls call", "give me a call", "can you call",
+                        "could you call", "call back", "request a call", "request callback",
+                        "call pannunga", "call panni pesunga", "call panni", "enakku call", "phone me", "speak on phone"
+                    ]
+                    if any(w in clean_last_user_msg.lower() for w in callback_phrases):
+                        logger.info("skipping_followup_callback_requested_by_customer", conv_id=conv_id, tenant_id=tenant_id)
+                        try:
+                            await self.db_pool.execute(
+                                """UPDATE conversations 
+                                   SET wa_context = jsonb_set(
+                                       jsonb_set(coalesce(wa_context, '{}'::jsonb), '{callback_requested}', 'true'::jsonb),
+                                       '{callback_requested_at}', to_jsonb(now()::text)
+                                   ),
+                                   updated_at = now() 
+                                   WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                                conv_id, tenant_id
+                            )
+                        except Exception:
+                            pass
+                        continue
+
                     # Retrieve contact details (health concern, doctor, preferred language) for richer context
                     cust_phone_clean = re.sub(r'[^0-9]', '', str(contact_phone or ""))
                     cust_last10 = cust_phone_clean[-10:] if len(cust_phone_clean) >= 10 else cust_phone_clean
@@ -11377,11 +13330,17 @@ end
                         or "aadhiran" in str(tenant_slug).lower()
                         or "aadhiran" in str(tenant_name).lower()
                     )
+                    is_tenant_vetrivel = (
+                        str(tenant_id) == "5e1f8aff-ae3b-4f5a-b8b6-f02af90a961d"
+                        or "vetrivel" in str(tenant_slug).lower()
+                        or "vetrivel" in str(tenant_name).lower()
+                    )
                     style_profile = self._detect_dialect_and_texting_style(
                         clean_last_user_msg,
                         history,
                         stored_language=cust_saved_lang,
                         is_aadhiran=is_tenant_aadhiran,
+                        is_vetrivel=is_tenant_vetrivel,
                     )
 
                     ai_cfg = await self._get_ai_config(tenant_id)

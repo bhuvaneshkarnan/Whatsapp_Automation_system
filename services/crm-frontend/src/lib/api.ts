@@ -634,6 +634,51 @@ export interface GlobalRulesResponse {
 }
 
 
+export interface StructuredService {
+  name: string;
+  duration?: number;
+  price?: number;
+  category?: string;
+  [key: string]: any;
+}
+
+export interface StructuredDoctor {
+  name: string;
+  specialty?: string;
+  qualification?: string;
+  fee?: number;
+  schedule?: string;
+  available_days?: string[];
+  [key: string]: any;
+}
+
+export interface OptimizedPromptData {
+  assistant_name: string;
+  facility_term?: string;
+  unified_knowledge_base?: string;
+  ai_prompt: string;
+  services_text: string;
+  services_list?: StructuredService[];
+  requirement_presets?: string[];
+  doctors?: StructuredDoctor[];
+  opening_time?: string;
+  closing_time?: string;
+  is_24_7?: boolean;
+  operating_hours?: string;
+  full_location_text?: string;
+  location?: string;
+  google_maps_url?: string;
+  booking_payment_policy?: string;
+  slot_duration?: number;
+  slot_duration_mins?: number;
+  bot_goal: string;
+  strict_rules: string;
+  objection_handling: string;
+  response_style: string;
+  summary?: string;
+  custom_prompt?: string;
+}
+
 export interface Contact {
   id: string;
   phone: string;
@@ -790,7 +835,7 @@ export const crm = {
         phone: c.phone || c.contact_phone || '',
         contact_name: c.name || c.contact_name || '',
         contact_phone: c.phone || c.contact_phone || '',
-        ai_enabled: c.status !== 'human',
+        ai_enabled: c.ai_enabled !== undefined ? Boolean(c.ai_enabled) : (c.status !== 'human' && c.status !== 'manual' && c.status !== 'off' && c.status !== 'human_takeover' && c.status !== 'false'),
         assigned_to: c.assigned_to || null,
         assigned_staff_name: c.assigned_staff_name || null,
         assigned_staff_email: c.assigned_staff_email || null,
@@ -833,7 +878,7 @@ export const crm = {
       method: 'PATCH',
       body: JSON.stringify({ status: enabled ? 'bot' : 'human' }),
     });
-    return { id: convId, ai_enabled: res.ai_enabled };
+    return { id: convId, ai_enabled: res.ai_enabled, status: res.conv_status };
   },
 
   toggleAllAi: async (enabled: boolean) => {
@@ -1047,24 +1092,7 @@ export const crm = {
     request<{
       success: boolean;
       provider?: string;
-      optimized: {
-        assistant_name: string;
-        unified_knowledge_base?: string;
-        ai_prompt: string;
-        services_text: string;
-        services_list?: Array<{ name: string; duration?: number; price?: number; [key: string]: any }>;
-        opening_time?: string;
-        closing_time?: string;
-        is_24_7?: boolean;
-        operating_hours?: string;
-        full_location_text?: string;
-        bot_goal: string;
-        strict_rules: string;
-        objection_handling: string;
-        response_style: string;
-        summary?: string;
-        custom_prompt?: string;
-      };
+      optimized: OptimizedPromptData;
     }>('/api/v1/crm/settings/optimize-prompt', {
       method: 'POST',
       body: JSON.stringify({ raw_dump: rawDump, custom_prompt: customPrompt }),
@@ -1662,6 +1690,7 @@ export interface TenantSettingsResponse {
   leave_schedules?: LeaveSchedule[];
 
   industry?: string;
+  facility_term?: string;
   taxonomy?: {
     staff_label?: string;
     preset_role_label?: string;
@@ -1723,6 +1752,16 @@ export interface TenantSettingsResponse {
   booking_fee_amount?: number;
   booking_fee_currency?: string;
   booking_fee_description?: string;
+
+  // Structured Services, Doctors, Schedule, and Location
+  services?: StructuredService[];
+  doctors?: StructuredDoctor[];
+  location?: string;
+  google_maps_url?: string;
+  slot_duration?: number;
+  slot_duration_mins?: number;
+  is_24_7?: boolean;
+  operating_hours?: string;
 }
 
 export interface WhatsAppHealthStatus {
@@ -2242,24 +2281,7 @@ export const admin = {
     return request<{
       success: boolean;
       provider?: string;
-      optimized: {
-        assistant_name: string;
-        unified_knowledge_base?: string;
-        ai_prompt: string;
-        services_text: string;
-        services_list?: Array<{ name: string; duration?: number; price?: number; [key: string]: any }>;
-        opening_time?: string;
-        closing_time?: string;
-        is_24_7?: boolean;
-        operating_hours?: string;
-        full_location_text?: string;
-        bot_goal: string;
-        strict_rules: string;
-        objection_handling: string;
-        response_style: string;
-        summary?: string;
-        custom_prompt?: string;
-      };
+      optimized: OptimizedPromptData;
     }>(`/api/v1/crm/settings/optimize-prompt${qs}`, {
       method: 'POST',
       body: JSON.stringify({ raw_dump: rawDump, custom_prompt: customPrompt }),
