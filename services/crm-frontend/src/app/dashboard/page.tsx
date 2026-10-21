@@ -1214,36 +1214,29 @@ const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
     'Follow-up Session',
     'Priority Support',
   ],
-  ecommerce: [
-    'Product Inquiry / Sizing',
-    'Order Status & Tracking',
-    'Return / Exchange Request',
-    'Restock & Repurchase Alert',
-    'Bulk / Wholesale Order',
-  ],
 };
 
 const INDUSTRY_PRESETS = [
   {
-    id: 'business',
-    name: 'Universal Business & Services',
-    subtitle: 'Appointments, Leads, Retainers, Consulting & Clinics',
+    id: 'clinic',
+    name: 'Clinic & Healthcare',
+    subtitle: 'Appointments, Consultations, Doctors, Patients & Health Concerns',
     taxonomy: {
-      staff_label: 'Assigned Staff',
-      client_label: 'Client',
-      client_plural: 'Clients',
-      requirement_label: 'Requirement / Service Focus',
-      event_label: 'Meeting / Session',
-      booking_cta: '+ Schedule Session',
+      staff_label: 'Doctor / Specialist',
+      client_label: 'Patient',
+      client_plural: 'Patients',
+      requirement_label: 'Health Concern / Symptoms',
+      event_label: 'Appointment',
+      booking_cta: '+ Book Appointment',
       tab_chats_label: 'Chats',
-      tab_clients_label: 'Clients',
-      tab_repeat_label: 'Repeat Clients',
-      tab_bookings_label: 'Bookings',
+      tab_clients_label: 'Patients',
+      tab_repeat_label: 'Repeat Patients',
+      tab_bookings_label: 'Appointments',
       tab_calendar_label: 'Calendar schedule',
       tab_marketing_label: 'Marketing',
       // Main Customer Table Columns
-      col_customer_label: 'Client & Contact',
-      col_assigned_label: 'Staff & Status',
+      col_customer_label: 'Patient & Contact',
+      col_assigned_label: 'Doctor & Status',
       col_followup_label: 'Follow-up & Action',
       phone_label: 'Phone',
       age_location_label: 'Age & Location',
@@ -1254,17 +1247,17 @@ const INDUSTRY_PRESETS = [
       notes_label: 'Latest Note',
       actions_label: 'Action',
       // Repeat Clients Table Columns
-      repeat_col_client: 'Client & Contact',
-      repeat_col_visits: 'Visits & Loyalty',
-      repeat_col_last_session: 'Last Session Details',
-      repeat_col_retention: 'Retention Status',
-      repeat_col_staff: 'Assigned Staff',
-      repeat_col_requirement: 'Requirement / Service',
-      repeat_col_actions: 'Direct Actions',
+      repeat_col_client: 'Patient & Contact',
+      repeat_col_visits: 'Visits & Follow-ups',
+      repeat_col_last_session: 'Last Consultation',
+      repeat_col_retention: 'Patient Status',
+      repeat_col_staff: 'Attending Doctor',
+      repeat_col_requirement: 'Health Concern',
+      repeat_col_actions: 'Actions',
       // Bookings Table Columns
-      booking_col_client: 'Client',
-      booking_col_service: 'Service Focus',
-      booking_col_datetime: 'Scheduled date & time',
+      booking_col_client: 'Patient',
+      booking_col_service: 'Consultation / Concern',
+      booking_col_datetime: 'Appointment Date & Time',
       booking_col_fee: 'Fee',
       booking_col_status: 'Status',
       booking_col_action: 'Action',
@@ -1282,126 +1275,7 @@ const INDUSTRY_PRESETS = [
       chat_filter_leads: 'Leads',
       chat_filter_repeat: 'Repeat',
       chat_filter_unread: 'Unread',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.business,
-    },
-  },
-  {
-    id: 'ecommerce',
-    name: 'E-Commerce & Retail',
-    subtitle: 'Products, Orders, Shipments & Re-orders',
-    taxonomy: {
-      staff_label: 'Sales Rep / Support',
-      client_label: 'Customer',
-      client_plural: 'Customers',
-      requirement_label: 'Interested Product / SKU',
-      event_label: 'Order / Delivery',
-      booking_cta: '+ New Order',
-      tab_chats_label: 'Chats',
-      tab_clients_label: 'Buyers',
-      tab_repeat_label: 'Repeat Buyers',
-      tab_bookings_label: 'Orders',
-      tab_calendar_label: 'Dispatch Calendar',
-      tab_marketing_label: 'Campaigns',
-      // Main Customer Table Columns
-      col_customer_label: 'Customer & Contact',
-      col_assigned_label: 'Rep & Order Status',
-      col_followup_label: 'Dispatch & Action',
-      phone_label: 'Phone',
-      age_location_label: 'Shipping Location',
-      status_label: 'Order Status',
-      lead_label: 'Intent Score',
-      followup_label: 'Next Follow-up',
-      created_label: 'Order Date',
-      notes_label: 'Order Note',
-      actions_label: 'Action',
-      // Repeat Clients Table Columns
-      repeat_col_client: 'Customer & Contact',
-      repeat_col_visits: 'Orders & Repurchases',
-      repeat_col_last_session: 'Last Order Details',
-      repeat_col_retention: 'Buyer Status',
-      repeat_col_staff: 'Assigned Rep',
-      repeat_col_requirement: 'Product Interest',
-      repeat_col_actions: 'Direct Actions',
-      // Bookings Table Columns
-      booking_col_client: 'Customer',
-      booking_col_service: 'Product / SKU',
-      booking_col_datetime: 'Delivery Date',
-      booking_col_fee: 'Total Amount',
-      booking_col_status: 'Order Status',
-      booking_col_action: 'Action',
-      // Inner Row Badges & Buttons
-      lead_badge_label: 'New Buyer',
-      repeat_badge_label: 'Loyal Buyer',
-      add_note_label: 'Add Note',
-      set_datetime_label: 'Set Delivery Time',
-      // Sub-View Navigation Tabs
-      subtab_followup_label: 'Pending Orders',
-      subtab_tasks_label: 'Tasks',
-      subtab_notes_label: 'Notes',
-      // Chats Filters
-      chat_filter_all: 'All',
-      chat_filter_leads: 'New Buyers',
-      chat_filter_repeat: 'Repeat Buyers',
-      chat_filter_unread: 'Unread',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.ecommerce,
-    },
-  },
-  {
-    id: 'custom',
-    name: 'Custom / Other',
-    subtitle: 'Fully custom entities, fields & tabs',
-    taxonomy: {
-      staff_label: 'Staff',
-      client_label: 'Customer',
-      client_plural: 'Customers',
-      requirement_label: 'Requirement',
-      event_label: 'Booking',
-      booking_cta: '+ New Booking',
-      tab_chats_label: 'Chats',
-      tab_clients_label: 'Customers',
-      tab_repeat_label: 'Repeat Clients',
-      tab_bookings_label: 'Bookings',
-      tab_calendar_label: 'Calendar schedule',
-      tab_marketing_label: 'Marketing',
-      col_customer_label: 'Customer & Tags',
-      col_assigned_label: 'Staff & Status',
-      col_followup_label: 'Follow-up & Action',
-      phone_label: 'Phone',
-      age_location_label: 'Details',
-      status_label: 'Status',
-      lead_label: 'Lead',
-      followup_label: 'Follow-up',
-      created_label: 'Added',
-      notes_label: 'Notes',
-      actions_label: 'Action',
-      repeat_col_client: 'Client & Contact',
-      repeat_col_visits: 'Visits & Loyalty',
-      repeat_col_last_session: 'Last Session Details',
-      repeat_col_retention: 'Retention Status',
-      repeat_col_staff: 'Assigned Staff',
-      repeat_col_requirement: 'Requirement / Service',
-      repeat_col_actions: 'Actions',
-      booking_col_client: 'Customer',
-      booking_col_service: 'Service / Item',
-      booking_col_datetime: 'Date & Time',
-      booking_col_fee: 'Price / Fee',
-      booking_col_status: 'Status',
-      booking_col_action: 'Action',
-      // Inner Row Badges & Buttons
-      lead_badge_label: 'Lead',
-      repeat_badge_label: 'Repeat',
-      add_note_label: 'Add Note',
-      set_datetime_label: 'Set Date & Time',
-      // Sub-View Navigation Tabs
-      subtab_followup_label: 'Follow-up',
-      subtab_tasks_label: 'Tasks',
-      subtab_notes_label: 'Notes',
-      // Chats Filters
-      chat_filter_all: 'All',
-      chat_filter_leads: 'Leads',
-      chat_filter_repeat: 'Repeat',
-      chat_filter_unread: 'Unread',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.custom,
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic,
     },
   },
 ];
@@ -2346,7 +2220,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     return 'overview';
   });
-  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'whatsapp' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team' | 'ai_usage' | 'website_form' | 'leaves' | 'instagram_setting' | 'voice_calling' | 'payments' | 'channels'>('billing');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'whatsapp' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team' | 'ai_usage' | 'website_form' | 'leaves' | 'instagram_setting' | 'payments' | 'channels'>('billing');
   const [embedLayout, setEmbedLayout] = useState<'steps' | 'single'>('steps');
   const [embedHideHeader, setEmbedHideHeader] = useState(true);
   const [embedSource, setEmbedSource] = useState('website_form');
@@ -3024,7 +2898,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }, [customers]);
 
   // Customer sorting & repeat client count
-  const [followupSortBy, setFollowupSortBy] = useState<'default' | 'most_visits' | 'warmth'>('default');
+  const [followupSortBy, setFollowupSortBy] = useState<'default' | 'newest_leads' | 'most_visits' | 'warmth'>('default');
 
   const repeatClientsCount = useMemo(() => {
     return (customers || []).filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat').length;
@@ -3038,10 +2912,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         const isIg = (c as any).channel === 'instagram' || (c as any).source === 'instagram' || (c.phone || '').startsWith('ig:') || Boolean((c as any).ig_username);
         if (customerChannel === 'instagram' && !isIg) return false;
         if (customerChannel === 'whatsapp' && isIg) return false;
+        if (followupStatusFilter === 'today') {
+          if (!(c as any).is_new_today) return false;
+        }
         return true;
       })
       .sort((a, b) => {
-        if (followupSortBy === 'most_visits') {
+        if (followupSortBy === 'newest_leads') {
+          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+          if (bTime !== aTime) return bTime - aTime;
+        } else if (followupSortBy === 'most_visits') {
           const aVisits = a.completed_bookings_count ?? 0;
           const bVisits = b.completed_bookings_count ?? 0;
           if (bVisits !== aVisits) return bVisits - aVisits;
@@ -3057,7 +2938,81 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         if (!aLost && bLost) return -1;
         return 0;
       });
-  }, [customers, customerChannel, followupSortBy]);
+  }, [customers, customerChannel, followupSortBy, followupStatusFilter]);
+
+  // Progressive display limit for Follow-up table (avoids freezing the browser with 800+ elements)
+  const [customerDisplayLimit, setCustomerDisplayLimit] = useState(60);
+
+  useEffect(() => {
+    setCustomerDisplayLimit(60);
+  }, [followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSortBy, followupSearch, customerChannel]);
+
+  const visibleCustomers = useMemo(() => {
+    return sortedCustomers.slice(0, customerDisplayLimit);
+  }, [sortedCustomers, customerDisplayLimit]);
+
+  // Memoized Repeat Clients Summary & Filtered List for instant 0ms response
+  const repeatClientsSummary = useMemo(() => {
+    const allRepeat = (customers || []).filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
+    const activeCount = allRepeat.filter(c => c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30)).length;
+    const dueCount = allRepeat.filter(c => c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60)).length;
+    const lapsedCount = allRepeat.filter(c => c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60)).length;
+    const vipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 3).length;
+    return { allRepeat, activeCount, dueCount, lapsedCount, vipCount };
+  }, [customers]);
+
+  // Repeat Clients Workspace State
+  const [repeatHealthFilter, setRepeatHealthFilter] = useState<'all' | 'active' | 'due' | 'lapsed' | 'vip'>('all');
+  const [repeatDoctorFilter, setRepeatDoctorFilter] = useState<string>('all');
+  const [repeatSearch, setRepeatSearch] = useState<string>('');
+  const [repeatSortBy, setRepeatSortBy] = useState<'most_visits' | 'longest_idle' | 'recent_visit' | 'name'>('most_visits');
+
+  const filteredRepeatClients = useMemo(() => {
+    let list = (repeatClientsSummary.allRepeat || []).filter((c) => {
+      if (!c) return false;
+      if (repeatSearch) {
+        const q = repeatSearch.toLowerCase();
+        const matches =
+          (c.name || '').toLowerCase().includes(q) ||
+          (c.phone || '').toLowerCase().includes(q) ||
+          (c.patient_id || '').toLowerCase().includes(q) ||
+          (c.health_concern || '').toLowerCase().includes(q) ||
+          (c.last_visit_service || '').toLowerCase().includes(q) ||
+          (c.preferred_doctor || '').toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+      if (repeatDoctorFilter !== 'all') {
+        const doc = c.last_visit_doctor || c.preferred_doctor || '';
+        if (doc !== repeatDoctorFilter) return false;
+      }
+      if (repeatHealthFilter === 'active') {
+        return c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30);
+      }
+      if (repeatHealthFilter === 'due') {
+        return c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60);
+      }
+      if (repeatHealthFilter === 'lapsed') {
+        return c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60);
+      }
+      if (repeatHealthFilter === 'vip') {
+        return (c.completed_bookings_count ?? 0) >= 3;
+      }
+      return true;
+    });
+
+    return [...list].sort((a, b) => {
+      const aVisits = a.completed_bookings_count ?? 0;
+      const bVisits = b.completed_bookings_count ?? 0;
+      const aDays = a.days_since_last_visit ?? 0;
+      const bDays = b.days_since_last_visit ?? 0;
+
+      if (repeatSortBy === 'most_visits') return bVisits - aVisits;
+      if (repeatSortBy === 'longest_idle') return bDays - aDays;
+      if (repeatSortBy === 'recent_visit') return aDays - bDays;
+      if (repeatSortBy === 'name') return (a.name || '').localeCompare(b.name || '');
+      return 0;
+    });
+  }, [repeatClientsSummary, repeatSearch, repeatDoctorFilter, repeatHealthFilter, repeatSortBy]);
 
   // Debounce customer search input to prevent rapid request thrashing & race conditions
   useEffect(() => {
@@ -3067,11 +3022,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return () => clearTimeout(timer);
   }, [followupSearchInput]);
 
-  // Repeat Clients Workspace State
-  const [repeatHealthFilter, setRepeatHealthFilter] = useState<'all' | 'active' | 'due' | 'lapsed' | 'vip'>('all');
-  const [repeatDoctorFilter, setRepeatDoctorFilter] = useState<string>('all');
-  const [repeatSearch, setRepeatSearch] = useState<string>('');
-  const [repeatSortBy, setRepeatSortBy] = useState<'most_visits' | 'longest_idle' | 'recent_visit' | 'name'>('most_visits');
+
 
   // Selected Customer Detail Drawer
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -3289,6 +3240,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [selectedLiveCampaignId, setSelectedLiveCampaignId] = useState<string | null>(null);
   const [liveLogSearch, setLiveLogSearch] = useState('');
   const [resumingCampaign, setResumingCampaign] = useState(false);
+  const [retryingFailed, setRetryingFailed] = useState(false);
 
   // Template Manager & Live Meta Status State
   const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
@@ -3338,7 +3290,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [templateManagerSuccess, setTemplateManagerSuccess] = useState<string | null>(null);
   const [editingTemplateName, setEditingTemplateName] = useState<string | null>(null);
 
-  const [customTemplates, setCustomTemplates] = useState<{ id: string; name: string; label: string; variables_count: number }[]>(() => {
+  const [customTemplates, setCustomTemplates] = useState<{ id: string; name: string; label: string; variables_count: number; header_type?: string; header_sample_url?: string; [key: string]: any }[]>(() => {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('whatsapp_crm_custom_templates');
@@ -3460,8 +3412,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'new' | 'new_lead' | 'repeat' | 'important' | 'hot'>('all');
+  const [filter, setFilter] = useState<'all' | 'today' | 'new' | 'new_lead' | 'repeat' | 'important' | 'hot'>('all');
   const [chatChannel, setChatChannel] = useState<'whatsapp' | 'instagram'>('whatsapp');
+
+  const todayLeadsCount = useMemo(() => {
+    return (conversations || []).filter((c) => {
+      const normPhone = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '').slice(-10);
+      const linkedCust = (customers || []).find((cu) => (cu.phone || '').replace(/[^0-9]/g, '').slice(-10) === normPhone);
+      return Boolean((c as any).is_new_today || linkedCust?.is_new_today);
+    }).length;
+  }, [conversations, customers]);
 
   const hotLeadsCount = useMemo(() => {
     return (conversations || []).filter((c) => {
@@ -3824,7 +3784,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     has_opencode_key?: boolean;
     google_calendar_configured?: boolean;
     admin_email?: string;
-    missed_call_webhook_token?: string;
   }>({
     name: '',
     slug: '',
@@ -3910,10 +3869,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Billing view filters & search
   const [billingSearchQuery, setBillingSearchQuery] = useState('');
-  const [billingDateFilter, setBillingDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month'>('all');
+  const [billingDateFilter, setBillingDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | '7d' | '30d' | 'custom'>('all');
+  const [selectedBillingMonth, setSelectedBillingMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [isBillingMonthPickerOpen, setIsBillingMonthPickerOpen] = useState(false);
+  const [billingPickerYear, setBillingPickerYear] = useState<number>(() => new Date().getFullYear());
+  const [billingStartDate, setBillingStartDate] = useState<string>('');
+  const [billingEndDate, setBillingEndDate] = useState<string>('');
+  const billingMonthPickerRef = useRef<HTMLDivElement>(null);
   const [billingCategoryFilter, setBillingCategoryFilter] = useState<string>('all');
   const [billingPaymentFilter, setBillingPaymentFilter] = useState<'all' | 'paid' | 'unpaid' | 'pay_at_clinic'>('all');
   const [billingStatusFilter, setBillingStatusFilter] = useState<'active' | 'completed' | 'confirmed' | 'cancelled' | 'no_show' | 'all'>('active');
+
+  useEffect(() => {
+    if (!isBillingMonthPickerOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (billingMonthPickerRef.current && !billingMonthPickerRef.current.contains(event.target as Node)) {
+        setIsBillingMonthPickerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isBillingMonthPickerOpen]);
+
+  const handleSelectBillingMonth = (mVal: string) => {
+    setSelectedBillingMonth(mVal);
+    const [y, m] = mVal.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const sDate = `${mVal}-01`;
+    const eDate = `${mVal}-${String(lastDay).padStart(2, '0')}`;
+    setBillingStartDate(sDate);
+    setBillingEndDate(eDate);
+    setBillingDateFilter('30d');
+    setIsBillingMonthPickerOpen(false);
+  };
 
   useEffect(() => {
     if (selectedBookingDetail) {
@@ -4622,13 +4612,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       if (raw === '.' || raw === '-' || raw === '') {
         return '';
       }
-      return raw || (settingsForm.industry === 'clinic' ? 'Preferred Doctor / Staff' : settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Assigned Staff');
+      return raw || 'Doctor / Specialist';
     })(),
-    client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'clinic' ? 'Patient' : settingsForm.industry === 'education' ? 'Student / Parent' : 'Client'),
-    client_plural: settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'clinic' ? 'Patients' : settingsForm.industry === 'education' ? 'Students' : settingsForm.industry === 'legal' ? 'Clients' : settingsForm.industry === 'realestate' ? 'Buyers' : settingsForm.industry === 'fitness' ? 'Members' : 'Clients'),
-    requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'clinic' ? 'Health Concern / Symptoms' : settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Requirement / Service Focus'),
-    event_label: settingsForm.taxonomy?.event_label || (settingsForm.industry === 'clinic' ? 'Appointment' : settingsForm.industry === 'education' ? 'Demo Class / Counseling' : 'Meeting / Session'),
-    booking_cta: settingsForm.taxonomy?.booking_cta || (settingsForm.industry === 'clinic' ? '+ New Appointment' : settingsForm.industry === 'education' ? '+ Book Demo Class' : '+ Schedule Session'),
+    client_label: settingsForm.taxonomy?.client_label || 'Patient',
+    client_plural: settingsForm.taxonomy?.client_plural || 'Patients',
+    requirement_label: settingsForm.taxonomy?.requirement_label || 'Health Concern / Symptoms',
+    event_label: settingsForm.taxonomy?.event_label || 'Appointment',
+    booking_cta: settingsForm.taxonomy?.booking_cta || '+ Book Appointment',
     phone_label: settingsForm.taxonomy?.phone_label || 'Phone',
     age_location_label: settingsForm.taxonomy?.age_location_label || 'Age & Location',
     status_label: settingsForm.taxonomy?.status_label || 'Status',
@@ -4640,42 +4630,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
     // Customizable Navigation Tab Labels
     tab_chats_label: settingsForm.taxonomy?.tab_chats_label || 'Chats',
-    tab_clients_label: settingsForm.taxonomy?.tab_clients_label || settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'clinic' ? 'Patients' : settingsForm.industry === 'education' ? 'Students' : settingsForm.industry === 'ecommerce' ? 'Buyers' : 'Clients'),
-    tab_repeat_label: settingsForm.taxonomy?.tab_repeat_label || (settingsForm.industry === 'ecommerce' ? 'Repeat Buyers' : settingsForm.industry === 'clinic' ? 'Repeat Patients' : 'Repeat Clients'),
-    tab_bookings_label: settingsForm.taxonomy?.tab_bookings_label || (settingsForm.industry === 'ecommerce' ? 'Orders' : settingsForm.industry === 'clinic' ? 'Appointments' : 'Bookings'),
+    tab_clients_label: settingsForm.taxonomy?.tab_clients_label || settingsForm.taxonomy?.client_plural || 'Patients',
+    tab_repeat_label: settingsForm.taxonomy?.tab_repeat_label || 'Repeat Patients',
+    tab_bookings_label: settingsForm.taxonomy?.tab_bookings_label || 'Appointments',
     tab_calendar_label: settingsForm.taxonomy?.tab_calendar_label || 'Calendar schedule',
     tab_marketing_label: settingsForm.taxonomy?.tab_marketing_label || 'Marketing',
 
     // Main Directory Table Columns (Customizable Headers)
-    col_customer_label: settingsForm.taxonomy?.col_customer_label || `${settingsForm.taxonomy?.client_label || (settingsForm.industry === 'clinic' ? 'Patient' : 'Customer')} & Tags`,
+    col_customer_label: settingsForm.taxonomy?.col_customer_label || `${settingsForm.taxonomy?.client_label || 'Patient'} & Tags`,
     col_assigned_label: settingsForm.taxonomy?.col_assigned_label || (
       settingsForm.taxonomy?.staff_label && settingsForm.taxonomy.staff_label.trim() && settingsForm.taxonomy.staff_label !== '.'
         ? `${settingsForm.taxonomy.staff_label.split('/')[0].trim()} & ${(settingsForm.taxonomy?.status_label || 'Status')}`
-        : (settingsForm.taxonomy?.status_label || 'Status / Outcome')
+        : 'Doctor & Status'
     ),
     col_followup_label: settingsForm.taxonomy?.col_followup_label || `${settingsForm.taxonomy?.followup_label || 'Follow-up'} & ${settingsForm.taxonomy?.actions_label || 'Action'}`,
 
-    // Repeat Clients / Buyers Table Columns
-    repeat_col_client: settingsForm.taxonomy?.repeat_col_client || `${settingsForm.taxonomy?.client_label || (settingsForm.industry === 'ecommerce' ? 'Customer' : 'Client')} & Contact`,
-    repeat_col_visits: settingsForm.taxonomy?.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & Repurchases' : 'Visits & Loyalty'),
-    repeat_col_last_session: settingsForm.taxonomy?.repeat_col_last_session || (settingsForm.industry === 'ecommerce' ? 'Last Order Details' : 'Last Session Details'),
-    repeat_col_retention: settingsForm.taxonomy?.repeat_col_retention || (settingsForm.industry === 'ecommerce' ? 'Buyer Status' : 'Retention Status'),
-    repeat_col_staff: settingsForm.taxonomy?.repeat_col_staff || (settingsForm.taxonomy?.staff_label && settingsForm.taxonomy.staff_label !== '.' ? `Assigned ${settingsForm.taxonomy.staff_label.split('/')[0].trim()}` : 'Assigned Staff'),
-    repeat_col_requirement: settingsForm.taxonomy?.repeat_col_requirement || settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'ecommerce' ? 'Product Interest' : 'Requirement / Service'),
-    repeat_col_actions: settingsForm.taxonomy?.repeat_col_actions || settingsForm.taxonomy?.actions_label || 'Direct Actions',
+    // Repeat Clients / Patients Table Columns
+    repeat_col_client: settingsForm.taxonomy?.repeat_col_client || `${settingsForm.taxonomy?.client_label || 'Patient'} & Contact`,
+    repeat_col_visits: settingsForm.taxonomy?.repeat_col_visits || 'Visits & Follow-ups',
+    repeat_col_last_session: settingsForm.taxonomy?.repeat_col_last_session || 'Last Consultation',
+    repeat_col_retention: settingsForm.taxonomy?.repeat_col_retention || 'Patient Status',
+    repeat_col_staff: settingsForm.taxonomy?.repeat_col_staff || (settingsForm.taxonomy?.staff_label && settingsForm.taxonomy.staff_label !== '.' ? `Attending ${settingsForm.taxonomy.staff_label.split('/')[0].trim()}` : 'Attending Doctor'),
+    repeat_col_requirement: settingsForm.taxonomy?.repeat_col_requirement || settingsForm.taxonomy?.requirement_label || 'Health Concern',
+    repeat_col_actions: settingsForm.taxonomy?.repeat_col_actions || settingsForm.taxonomy?.actions_label || 'Actions',
 
-    // Bookings / Orders Table Columns
-    booking_col_client: settingsForm.taxonomy?.booking_col_client || settingsForm.taxonomy?.client_label || (settingsForm.industry === 'ecommerce' ? 'Customer' : 'Client'),
-    booking_col_service: settingsForm.taxonomy?.booking_col_service || settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'ecommerce' ? 'Product / Order' : 'Service'),
-    booking_col_datetime: settingsForm.taxonomy?.booking_col_datetime || (settingsForm.industry === 'ecommerce' ? 'Delivery Date' : 'Scheduled date & time'),
-    booking_col_fee: settingsForm.taxonomy?.booking_col_fee || (settingsForm.industry === 'ecommerce' ? 'Amount / Price' : 'Fee'),
+    // Bookings / Appointments Table Columns
+    booking_col_client: settingsForm.taxonomy?.booking_col_client || settingsForm.taxonomy?.client_label || 'Patient',
+    booking_col_service: settingsForm.taxonomy?.booking_col_service || settingsForm.taxonomy?.requirement_label || 'Health Concern',
+    booking_col_datetime: settingsForm.taxonomy?.booking_col_datetime || 'Appointment Date & Time',
+    booking_col_fee: settingsForm.taxonomy?.booking_col_fee || 'Fee',
     booking_col_status: settingsForm.taxonomy?.booking_col_status || settingsForm.taxonomy?.status_label || 'Status',
     booking_col_action: settingsForm.taxonomy?.booking_col_action || settingsForm.taxonomy?.actions_label || 'Action',
 
     // Chats / Inbox Tab Filters
     chat_filter_all: settingsForm.taxonomy?.chat_filter_all || 'All',
-    chat_filter_leads: settingsForm.taxonomy?.chat_filter_leads || settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'ecommerce' ? 'Buyers' : 'Leads'),
-    chat_filter_repeat: settingsForm.taxonomy?.chat_filter_repeat || settingsForm.taxonomy?.tab_repeat_label || (settingsForm.industry === 'ecommerce' ? 'Repeat Buyers' : 'Repeat'),
+    chat_filter_leads: settingsForm.taxonomy?.chat_filter_leads || settingsForm.taxonomy?.client_plural || 'Leads',
+    chat_filter_repeat: settingsForm.taxonomy?.chat_filter_repeat || settingsForm.taxonomy?.tab_repeat_label || 'Repeat',
     chat_filter_unread: settingsForm.taxonomy?.chat_filter_unread || 'Unread',
 
     // Main Directory Row Badges & Button labels
@@ -5927,15 +5917,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         loadCustomers();
       }
     } else if (activeNav === 'customers' || activeNav === 'repeat_clients') {
-      loadContacts();
-      loadCustomers();
+      if (!customers || customers.length === 0) {
+        loadCustomers();
+      } else {
+        loadCustomers(true);
+      }
       crm.getCrmDropdownOptions().then((res) => { if (res && res.outcome_statuses) setCrmDropdowns(res); }).catch(() => {});
-      crm.getAllNotes().then((n) => { setAllNotes(Array.isArray(n) ? n : []); }).catch(() => {});
     } else if (activeNav === 'followup') {
-      loadCustomers();
+      if (!customers || customers.length === 0) {
+        loadCustomers();
+      } else {
+        loadCustomers(true);
+      }
       loadTasks();
       crm.getCrmDropdownOptions().then((res) => { if (res && res.outcome_statuses) setCrmDropdowns(res); }).catch(() => {});
-      crm.getAllNotes().then((n) => { setAllNotes(Array.isArray(n) ? n : []); }).catch(() => {});
     } else if (activeNav === 'settings') {
       loadSettings();
       if (settingsForm.plan === 'review_only' && (settingsTab === 'calendar' || settingsTab === 'payments' || settingsTab === 'terminology' || settingsTab === 'leaves' || settingsTab === 'website_form')) {
@@ -6182,6 +6177,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setTimeout(() => setActionNotice(null), 4000);
     } finally {
       setResumingCampaign(false);
+    }
+  }
+
+  async function handleRetryFailedCampaign(campaignId: string) {
+    if (!campaignId) return;
+    setRetryingFailed(true);
+    try {
+      const res = await marketing.retryFailedCampaign(campaignId);
+      setActionNotice(res?.message || 'Retrying failed messages with safe rate-limit pacing...');
+      setTimeout(() => setActionNotice(null), 5000);
+      const updated = await marketing.getLiveCampaignStatus(campaignId, true);
+      if (updated && 'id' in updated) {
+        setLiveCampaign(updated);
+      }
+    } catch (err: any) {
+      setActionNotice(`Failed to retry: ${err.message || 'Unknown error'}`);
+      setTimeout(() => setActionNotice(null), 5000);
+    } finally {
+      setRetryingFailed(false);
     }
   }
 
@@ -6885,8 +6899,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  async function loadCustomers() {
-    setLoadingCustomers(true);
+  async function loadCustomers(isSilent = false) {
+    if (!isSilent && (!customers || customers.length === 0)) {
+      setLoadingCustomers(true);
+    }
     try {
       const selected = addedTeams.find((item) => item.label === selectedDepartment || item.id === selectedDepartment);
       let depConcern: string | undefined = undefined;
@@ -8259,13 +8275,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       if (settingsForm.gstin !== undefined) payload.gstin = settingsForm.gstin;
       if (settingsForm.invoice_terms !== undefined) payload.invoice_terms = settingsForm.invoice_terms;
 
-      // WhatsApp AI Voice Calling Add-On
-      if (settingsForm.voice_calling_enabled !== undefined) payload.voice_calling_enabled = Boolean(settingsForm.voice_calling_enabled);
-      if (settingsForm.voice_calling_hours_enabled !== undefined) payload.voice_calling_hours_enabled = Boolean(settingsForm.voice_calling_hours_enabled);
-      if (settingsForm.voice_calling_start_time !== undefined) payload.voice_calling_start_time = settingsForm.voice_calling_start_time;
-      if (settingsForm.voice_calling_end_time !== undefined) payload.voice_calling_end_time = settingsForm.voice_calling_end_time;
-      if (settingsForm.voice_calling_language !== undefined) payload.voice_calling_language = settingsForm.voice_calling_language;
-
       const updated = await crm.updateSettings(payload);
       if (payload.admin_name) {
         setUser((prev) => (prev ? { ...prev, display_name: payload.admin_name } : null));
@@ -9217,6 +9226,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }, [selectedBookingDetail]);
 
+  const lastCampaignTemplateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (campaignForm.message_mode === 'template' && campaignForm.template_name) {
+      const templateChanged = lastCampaignTemplateRef.current !== campaignForm.template_name;
+      lastCampaignTemplateRef.current = campaignForm.template_name;
+
+      const tpl = marketingTemplates.find((t) => t.name === campaignForm.template_name) ||
+                  customTemplates.find((t) => t.name === campaignForm.template_name);
+      const imgUrl = tpl?.header_sample_url || (tpl as any)?.header_media_url || (tpl as any)?.image_url || '';
+      const isImgTpl = tpl?.header_type?.toUpperCase() === 'IMAGE' || !!imgUrl;
+
+      if (templateChanged) {
+        setCampaignForm((prev) => ({
+          ...prev,
+          header_image_url: isImgTpl ? (imgUrl || '') : '',
+        }));
+      } else if (isImgTpl && imgUrl && !campaignForm.header_image_url) {
+        setCampaignForm((prev) => ({ ...prev, header_image_url: imgUrl }));
+      }
+    }
+  }, [campaignForm.template_name, campaignForm.message_mode, marketingTemplates, customTemplates]);
+
   function promptMarkAttended(booking: {
     id: string;
     customer_name?: string | null;
@@ -9251,7 +9282,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     });
   }
 
-  function promptMarkNoShow(booking: { id: string; customer_name?: string; contact_name?: string; service?: string; staff_member?: string; doctor?: string }) {
+  function promptMarkNoShow(booking: { id: string; customer_name?: string | null; contact_name?: string | null; service?: string | null; staff_member?: string | null; doctor?: string | null; [key: string]: any }) {
     setPendingAttendancePrompt({
       id: booking.id,
       customer_name: booking.customer_name || booking.contact_name || currentTaxonomy.client_label || 'Client',
@@ -9263,11 +9294,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   function promptMarkCancelled(booking: {
     id: string;
-    customer_name?: string;
-    contact_name?: string;
-    service?: string;
-    staff_member?: string;
-    doctor?: string;
+    customer_name?: string | null;
+    contact_name?: string | null;
+    service?: string | null;
+    staff_member?: string | null;
+    doctor?: string | null;
     [key: string]: any;
   }) {
     setPendingAttendancePrompt({
@@ -9926,7 +9957,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  async function handleSendNowCampaign(campaignId: string, campaignName: string) {
+  async function handleSendNowCampaign(campaignId: string, campaignName: string = 'Campaign') {
     if (!confirm(`Are you sure you want to trigger scheduled campaign "${campaignName}" now?`)) return;
     try {
       const res = await marketing.sendNowCampaign(campaignId);
@@ -9940,7 +9971,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  async function handleCancelCampaign(campaignId: string, campaignName: string) {
+  async function handleCancelCampaign(campaignId: string, campaignName: string = 'Campaign') {
     if (!confirm(`Are you sure you want to cancel scheduled broadcast "${campaignName}"?`)) return;
     try {
       await marketing.cancelCampaign(campaignId);
@@ -9950,6 +9981,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setCampaigns(Array.isArray(data) ? data : []);
     } catch (err: any) {
       setActionNotice(err.message || 'Failed to cancel campaign.');
+      setTimeout(() => setActionNotice(null), 4000);
+    }
+  }
+
+  async function handleDeleteCampaign(campaignId: string, campaignName: string = 'Campaign') {
+    if (!confirm(`Are you sure you want to delete campaign record "${campaignName}"?`)) return;
+    try {
+      await marketing.deleteCampaign(campaignId);
+      setActionNotice(`Campaign "${campaignName}" deleted.`);
+      setTimeout(() => setActionNotice(null), 3000);
+      const data = await marketing.getCampaigns();
+      setCampaigns(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setActionNotice(err.message || 'Failed to delete campaign.');
       setTimeout(() => setActionNotice(null), 4000);
     }
   }
@@ -9989,7 +10034,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     });
     setCampaignForm((prev) => ({ ...prev, template_name: cleanName }));
     setNewTemplateModal(false);
-    setNewTemplateForm({ name: '', label: '', category: 'UTILITY', language: 'en_US', body: '', variables_count: 2 });
+    setNewTemplateForm({
+      name: '',
+      label: '',
+      category: 'UTILITY',
+      language: 'en_US',
+      header_type: 'NONE',
+      header_text: '',
+      header_sample_url: '',
+      body: '',
+      body_samples: ['Valued Customer', 'Special Promotion', '31st Dec', 'https://goboldlabs.com'],
+      footer: '',
+      button_type: 'NONE',
+      buttons: [],
+      variables_count: 2,
+    });
     setActionNotice(`Approved template "${cleanName}" saved and selected!`);
     setTimeout(() => setActionNotice(null), 4000);
   }
@@ -10053,7 +10112,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setBroadcastProgress({ total: targetPhones.length, sent: 0 });
 
     try {
-      const currentTpl = customTemplates.find((t) => t.name === campaignForm.template_name);
+      const currentTpl = marketingTemplates.find((t) => t.name === campaignForm.template_name) ||
+                         customTemplates.find((t) => t.name === campaignForm.template_name);
       const varCount = currentTpl ? currentTpl.variables_count : 3;
 
       const rawParams = [
@@ -10075,6 +10135,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         scheduledAt = new Date(`${campaignForm.schedule_date}T${campaignForm.schedule_time}:00`).toISOString();
       }
 
+      const effectiveHeaderImg = campaignForm.header_image_url?.trim() ||
+                                 currentTpl?.header_sample_url ||
+                                 (currentTpl as any)?.header_media_url ||
+                                 undefined;
+
       const res = await marketing.sendBroadcast({
         campaign_name: campaignForm.campaign_name,
         recipient_phones: targetPhones,
@@ -10085,7 +10150,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               campaignForm.template_name
             : undefined,
         template_params: templateParams,
-        header_image_url: campaignForm.header_image_url ? campaignForm.header_image_url.trim() : undefined,
+        header_image_url: effectiveHeaderImg,
         target_audience: campaignForm.target_audience,
         message_mode: campaignForm.message_mode,
         is_scheduled: isScheduled,
@@ -10114,6 +10179,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         target_audience: 'contacts_only',
         message_mode: 'template',
         template_name: 'utility_general_update',
+        header_image_url: '',
         template_param1: '',
         template_param2: '',
         template_param3: '',
@@ -10263,6 +10329,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         if (!matchesStaff && !matchesConcern && !matchesRole) {
           return false;
         }
+      }
+      if (filter === 'today') {
+        const normPhone = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '').slice(-10);
+        const linkedCust = (customers || []).find((cu) => (cu.phone || '').replace(/[^0-9]/g, '').slice(-10) === normPhone);
+        return Boolean((c as any).is_new_today || linkedCust?.is_new_today);
       }
       if (filter === 'new') {
         return (c.unread_count || 0) > 0;
@@ -12786,145 +12857,97 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   function renderRepeatClientsWorkspace() {
     return (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-2 h-full">
-                {/* Top Control Header (2-Line High-Density Toolbar) */}
-                {(() => {
-                  const allRepeat = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
-                  const activeCount = allRepeat.filter(c => c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30)).length;
-                  const dueCount = allRepeat.filter(c => c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60)).length;
-                  const lapsedCount = allRepeat.filter(c => c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60)).length;
-                  const vipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 3).length;
+      <div className="flex-1 flex flex-col overflow-hidden space-y-1 min-h-0">
+        {/* Top Control Header (Single-Row High-Density Toolbar aligned with Follow-up) */}
+        {(() => {
+          const { allRepeat, activeCount, dueCount, lapsedCount, vipCount } = repeatClientsSummary;
 
-                  return (
-                    <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 bg-surface border border-border rounded-lg px-2.5 py-1.5 shadow-2xs shrink-0 min-w-0">
-                      {/* Left: Title + Clean Filter Pills */}
-                      <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap shrink-0">
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <UserCheck className="w-4 h-4 text-amber-500 stroke-[1.8]" />
-                          <h3 className="font-bold text-xs text-text-primary whitespace-nowrap">
-                            Repeat {currentTaxonomy.client_plural || 'Clients'}
-                          </h3>
-                          <span className="text-[10px] text-text-muted font-mono font-medium">({allRepeat.length})</span>
-                        </div>
+          return (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-2.5 py-1.5 bg-surface border border-border rounded-md text-xs min-w-0 shrink-0">
+              {/* Left: Streamlined Retention Filter Pills (Aligned with Outcome pills) */}
+              <div className="flex items-center gap-1 shrink-0 overflow-x-auto no-scrollbar touch-scroll w-full sm:w-auto pb-0.5 sm:pb-0">
+                <span className="text-[11px] font-medium text-text-muted mr-0.5 shrink-0">Retention:</span>
+                <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5 shrink-0">
+                  {[
+                    { key: 'all', label: 'All', count: allRepeat.length, title: 'All repeat clients' },
+                    { key: 'active', label: 'Active', count: activeCount, dot: 'bg-emerald-500', title: 'Visited within last month' },
+                    { key: 'due', label: 'Due', count: dueCount, dot: 'bg-amber-500', title: 'Due for visit (1-2 months)' },
+                    { key: 'lapsed', label: 'At-Risk', count: lapsedCount, dot: 'bg-rose-500', title: 'At risk (>2 months since visit)' },
+                    { key: 'vip', label: 'VIP', count: vipCount, dot: 'bg-purple-500', title: '3+ completed visits' },
+                  ].map((st) => (
+                    <button
+                      key={st.key}
+                      type="button"
+                      onClick={() => setRepeatHealthFilter(st.key as any)}
+                      title={st.title}
+                      className={`px-2 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer font-medium whitespace-nowrap flex items-center justify-center gap-1 shrink-0 ${
+                        repeatHealthFilter === st.key
+                          ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
+                          : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
+                      }`}
+                    >
+                      {st.dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />}
+                      <span>{st.label}</span>
+                      <span className={`text-[10px] font-mono shrink-0 ${repeatHealthFilter === st.key ? 'text-text-primary font-semibold' : 'text-text-muted'}`}>
+                        {st.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
 
-                        <div className="h-3.5 w-px bg-border/80 shrink-0 hidden sm:block" />
+                <div className="h-4 w-px bg-border/80 shrink-0 hidden sm:block" />
 
-                        {/* Streamlined Retention Filter Pills */}
-                        <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 overflow-x-auto no-scrollbar">
-                          {[
-                            { key: 'all', label: 'All', count: allRepeat.length, title: 'All repeat clients' },
-                            { key: 'active', label: 'Active', count: activeCount, dot: 'bg-emerald-500', title: 'Visited within last month' },
-                            { key: 'due', label: 'Due', count: dueCount, dot: 'bg-amber-500', title: 'Due for visit (1-2 months)' },
-                            { key: 'lapsed', label: 'At-Risk', count: lapsedCount, dot: 'bg-rose-500', title: 'At risk (>2 months since visit)' },
-                            { key: 'vip', label: 'VIP', count: vipCount, dot: 'bg-purple-500', title: '3+ completed visits' },
-                          ].map((st) => (
-                            <button
-                              key={st.key}
-                              type="button"
-                              onClick={() => setRepeatHealthFilter(st.key as any)}
-                              title={st.title}
-                              className={`h-6.5 px-2 text-xs rounded-sm transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
-                                repeatHealthFilter === st.key
-                                  ? 'bg-surface text-text-primary font-semibold border border-border/80 shadow-2xs'
-                                  : 'text-text-secondary hover:text-text-primary hover:bg-surface/50 border border-transparent'
-                              }`}
-                            >
-                              {st.dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />}
-                              <span>{st.label}</span>
-                              <span className={`text-[10px] font-mono shrink-0 ${repeatHealthFilter === st.key ? 'text-text-primary font-semibold' : 'text-text-muted'}`}>
-                                {st.count}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                {/* Sort Dropdown */}
+                <select
+                  value={repeatSortBy}
+                  onChange={(e) => setRepeatSortBy(e.target.value as any)}
+                  className="h-6.5 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-[11px] text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
+                  title="Sort repeat clients"
+                >
+                  <option value="most_visits">Most Visits</option>
+                  <option value="recent_visit">Recently Visited</option>
+                  <option value="longest_idle">Longest Idle</option>
+                  <option value="name">Name (A-Z)</option>
+                </select>
 
-                      {/* Right: Sort + Staff Filter + Search + Refresh + Action */}
-                      <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                        {/* Sort Dropdown */}
-                        <select
-                          value={repeatSortBy}
-                          onChange={(e) => setRepeatSortBy(e.target.value as any)}
-                          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer shadow-2xs shrink-0"
-                          title="Sort repeat clients"
-                        >
-                          <option value="most_visits">Most Visits</option>
-                          <option value="recent_visit">Recently Visited</option>
-                          <option value="longest_idle">Longest Idle</option>
-                          <option value="name">Name (A-Z)</option>
-                        </select>
+                {/* Staff Filter Dropdown */}
+                <select
+                  value={repeatDoctorFilter}
+                  onChange={(e) => setRepeatDoctorFilter(e.target.value)}
+                  className="h-6.5 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-[11px] text-text-secondary focus:outline-none focus:border-accent cursor-pointer max-w-[120px] truncate shadow-2xs shrink-0"
+                  title="Filter by assigned staff"
+                >
+                  <option value="all">All {presetRolePlural === 'Managed bys' ? 'Staff' : presetRolePlural}</option>
+                  <option value="unassigned">Unassigned</option>
+                  {categorizedStaffOptions.predefinedDoctors.length > 0 && (
+                    <optgroup label={`${presetRoleSingular} Presets`}>
+                      {categorizedStaffOptions.predefinedDoctors.map((s) => (
+                        <option key={s.value} value={s.value}>{s.value}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
 
-                        {/* Staff Filter Dropdown */}
-                        <select
-                          value={repeatDoctorFilter}
-                          onChange={(e) => setRepeatDoctorFilter(e.target.value)}
-                          className="h-7 px-2 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer max-w-[120px] truncate shadow-2xs shrink-0"
-                          title="Filter by assigned staff"
-                        >
-                          <option value="all">All {presetRolePlural === 'Managed bys' ? 'Staff' : presetRolePlural}</option>
-                          <option value="unassigned">Unassigned</option>
-                          {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-                            <optgroup label={`${presetRoleSingular} Presets`}>
-                              {categorizedStaffOptions.predefinedDoctors.map((s) => (
-                                <option key={s.value} value={s.value}>{s.value}</option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </select>
+                {/* Clear Filters (if active) */}
+                {(repeatHealthFilter !== 'all' || repeatDoctorFilter !== 'all' || repeatSearch.trim()) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRepeatHealthFilter('all');
+                      setRepeatDoctorFilter('all');
+                      setRepeatSearch('');
+                    }}
+                    className="h-6.5 px-2 text-[11px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                    title="Reset all filters"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                    <span>Reset</span>
+                  </button>
+                )}
+              </div>
 
-                        {/* Search Input */}
-                        <div className="relative w-36 sm:w-44 md:w-52 transition-all">
-                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
-                          <input
-                            type="text"
-                            autoComplete="off"
-                            spellCheck={false}
-                            placeholder="Search by ID, client name, phone..."
-                            value={repeatSearch}
-                            onChange={(e) => setRepeatSearch(e.target.value)}
-                            className="w-full pl-8 pr-7 h-7 bg-surface-subtle hover:bg-surface focus:bg-surface border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-all shadow-2xs"
-                          />
-                          {repeatSearch && (
-                            <button
-                              type="button"
-                              onClick={() => setRepeatSearch('')}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer"
-                              title="Clear search"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Clear Filters (if active) */}
-                        {(repeatHealthFilter !== 'all' || repeatDoctorFilter !== 'all' || repeatSearch.trim()) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRepeatHealthFilter('all');
-                              setRepeatDoctorFilter('all');
-                              setRepeatSearch('');
-                            }}
-                            className="h-7 px-2 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors shrink-0"
-                            title="Reset all filters"
-                          >
-                            <X className="w-3 h-3" />
-                            <span>Reset</span>
-                          </button>
-                        )}
-
-                        {/* Refresh */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            loadCustomers();
-                            loadBookings();
-                          }}
-                          className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
-                          title="Refresh repeat clients"
-                        >
-                          <RotateCcw className={`w-3 h-3 stroke-[1.8] ${loadingCustomers ? 'animate-spin' : ''}`} />
-                        </button>
+              {/* Right: Book Button (Aligned with Follow-up right edge) */}
+              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
 
                         {/* Book Button */}
                         <button
@@ -12965,12 +12988,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <table className="table-fixed w-full text-left text-xs">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
-                          <th className="p-1.5 pl-3 w-[25%]">{currentTaxonomy.repeat_col_client || `${currentTaxonomy.client_label || 'Client'} & Contact`}</th>
-                          <th className="p-1.5 w-[12%]">{currentTaxonomy.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & VIP' : 'Visits & Loyalty')}</th>
-                          <th className="p-1.5 w-[16%]">{currentTaxonomy.repeat_col_last_session || (settingsForm.industry === 'ecommerce' ? 'Last Order' : 'Last Session')}</th>
-                          <th className="p-1.5 w-[15%]">{currentTaxonomy.repeat_col_retention || (settingsForm.industry === 'ecommerce' ? 'Buyer Status' : 'Retention Status')}</th>
-                          <th className="p-1.5 w-[12%]">{currentTaxonomy.repeat_col_staff || (currentTaxonomy.staff_label ? `Assigned ${currentTaxonomy.staff_label.split('/')[0].trim()}` : 'Assigned Staff')}</th>
-                          <th className="p-1.5 w-[10%] truncate">{currentTaxonomy.repeat_col_requirement || currentTaxonomy.requirement_label || 'Requirement'}</th>
+                          <th className="p-1.5 pl-3 w-[25%]">{currentTaxonomy.repeat_col_client || `${currentTaxonomy.client_label || 'Patient'} & Contact`}</th>
+                          <th className="p-1.5 w-[12%]">{currentTaxonomy.repeat_col_visits || 'Visits & Follow-ups'}</th>
+                          <th className="p-1.5 w-[16%]">{currentTaxonomy.repeat_col_last_session || 'Last Consultation'}</th>
+                          <th className="p-1.5 w-[15%]">{currentTaxonomy.repeat_col_retention || 'Patient Status'}</th>
+                          <th className="p-1.5 w-[12%]">{currentTaxonomy.repeat_col_staff || (currentTaxonomy.staff_label ? `Attending ${currentTaxonomy.staff_label.split('/')[0].trim()}` : 'Attending Doctor')}</th>
+                          <th className="p-1.5 w-[10%] truncate">{currentTaxonomy.repeat_col_requirement || currentTaxonomy.requirement_label || 'Health Concern'}</th>
                           <th className="p-1.5 text-right pr-3 w-[10%]">{currentTaxonomy.repeat_col_actions || currentTaxonomy.actions_label || 'Actions'}</th>
                         </tr>
                       </thead>
@@ -12985,65 +13008,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </td>
                           </tr>
                         ) : (() => {
-                          let repeatList = (customers || []).filter((c) => {
-                            if (!c) return false;
-                            const isRepeat = (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat';
-                            if (!isRepeat) return false;
-
-                            if (repeatSearch) {
-                              const q = repeatSearch.toLowerCase();
-                              const matches =
-                                (c.name || '').toLowerCase().includes(q) ||
-                                (c.phone || '').toLowerCase().includes(q) ||
-                                (c.patient_id || '').toLowerCase().includes(q) ||
-                                (c.health_concern || '').toLowerCase().includes(q) ||
-                                (c.last_visit_service || '').toLowerCase().includes(q) ||
-                                (c.preferred_doctor || '').toLowerCase().includes(q);
-                              if (!matches) return false;
-                            }
-
-                            if (repeatDoctorFilter !== 'all') {
-                              const doc = c.last_visit_doctor || c.preferred_doctor || '';
-                              if (doc !== repeatDoctorFilter) return false;
-                            }
-
-                            if (repeatHealthFilter === 'active') {
-                              return c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30);
-                            }
-                            if (repeatHealthFilter === 'due') {
-                              return c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60);
-                            }
-                            if (repeatHealthFilter === 'lapsed') {
-                              return c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60);
-                            }
-                            if (repeatHealthFilter === 'vip') {
-                              return (c.completed_bookings_count ?? 0) >= 3;
-                            }
-
-                            return true;
-                          });
-
-                          // Sorting logic
-                          repeatList = [...repeatList].sort((a, b) => {
-                            const aVisits = a.completed_bookings_count ?? 0;
-                            const bVisits = b.completed_bookings_count ?? 0;
-                            const aDays = a.days_since_last_visit ?? 0;
-                            const bDays = b.days_since_last_visit ?? 0;
-
-                            if (repeatSortBy === 'most_visits') {
-                              return bVisits - aVisits;
-                            }
-                            if (repeatSortBy === 'longest_idle') {
-                              return bDays - aDays;
-                            }
-                            if (repeatSortBy === 'recent_visit') {
-                              return aDays - bDays;
-                            }
-                            if (repeatSortBy === 'name') {
-                              return (a.name || '').localeCompare(b.name || '');
-                            }
-                            return 0;
-                          });
+                          const repeatList = filteredRepeatClients;
 
                           if (repeatList.length === 0) {
                             return (
@@ -13095,6 +13060,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             return (
                               <tr
                                 key={cust.id}
+                                style={{ contentVisibility: 'auto' }}
                                 onClick={() => handleSelectCustomer(cust)}
                                 className={`cursor-pointer transition-colors duration-150 ${
                                   isSelected ? 'bg-amber-50/40 border-l-2 border-l-amber-500' : 'hover:bg-surface-subtle/70'
@@ -15460,7 +15426,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             title="Click to toggle order (Earliest first / Latest first)"
                           >
                             <div className="flex items-center gap-1.5">
-                              <span>{currentTaxonomy.booking_col_datetime || (settingsForm.industry === 'ecommerce' ? 'Delivery Date' : 'Scheduled date & time')}</span>
+                              <span>{currentTaxonomy.booking_col_datetime || 'Appointment Date & Time'}</span>
                               <span className="text-text-muted group-hover:text-text-primary inline-flex items-center">
                                 {bookingSortDir === 'desc' ? (
                                   <ArrowDown className="w-3 h-3 text-accent stroke-[2.2]" />
@@ -15472,7 +15438,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               </span>
                             </div>
                           </th>
-                          <th className="p-3">{currentTaxonomy.booking_col_fee || (settingsForm.industry === 'ecommerce' ? 'Amount / Price' : 'Fee')}</th>
+                          <th className="p-3">{currentTaxonomy.booking_col_fee || 'Fee'}</th>
                           <th className="p-3">{currentTaxonomy.booking_col_status || currentTaxonomy.status_label || 'Status'}</th>
                           <th className="p-3 text-right pr-4 whitespace-nowrap min-w-[170px]">{currentTaxonomy.booking_col_action || currentTaxonomy.actions_label || 'Action'}</th>
                         </tr>
@@ -15682,10 +15648,306 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               const now = new Date();
               const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
               const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-              const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
-              const endOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
               const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
-              const startOfMonth = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29, 0, 0, 0, 0);
+
+              let filterStartTime: Date | null = null;
+              let filterEndTime: Date | null = null;
+
+              if (billingDateFilter === 'today') {
+                if (billingStartDate) {
+                  const [y, m, d] = billingStartDate.split('-').map(Number);
+                  filterStartTime = new Date(y, m - 1, d, 0, 0, 0, 0);
+                  filterEndTime = new Date(y, m - 1, d, 23, 59, 59, 999);
+                } else {
+                  filterStartTime = startOfToday;
+                  filterEndTime = endOfToday;
+                }
+              } else if ((billingDateFilter as string) === 'yesterday') {
+                filterStartTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+                filterEndTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+              } else if (billingDateFilter === '7d' || (billingDateFilter as string) === 'week') {
+                filterStartTime = startOfWeek;
+                filterEndTime = endOfToday;
+              } else if (billingDateFilter === '30d' || (billingDateFilter as string) === 'month') {
+                const mStr = selectedBillingMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                const [y, m] = mStr.split('-').map(Number);
+                const lastDay = new Date(y, m, 0).getDate();
+                filterStartTime = new Date(y, m - 1, 1, 0, 0, 0, 0);
+                filterEndTime = new Date(y, m - 1, lastDay, 23, 59, 59, 999);
+              } else if (billingDateFilter === 'custom') {
+                if (billingStartDate) {
+                  const [sy, sm, sd] = billingStartDate.split('-').map(Number);
+                  filterStartTime = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+                }
+                if (billingEndDate) {
+                  const [ey, em, ed] = billingEndDate.split('-').map(Number);
+                  filterEndTime = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+                }
+              }
+
+              const parseDateSafe = (val: any): Date | null => {
+                if (!val) return null;
+                if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+                let str = String(val).trim();
+                if (!str) return null;
+                if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+                  const [y, m, d] = str.split('-').map(Number);
+                  return new Date(y, m - 1, d, 12, 0, 0);
+                }
+                if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(str)) {
+                  str = str.replace(' ', 'T');
+                }
+                const dt = new Date(str);
+                return isNaN(dt.getTime()) ? null : dt;
+              };
+
+              const renderBillingPeriodControls = () => (
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-0.5 shrink-0">
+                  {/* Period Selector Presets */}
+                  <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border/80 h-7 gap-0.5 shrink-0">
+                    {[
+                      { id: 'today', label: 'Day' },
+                      { id: '7d', label: 'Week' },
+                      { id: '30d', label: 'Month' },
+                      { id: 'custom', label: 'Custom' },
+                      { id: 'all', label: 'All' },
+                    ].map((preset) => {
+                      const isSelected = billingDateFilter === preset.id || (preset.id === '7d' && billingDateFilter === 'week') || (preset.id === '30d' && billingDateFilter === 'month');
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            if (preset.id === '30d') {
+                              setBillingDateFilter('30d');
+                              const nowMonth = selectedBillingMonth || new Date().toISOString().slice(0, 7);
+                              const [y, m] = nowMonth.split('-').map(Number);
+                              const lastDay = new Date(y, m, 0).getDate();
+                              const sDate = `${nowMonth}-01`;
+                              const eDate = `${nowMonth}-${String(lastDay).padStart(2, '0')}`;
+                              setBillingStartDate(sDate);
+                              setBillingEndDate(eDate);
+                            } else if (preset.id === 'today') {
+                              setBillingDateFilter('today');
+                              setBillingStartDate('');
+                              setBillingEndDate('');
+                            } else if (preset.id === 'custom') {
+                              setBillingDateFilter('custom');
+                              let sDate = billingStartDate;
+                              let eDate = billingEndDate;
+                              if (!sDate || !eDate) {
+                                const nowD = new Date();
+                                eDate = nowD.toISOString().split('T')[0];
+                                const past30 = new Date();
+                                past30.setDate(past30.getDate() - 29);
+                                sDate = past30.toISOString().split('T')[0];
+                                setBillingStartDate(sDate);
+                                setBillingEndDate(eDate);
+                              }
+                            } else {
+                              setBillingDateFilter(preset.id as any);
+                              setBillingStartDate('');
+                              setBillingEndDate('');
+                            }
+                          }}
+                          className={`px-2.5 h-6 text-xs rounded-sm transition-all cursor-pointer font-medium flex items-center justify-center whitespace-nowrap ${
+                            isSelected
+                              ? 'bg-surface text-text-primary font-semibold border border-border/80 shadow-2xs'
+                              : 'text-text-muted hover:text-text-primary hover:bg-surface/50 border border-transparent'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Contextual Month Selector (Compact Calendar Popover, visible when Month preset is active) */}
+                  {(billingDateFilter === '30d' || billingDateFilter === 'month') && (
+                    <div className="relative inline-block" ref={billingMonthPickerRef}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isBillingMonthPickerOpen && selectedBillingMonth) {
+                            const y = parseInt(selectedBillingMonth.split('-')[0], 10);
+                            if (!isNaN(y)) setBillingPickerYear(y);
+                          }
+                          setIsBillingMonthPickerOpen((prev) => !prev);
+                        }}
+                        className={`flex items-center gap-1.5 rounded-md border h-7 px-2.5 text-xs font-semibold shadow-2xs transition-all cursor-pointer ${
+                          isBillingMonthPickerOpen
+                            ? 'bg-surface border-accent text-accent'
+                            : 'bg-surface-subtle hover:bg-surface text-text-primary border-border/80 hover:border-accent/50'
+                        }`}
+                        title="Choose month from calendar"
+                      >
+                        <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8] shrink-0" />
+                        <span>{formatSelectedMonthLabel(selectedBillingMonth)}</span>
+                        <ChevronDown
+                          className={`w-3 h-3 text-text-muted transition-transform duration-150 ${
+                            isBillingMonthPickerOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+
+                      {isBillingMonthPickerOpen && (
+                        <div className="absolute top-full mt-1.5 right-0 sm:left-0 sm:right-auto z-50 w-64 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-100">
+                          {/* Header with Year Switcher */}
+                          <div className="flex items-center justify-between mb-3 px-1">
+                            <button
+                              type="button"
+                              onClick={() => setBillingPickerYear((y) => y - 1)}
+                              className="p-1 rounded-md hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+                              title="Previous year"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            <div className="flex items-center gap-1.5 font-bold text-sm text-text-primary">
+                              <span>{billingPickerYear}</span>
+                              {billingPickerYear === new Date().getFullYear() && (
+                                <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-accent/15 text-accent">
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setBillingPickerYear((y) => y + 1)}
+                              className="p-1 rounded-md hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+                              title="Next year"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Month Grid (3x4) */}
+                          <div className="grid grid-cols-3 gap-1.5 mb-3">
+                            {[
+                              { label: 'Jan', full: 'January', idx: 0 },
+                              { label: 'Feb', full: 'February', idx: 1 },
+                              { label: 'Mar', full: 'March', idx: 2 },
+                              { label: 'Apr', full: 'April', idx: 3 },
+                              { label: 'May', full: 'May', idx: 4 },
+                              { label: 'Jun', full: 'June', idx: 5 },
+                              { label: 'Jul', full: 'July', idx: 6 },
+                              { label: 'Aug', full: 'August', idx: 7 },
+                              { label: 'Sep', full: 'September', idx: 8 },
+                              { label: 'Oct', full: 'October', idx: 9 },
+                              { label: 'Nov', full: 'November', idx: 10 },
+                              { label: 'Dec', full: 'December', idx: 11 },
+                            ].map(({ label, full, idx }) => {
+                              const monthNum = String(idx + 1).padStart(2, '0');
+                              const val = `${billingPickerYear}-${monthNum}`;
+                              const isSelected = selectedBillingMonth === val;
+                              const isCurrentMonth =
+                                new Date().getFullYear() === billingPickerYear &&
+                                new Date().getMonth() === idx;
+
+                              return (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  onClick={() => handleSelectBillingMonth(val)}
+                                  title={`${full} ${billingPickerYear}`}
+                                  className={`h-8 rounded-md text-xs font-medium transition-all cursor-pointer relative flex items-center justify-center ${
+                                    isSelected
+                                      ? 'bg-accent text-white font-bold shadow-xs ring-1 ring-accent'
+                                      : isCurrentMonth
+                                      ? 'bg-accent/10 text-accent font-semibold border border-accent/40 hover:bg-accent/20'
+                                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent'
+                                  }`}
+                                >
+                                  {label}
+                                  {isCurrentMonth && !isSelected && (
+                                    <span className="absolute bottom-1 w-1 h-1 rounded-full bg-accent" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Quick Shortcuts */}
+                          <div className="pt-2 border-t border-border flex items-center justify-between gap-1 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const now = new Date();
+                                const y = now.getFullYear();
+                                const m = String(now.getMonth() + 1).padStart(2, '0');
+                                setBillingPickerYear(y);
+                                handleSelectBillingMonth(`${y}-${m}`);
+                              }}
+                              className="px-2 py-1 rounded text-accent hover:bg-accent/10 font-medium transition-colors cursor-pointer"
+                            >
+                              This Month
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const now = new Date();
+                                const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                                const y = prev.getFullYear();
+                                const m = String(prev.getMonth() + 1).padStart(2, '0');
+                                setBillingPickerYear(y);
+                                handleSelectBillingMonth(`${y}-${m}`);
+                              }}
+                              className="px-2 py-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-subtle font-medium transition-colors cursor-pointer"
+                            >
+                              Last Month
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Contextual Day Selector (visible when Day preset is active) */}
+                  {billingDateFilter === 'today' && (
+                    <div className="flex items-center gap-1 bg-surface-subtle rounded-md border border-border/80 h-7 px-1.5 shadow-2xs">
+                      <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8] shrink-0" />
+                      <input
+                        type="date"
+                        value={billingStartDate || new Date().toISOString().split('T')[0]}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const todayStr = new Date().toISOString().split('T')[0];
+                          if (val === todayStr) {
+                            setBillingStartDate('');
+                            setBillingEndDate('');
+                          } else {
+                            setBillingStartDate(val);
+                            setBillingEndDate(val);
+                          }
+                        }}
+                        className="h-6 text-xs font-semibold bg-transparent text-text-primary cursor-pointer focus:outline-none"
+                        title="Choose specific date to view"
+                      />
+                    </div>
+                  )}
+
+                  {/* Contextual Custom Date Range Picker (visible when Custom preset is active) */}
+                  {billingDateFilter === 'custom' && (
+                    <div className="flex items-center gap-1 bg-surface-subtle rounded-md border border-border/80 h-7 px-1.5 shadow-2xs">
+                      <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8] shrink-0" />
+                      <input
+                        type="date"
+                        value={billingStartDate}
+                        onChange={(e) => setBillingStartDate(e.target.value)}
+                        className="h-6 text-xs bg-transparent text-text-primary cursor-pointer focus:outline-none"
+                        title="Start date"
+                      />
+                      <span className="text-[11px] text-text-muted font-medium">to</span>
+                      <input
+                        type="date"
+                        value={billingEndDate}
+                        onChange={(e) => setBillingEndDate(e.target.value)}
+                        className="h-6 text-xs bg-transparent text-text-primary cursor-pointer focus:outline-none"
+                        title="End date"
+                      />
+                    </div>
+                  )}
+                </div>
+              );
 
               // 2. Base filtered bookings (search, date, payment status, booking status — independent of category filter)
               const baseFilteredBilling = (bookings || []).filter((b) => {
@@ -15707,18 +15969,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 // Date filter with accurate boundaries
                 if (billingDateFilter !== 'all') {
                   if (!b.start_time) return false;
-                  const bDate = new Date(b.start_time);
-                  if (isNaN(bDate.getTime())) return false;
+                  const bDate = parseDateSafe(b.start_time);
+                  if (!bDate) return false;
 
-                  if (billingDateFilter === 'today') {
-                    if (bDate < startOfToday || bDate > endOfToday) return false;
-                  } else if (billingDateFilter === 'yesterday') {
-                    if (bDate < startOfYesterday || bDate > endOfYesterday) return false;
-                  } else if (billingDateFilter === 'week') {
-                    if (bDate < startOfWeek || bDate > endOfToday) return false;
-                  } else if (billingDateFilter === 'month') {
-                    if (bDate < startOfMonth || bDate > endOfToday) return false;
-                  }
+                  if (filterStartTime && bDate < filterStartTime) return false;
+                  if (filterEndTime && bDate > filterEndTime) return false;
                 }
 
                 // Payment status filter
@@ -15799,13 +16054,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               // Calculate filtered clinic expenses based on active date filter
               const filteredExpenses = (clinicExpenses || []).filter((exp) => {
                 if (billingDateFilter === 'all') return true;
-                if (!exp.expense_date) return true;
-                const eDate = new Date(exp.expense_date);
-                if (isNaN(eDate.getTime())) return true;
-                if (billingDateFilter === 'today') return eDate >= startOfToday && eDate <= endOfToday;
-                if (billingDateFilter === 'yesterday') return eDate >= startOfYesterday && eDate <= endOfYesterday;
-                if (billingDateFilter === 'week') return eDate >= startOfWeek && eDate <= endOfToday;
-                if (billingDateFilter === 'month') return eDate >= startOfMonth && eDate <= endOfToday;
+                if (!exp.expense_date) return false;
+                const eDate = parseDateSafe(exp.expense_date);
+                if (!eDate) return false;
+                if (filterStartTime && eDate < filterStartTime) return false;
+                if (filterEndTime && eDate > filterEndTime) return false;
                 return true;
               });
 
@@ -16057,23 +16310,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           )}
                         </div>
 
-                        {/* Date Filter */}
-                        <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border overflow-x-auto no-scrollbar shrink-0">
-                          {(['all', 'today', 'yesterday', 'week', 'month'] as const).map((df) => (
-                            <button
-                              key={df}
-                              type="button"
-                              onClick={() => setBillingDateFilter(df)}
-                              className={`px-2 py-1 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap capitalize ${
-                                billingDateFilter === df
-                                  ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
-                                  : 'text-text-muted hover:text-text-primary'
-                              }`}
-                            >
-                              {df === 'all' ? 'All Time' : df === 'week' ? 'Week' : df === 'month' ? 'Month' : df}
-                            </button>
-                          ))}
-                        </div>
+                        {/* Date Filter Controls */}
+                        {renderBillingPeriodControls()}
 
                         {/* Payment Status Dropdown */}
                         <select
@@ -16102,12 +16340,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <option value="all">All Appointments (Gross Planned)</option>
                         </select>
 
-                        {(billingSearchQuery || billingDateFilter !== 'all' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all' || billingStatusFilter !== 'active') && (
+                        {(billingSearchQuery || billingDateFilter !== 'all' || billingStartDate !== '' || billingEndDate !== '' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all' || billingStatusFilter !== 'active') && (
                           <button
                             type="button"
                             onClick={() => {
                               setBillingSearchQuery('');
                               setBillingDateFilter('all');
+                              setBillingStartDate('');
+                              setBillingEndDate('');
                               setBillingCategoryFilter('all');
                               setBillingPaymentFilter('all');
                               setBillingStatusFilter('active');
@@ -16673,23 +16913,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                     {/* Filter row: Date pills + Dropdowns */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      {/* Date Filter Pills */}
-                      <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border overflow-x-auto no-scrollbar shrink-0 touch-scroll">
-                        {(['all', 'today', 'yesterday', 'week', 'month'] as const).map((df) => (
-                          <button
-                            key={df}
-                            type="button"
-                            onClick={() => setBillingDateFilter(df)}
-                            className={`px-2 py-1 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap capitalize ${
-                              billingDateFilter === df
-                                ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
-                                : 'text-text-muted hover:text-text-primary'
-                            }`}
-                          >
-                            {df === 'all' ? 'All Time' : df === 'week' ? 'Week' : df === 'month' ? 'Month' : df}
-                          </button>
-                        ))}
-                      </div>
+                      {/* Date Filter Controls */}
+                      {renderBillingPeriodControls()}
 
                       {/* Dropdowns (Side by side on mobile) */}
                       <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
@@ -16720,12 +16945,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
                     </div>
 
-                      {(billingSearchQuery || billingDateFilter !== 'all' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all' || billingStatusFilter !== 'active') && (
+                      {(billingSearchQuery || billingDateFilter !== 'all' || billingStartDate !== '' || billingEndDate !== '' || billingCategoryFilter !== 'all' || billingPaymentFilter !== 'all' || billingStatusFilter !== 'active') && (
                         <button
                           type="button"
                           onClick={() => {
                             setBillingSearchQuery('');
                             setBillingDateFilter('all');
+                            setBillingStartDate('');
+                            setBillingEndDate('');
                             setBillingCategoryFilter('all');
                             setBillingPaymentFilter('all');
                             setBillingStatusFilter('active');
@@ -18535,27 +18762,46 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       )}
                     </div>
 
-                    {/* ── Clean 4-Segment Chat Filter Bar (Zero Horizontal Scroll, Perfect Width) ── */}
-                    <div className="grid grid-cols-4 gap-1 py-1 shrink-0">
+                    {/* ── Clean Scrollable Chat Filter Bar (Zero Overlap, Smooth Touch Navigation) ── */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => setFilter('all')}
-                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
+                        className={`h-7 px-2.5 text-xs rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 font-medium select-none ${
                           filter === 'all'
                             ? 'bg-text-primary text-surface font-semibold shadow-2xs dark:bg-accent dark:text-white'
                             : 'bg-surface-subtle text-text-secondary hover:text-text-primary hover:bg-surface border border-border/60'
                         }`}
                       >
                         <span>All</span>
-                        <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'all' ? 'bg-white/20 text-white' : 'text-text-muted'}`}>
+                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${filter === 'all' ? 'bg-white/20 text-white' : 'bg-surface border border-border/60 text-text-muted'}`}>
                           {conversations.length}
                         </span>
                       </button>
 
                       <button
                         type="button"
+                        onClick={() => setFilter('today')}
+                        className={`h-7 px-2.5 text-xs rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 font-medium select-none ${
+                          filter === 'today'
+                            ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
+                            : 'bg-surface-subtle text-text-secondary hover:text-emerald-700 hover:bg-emerald-50/50 border border-border/60'
+                        }`}
+                        title="Today's new leads and active conversations"
+                      >
+                        <Sparkles className={`w-3 h-3 stroke-[2] shrink-0 ${filter === 'today' ? 'text-white' : 'text-emerald-500'}`} />
+                        <span>Today</span>
+                        {todayLeadsCount > 0 && (
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${filter === 'today' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold'}`}>
+                            {todayLeadsCount}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => setFilter('new')}
-                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
+                        className={`h-7 px-2.5 text-xs rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 font-medium select-none ${
                           filter === 'new'
                             ? 'bg-accent text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-accent hover:bg-accent/5 border border-border/60'
@@ -18564,7 +18810,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       >
                         <span>Unread</span>
                         {conversations.filter((c) => (c.unread_count || 0) > 0).length > 0 && (
-                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'new' ? 'bg-white/20 text-white' : 'bg-accent text-white font-bold'}`}>
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${filter === 'new' ? 'bg-white/20 text-white' : 'bg-accent text-white font-bold'}`}>
                             {conversations.filter((c) => (c.unread_count || 0) > 0).length}
                           </span>
                         )}
@@ -18573,7 +18819,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('hot')}
-                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
+                        className={`h-7 px-2.5 text-xs rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 font-medium select-none ${
                           filter === 'hot'
                             ? 'bg-rose-600 text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-rose-700 hover:bg-rose-50/50 border border-border/60'
@@ -18583,7 +18829,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <Flame className={`w-3 h-3 stroke-[2] shrink-0 ${filter === 'hot' ? 'text-white' : 'text-rose-500'}`} />
                         <span>Hot</span>
                         {hotLeadsCount > 0 && (
-                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'hot' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800 font-bold'}`}>
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${filter === 'hot' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800 font-bold'}`}>
                             {hotLeadsCount}
                           </span>
                         )}
@@ -18592,7 +18838,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('important')}
-                        className={`h-7 px-1 text-xs rounded-md transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap select-none ${
+                        className={`h-7 px-2.5 text-xs rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 font-medium select-none ${
                           filter === 'important'
                             ? 'bg-amber-600 text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-amber-700 hover:bg-amber-50/50 border border-border/60'
@@ -18602,7 +18848,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <Star className={`w-3 h-3 stroke-[2] shrink-0 ${filter === 'important' ? 'text-white fill-white' : importantStarredCount > 0 ? 'text-amber-500 fill-amber-500' : 'text-text-muted'}`} />
                         <span>Starred</span>
                         {importantStarredCount > 0 && (
-                          <span className={`text-[10px] font-mono px-1 rounded-full ${filter === 'important' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800 font-bold'}`}>
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${filter === 'important' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800 font-bold'}`}>
                             {importantStarredCount}
                           </span>
                         )}
@@ -18700,26 +18946,26 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               />
                             </div>
 
-                            {/* Middle: Clean Minimal Stack */}
-                            <div className="flex-1 min-w-0 space-y-0.5">
-                              {/* Line 1: Name + Repeat Tag (if repeat) + Lead Status + Timestamp / Hover Actions */}
-                              <div className="flex items-center justify-between gap-1.5 min-w-0">
+                            {/* Middle: Clean Spaced Stack */}
+                            <div className="flex-1 min-w-0 space-y-1">
+                              {/* Row 1: Identity & Time (Spacious name priority header) */}
+                              <div className="flex items-center justify-between gap-2 min-w-0">
                                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                   {(conv.channel === 'instagram' || conv.contact_phone?.startsWith('ig:')) && (
-                                    <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded-xs bg-pink-50 text-pink-700 border border-pink-200 dark:bg-pink-950/40 dark:text-pink-300 dark:border-pink-800 text-[9px] font-semibold shrink-0" title="Instagram Direct Message">
+                                    <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-pink-50 text-pink-700 border border-pink-200 dark:bg-pink-950/40 dark:text-pink-300 dark:border-pink-800 text-[8.5px] font-bold shrink-0" title="Instagram Direct Message">
                                       <Instagram className="w-2.5 h-2.5" />
                                       <span>IG</span>
                                     </span>
                                   )}
                                   {matchedCust?.patient_id && (
                                     <span
-                                      className="text-[8.5px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/80 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800 shrink-0"
+                                      className="text-[8.5px] font-mono font-bold px-1.5 py-0.2 rounded bg-surface-subtle text-text-secondary border border-border/80 dark:bg-slate-800 dark:text-slate-300 shrink-0"
                                       title={`Patient ID: ${matchedCust.patient_id}`}
                                     >
                                       {matchedCust.patient_id}
                                     </span>
                                   )}
-                                  <p className={`text-xs truncate ${unreadCount > 0 ? 'font-bold text-text-primary' : 'font-semibold text-text-primary'}`}>
+                                  <p className={`text-xs truncate font-semibold text-text-primary flex-1 ${unreadCount > 0 ? 'font-bold' : ''}`}>
                                     {(() => {
                                       const isIg = conv.channel === 'instagram' || conv.contact_phone?.startsWith('ig:') || conv.phone?.startsWith('ig:');
                                       if (isIg) {
@@ -18734,77 +18980,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       return conv.contact_name || conv.contact_phone || 'Customer';
                                     })()}
                                   </p>
-                                  {isRepeat && (
-                                    <span
-                                      className="text-[9px] font-semibold px-1.5 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 shrink-0 inline-flex items-center gap-0.5"
-                                      title={`Repeat client (${visitCount} completed visits)`}
-                                    >
-                                      <UserCheck className="w-2.5 h-2.5 stroke-[2]" />
-                                      <span>Repeat{visitCount > 0 ? ` (${visitCount})` : ''}</span>
-                                    </span>
-                                  )}
-                                  {/* Lead Status Badge in Conversation List Item */}
-                                  {(() => {
-                                    const prob = matchedCust?.lead_probability || conv.lead_probability;
-                                    const rate = matchedCust?.conversion_rate ?? conv.conversion_rate ?? (prob === 'hot' ? 90 : (prob === 'cold' ? 20 : 50));
-                                    const is100 = matchedCust?.conversion_rate === 100 || conv.conversion_rate === 100 || matchedCust?.status === 'converted' || conv.customer_status === 'converted';
-                                    const isRequest = (matchedCust?.call_status || '').toLowerCase().includes('request');
-                                    const is99 = !is100 && !isRequest && Boolean(matchedCust?.converted || matchedCust?.status === 'booked' || (matchedCust?.conversion_rate != null && matchedCust.conversion_rate >= 99) || (matchedCust?.call_status || '').toLowerCase().includes('confirm') || (matchedCust?.call_status || '').toLowerCase().includes('convert') || conv.converted || conv.customer_status === 'booked' || (conv.conversion_rate != null && conv.conversion_rate >= 99));
-
-                                    if (is100) {
-                                      return (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-700 shrink-0 inline-flex items-center gap-0.5" title="Converted Lead (100%)">
-                                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 stroke-[2.5]" />
-                                          <span>Converted</span>
-                                        </span>
-                                      );
-                                    }
-                                    if (is99) {
-                                      return (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800 shrink-0 inline-flex items-center gap-0.5" title="Booked Appointment (99%)">
-                                          <CalendarCheck className="w-2.5 h-2.5 text-teal-600 stroke-[2.5]" />
-                                          <span>Booked</span>
-                                        </span>
-                                      );
-                                    }
-                                    if (prob === 'hot' || (!prob && rate >= 75)) {
-                                      return (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 shrink-0 inline-flex items-center gap-0.5" title="Hot Lead (High Intent)">
-                                          <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2.5]" />
-                                          <span>Hot</span>
-                                        </span>
-                                      );
-                                    }
-                                    if (prob === 'warm' || (!prob && rate >= 40 && rate < 75)) {
-                                      return (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 shrink-0 inline-flex items-center gap-0.5" title="Warm Lead (Active)">
-                                          <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2.5]" />
-                                          <span>Warm</span>
-                                        </span>
-                                      );
-                                    }
-                                    if (prob === 'cold' || (!prob && rate < 40)) {
-                                      return (
-                                        <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800 shrink-0 inline-flex items-center gap-0.5" title="Cold Lead (Nurture)">
-                                          <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2.5]" />
-                                          <span>Cold</span>
-                                        </span>
-                                      );
-                                    }
-                                    return null;
-                                  })()}
                                   {isStarred && (
-                                    <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500 shrink-0" />
+                                    <Star className="w-3 h-3 fill-amber-500 text-amber-500 shrink-0" />
                                   )}
                                 </div>
 
-                                {/* Right: Timestamp by default, Star & Delete on Hover */}
+                                {/* Right: Timestamp & Actions */}
                                 <div className="relative shrink-0 flex items-center justify-end h-4">
                                   <span
-                                    className="text-[10px] text-text-muted font-mono shrink-0 group-hover:opacity-0 transition-opacity duration-150"
+                                    className="text-[10px] text-text-muted font-mono shrink-0 group-hover:opacity-0 transition-opacity duration-150 inline-flex items-center gap-0.5"
                                     title={formatFullDateTimeDetailed(conv.last_message_at)}
                                   >
-                                    {formatConversationDate(conv.last_message_at)}
+                                    {(conv.last_message_direction === 'outbound' || (!conv.last_message_direction && (matchedCust as any)?.last_message_direction === 'outbound')) && (
+                                      <span className="text-[9px] text-indigo-500 dark:text-indigo-400 font-semibold mr-0.5">AI:</span>
+                                    )}
+                                    <span>{formatConversationDate(conv.last_message_at)}</span>
                                   </span>
                                   <div className="absolute right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150 bg-surface/90 backdrop-blur-xs rounded px-0.5">
                                     <button
@@ -18838,7 +19028,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </div>
                               </div>
 
-                              {/* Line 2: Clean Message Snippet (NO quotes, NO italics) + Unread Bubble */}
+                              {/* Row 2: Message Snippet + Unread Bubble */}
                               <div className="flex items-center justify-between gap-1.5 min-w-0">
                                 <p className={`text-[11.5px] truncate leading-tight flex-1 min-w-0 ${
                                   unreadCount > 0
@@ -18846,17 +19036,105 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     : 'text-text-muted group-hover:text-text-secondary'
                                 }`}>
                                   {lastMsg ? (
-                                    <span>{formatMessageSnippet(lastMsg)}</span>
+                                    <span>
+                                      {(conv.last_message_direction === 'outbound' || (!conv.last_message_direction && (matchedCust as any)?.last_message_direction === 'outbound')) && (
+                                        <span className="font-semibold text-accent/90 dark:text-accent mr-1">🤖 Auto Follow-up:</span>
+                                      )}
+                                      {formatMessageSnippet(lastMsg)}
+                                    </span>
                                   ) : (
                                     <span className="font-mono text-text-muted/60">{conv.contact_phone}</span>
                                   )}
                                 </p>
                                 {unreadCount > 0 && !isSelected && (
-                                  <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[9px] font-bold min-w-[16px] text-center leading-tight shrink-0 shadow-2xs">
+                                  <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[9.5px] font-bold min-w-[16px] text-center leading-tight shrink-0 shadow-2xs">
                                     {unreadCount}
                                   </span>
                                 )}
                               </div>
+
+                              {/* Row 3: Metadata Badges (Spacing & Zero Clutter) */}
+                              {(() => {
+                                const is100 = matchedCust?.conversion_rate === 100 || conv.conversion_rate === 100 || matchedCust?.status === 'converted' || conv.customer_status === 'converted';
+                                const isRequest = (matchedCust?.call_status || '').toLowerCase().includes('request');
+                                const is99 = !is100 && !isRequest && Boolean(matchedCust?.converted || matchedCust?.status === 'booked' || (matchedCust?.conversion_rate != null && matchedCust.conversion_rate >= 99) || (matchedCust?.call_status || '').toLowerCase().includes('confirm') || (matchedCust?.call_status || '').toLowerCase().includes('convert') || conv.converted || conv.customer_status === 'booked' || (conv.conversion_rate != null && conv.conversion_rate >= 99));
+                                const isBrandNewToday = !isRepeat && Boolean((conv as any).is_new_today || matchedCust?.is_new_today);
+                                const isActiveToday = Boolean((conv as any).is_active_today || matchedCust?.is_active_today);
+                                const prob = matchedCust?.lead_probability || conv.lead_probability;
+                                const rate = matchedCust?.conversion_rate ?? conv.conversion_rate ?? (prob === 'hot' ? 90 : (prob === 'cold' ? 20 : 50));
+                                const showIntent = !is100 && !is99;
+
+                                const hasAnyBadge = is100 || is99 || isRepeat || isBrandNewToday || isActiveToday || showIntent || concern;
+                                if (!hasAnyBadge) return null;
+
+                                return (
+                                  <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                                    {/* Stage Badge */}
+                                    {is100 ? (
+                                      <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-700 shrink-0 inline-flex items-center gap-0.5" title="Converted Lead (100%)">
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 stroke-[2.5]" />
+                                        <span>Converted</span>
+                                      </span>
+                                    ) : is99 ? (
+                                      <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800 shrink-0 inline-flex items-center gap-0.5" title="Booked Appointment (99%)">
+                                        <CalendarCheck className="w-2.5 h-2.5 text-teal-600 stroke-[2.5]" />
+                                        <span>Booked</span>
+                                      </span>
+                                    ) : isRepeat ? (
+                                      <span
+                                        className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200/80 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800 shrink-0 inline-flex items-center gap-0.5"
+                                        title={`Repeat client (${visitCount} completed visits)`}
+                                      >
+                                        <UserCheck className="w-2.5 h-2.5 stroke-[2]" />
+                                        <span>Repeat{visitCount > 0 ? ` (${visitCount})` : ''}</span>
+                                      </span>
+                                    ) : isBrandNewToday ? (
+                                      <span
+                                        className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 inline-flex items-center gap-0.5"
+                                        title="Brand new lead created today"
+                                      >
+                                        <Sparkles className="w-2.5 h-2.5 text-emerald-600 fill-emerald-500/20" />
+                                        <span>New Lead</span>
+                                      </span>
+                                    ) : isActiveToday ? (
+                                      <span
+                                        className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800 shrink-0 inline-flex items-center gap-0.5"
+                                        title="Customer messaged today"
+                                      >
+                                        <MessageSquare className="w-2.5 h-2.5 text-sky-600" />
+                                        <span>Active Today</span>
+                                      </span>
+                                    ) : null}
+
+                                    {/* Intent Pill (Hot / Warm / Cold) */}
+                                    {showIntent && (
+                                      prob === 'hot' || (!prob && rate >= 75) ? (
+                                        <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 shrink-0 inline-flex items-center gap-0.5" title="Hot Lead (High Intent)">
+                                          <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2.5]" />
+                                          <span>Hot</span>
+                                        </span>
+                                      ) : prob === 'warm' || (!prob && rate >= 40 && rate < 75) ? (
+                                        <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 shrink-0 inline-flex items-center gap-0.5" title="Warm Lead (Active)">
+                                          <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2.5]" />
+                                          <span>Warm</span>
+                                        </span>
+                                      ) : prob === 'cold' || (!prob && rate < 40) ? (
+                                        <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800 shrink-0 inline-flex items-center gap-0.5" title="Cold Lead (Nurture)">
+                                          <Snowflake className="w-2.5 h-2.5 text-slate-500 stroke-[2.5]" />
+                                          <span>Cold</span>
+                                        </span>
+                                      ) : null
+                                    )}
+
+                                    {/* Concern Tag */}
+                                    {concern && (
+                                      <span className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-surface-subtle text-text-muted border border-border/70 truncate max-w-[120px]" title={concern}>
+                                        {concern}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         );
@@ -19869,59 +20147,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
             {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
             {(activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients') && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
+              <div className="flex-1 flex flex-col overflow-hidden space-y-1.5 [scrollbar-gutter:stable]">
                 {/* Clean, Compact Responsive Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-2 pt-0.5 shrink-0 min-w-0">
-                  {/* Row 1 on Mobile: Title + Add CTA + Quick Actions */}
-                  <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Users className="w-3.5 h-3.5 text-accent stroke-[2]" />
-                      <h3 className="font-semibold text-xs sm:text-sm text-text-primary tracking-tight whitespace-nowrap">
-                        {currentTaxonomy.client_plural || 'Customers'}
-                      </h3>
-                      <span className="text-[10px] text-text-muted font-mono font-medium">({customers.length})</span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0 sm:hidden ml-auto">
-                      <button
-                        type="button"
-                        onClick={() => setShowAddCustomerModal(true)}
-                        className="h-7 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer shrink-0 shadow-xs whitespace-nowrap"
-                        title={`Add new ${currentTaxonomy.client_label || 'Patient'}`}
-                      >
-                        <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
-                        <span>Add</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => openDropdownOptionsModal()}
-                        className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                        title="Customize CRM dropdown options"
-                      >
-                        <Sliders className="w-3 h-3 stroke-[1.8]" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          loadCustomers();
-                          loadTasks();
-                          if (followupView === 'notes') {
-                            setLoadingAllNotes(true);
-                            crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                          }
-                        }}
-                        className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                        title="Refresh customer data"
-                      >
-                        <RotateCcw className={`w-3 h-3 stroke-[1.8] ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
-                      </button>
-                    </div>
+                  {/* Left: Customer/Patient Title + Count */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Users className="w-3.5 h-3.5 text-accent stroke-[2]" />
+                    <h3 className="font-semibold text-xs sm:text-sm text-text-primary tracking-tight whitespace-nowrap">
+                      {currentTaxonomy.client_plural || 'Customers'}
+                    </h3>
+                    <span className="text-[10px] text-text-muted font-mono font-medium">({customers.length})</span>
                   </div>
 
-                  {/* Row 2: View Switcher Pills + Channel Selector (Swipeable Strip) */}
-                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar touch-scroll py-0.5 shrink-0 w-full sm:w-auto">
+                  {/* Center: View Switcher Pills + Channel Toggle */}
+                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar touch-scroll py-0.5 shrink-0">
                     {/* View Switcher Pills */}
                     <div className="flex items-center gap-0.5 bg-surface-subtle border border-border/80 rounded-md p-0.5 shrink-0">
                       {[
@@ -20005,70 +20244,44 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </button>
                     </div>
-
-                    {/* Desktop Right Cluster */}
-                    <div className="hidden sm:flex items-center gap-1.5 shrink-0 ml-auto">
-                      <button
-                        type="button"
-                        onClick={() => setShowAddCustomerModal(true)}
-                        className="h-7 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer shrink-0 shadow-xs whitespace-nowrap"
-                        title={`Add new ${currentTaxonomy.client_label || 'Patient'}`}
-                      >
-                        <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
-                        <span>Add {currentTaxonomy.client_label || 'Patient'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => openDropdownOptionsModal()}
-                        className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                        title="Customize CRM dropdown options"
-                      >
-                        <Sliders className="w-3 h-3 stroke-[1.8]" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          loadCustomers();
-                          loadTasks();
-                          if (followupView === 'notes') {
-                            setLoadingAllNotes(true);
-                            crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                          }
-                        }}
-                        className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                        title="Refresh customer data"
-                      >
-                        <RotateCcw className={`w-3 h-3 stroke-[1.8] ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
-                      </button>
-                    </div>
                   </div>
 
-                  {/* Row 3 on Mobile / Inline Search on Desktop */}
-                  {followupView !== 'repeat' && (
-                    <div className="relative w-full sm:w-48 md:w-56 transition-all shrink-0">
+                  {/* Right: Search + Action Buttons (Fixed, Anchored with sm:ml-auto) */}
+                  <div className="flex items-center gap-1.5 shrink-0 sm:ml-auto w-full sm:w-auto justify-end">
+                    {/* Search Input */}
+                    <div className="relative w-full sm:w-44 md:w-52 transition-all shrink-0">
                       <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
                       <input
                         type="text"
                         autoComplete="off"
                         spellCheck={false}
-                        placeholder={`Search ${(currentTaxonomy.client_plural || 'patients').toLowerCase()}...`}
-                        value={followupSearchInput}
-                        onChange={(e) => setFollowupSearchInput(e.target.value)}
+                        placeholder={followupView === 'repeat' ? `Search repeat ${(currentTaxonomy.client_plural || 'clients').toLowerCase()}...` : `Search ${(currentTaxonomy.client_plural || 'patients').toLowerCase()}...`}
+                        value={followupView === 'repeat' ? repeatSearch : followupSearchInput}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (followupView === 'repeat') {
+                            setRepeatSearch(val);
+                          } else {
+                            setFollowupSearchInput(val);
+                          }
+                        }}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
+                          if (e.key === 'Enter' && followupView !== 'repeat') {
                             setFollowupSearch(followupSearchInput);
                           }
                         }}
-                        className="w-full pl-8 pr-7 h-8 sm:h-7 bg-surface-subtle hover:bg-surface focus:bg-surface border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-all shadow-2xs"
+                        className="w-full pl-8 pr-7 h-7 bg-surface-subtle hover:bg-surface focus:bg-surface border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-all shadow-2xs"
                       />
-                      {followupSearchInput && (
+                      {(followupView === 'repeat' ? repeatSearch : followupSearchInput) && (
                         <button
                           type="button"
                           onClick={() => {
-                            setFollowupSearchInput('');
-                            setFollowupSearch('');
+                            if (followupView === 'repeat') {
+                              setRepeatSearch('');
+                            } else {
+                              setFollowupSearchInput('');
+                              setFollowupSearch('');
+                            }
                           }}
                           className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer"
                           title="Clear search"
@@ -20077,12 +20290,47 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </button>
                       )}
                     </div>
-                  )}
+
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCustomerModal(true)}
+                      className="h-7 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer shrink-0 shadow-xs whitespace-nowrap"
+                      title={`Add new ${currentTaxonomy.client_label || 'Patient'}`}
+                    >
+                      <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
+                      <span className="hidden md:inline">Add {currentTaxonomy.client_label || 'Patient'}</span>
+                      <span className="md:hidden">Add</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openDropdownOptionsModal()}
+                      className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      title="Customize CRM dropdown options"
+                    >
+                      <Sliders className="w-3 h-3 stroke-[1.8]" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loadCustomers();
+                        loadTasks();
+                        if (followupView === 'notes') {
+                          setLoadingAllNotes(true);
+                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                        }
+                      }}
+                      className="h-7 w-7 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      title="Refresh customer data"
+                    >
+                      <RotateCcw className={`w-3 h-3 stroke-[1.8] ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
-                {followupView === 'list' && (
-                  <div className="flex-1 flex flex-col overflow-hidden space-y-1">
+                <div className={followupView === 'list' ? 'flex-1 flex flex-col overflow-hidden space-y-1' : 'hidden'}>
                     {/* Compact & Clean Single-Row Filter & KPI Toolbar */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-2.5 py-1.5 bg-surface border border-border rounded-md text-xs min-w-0">
                       {/* Left: Essential Filter Controls */}
@@ -20093,6 +20341,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5 shrink-0">
                             {[
                               { key: 'all', label: 'All' },
+                              { key: 'today', label: '✨ Today' },
                               { key: 'new', label: 'New' },
                               { key: 'follow-up', label: 'Follow-up' },
                               { key: 'booked', label: 'Booked' },
@@ -20119,7 +20368,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         {/* Active Custom Outcome Badge */}
-                        {!['all', 'new', 'follow-up', 'booked', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && (
+                        {!['all', 'today', 'new', 'follow-up', 'booked', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && (
                           <div className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-accent/10 border border-accent/30 text-accent rounded-sm text-[11px] font-semibold shrink-0">
                             <span>{followupStatusFilter}</span>
                             <button
@@ -20165,7 +20414,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </select>
                         )}
 
-                        {/* Sort Selector: Default vs Most Visits vs Lead Warmth */}
+                        {/* Sort Selector: Default vs Newest Leads vs Most Visits vs Lead Warmth */}
                         <select
                           value={followupSortBy}
                           onChange={(e) => setFollowupSortBy(e.target.value as any)}
@@ -20173,6 +20422,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           title="Sort customer list"
                         >
                           <option value="default">Default Sort</option>
+                          <option value="newest_leads">✨ Newest Leads First</option>
                           <option value="most_visits">Most Visits</option>
                           <option value="warmth">Lead Warmth</option>
                         </select>
@@ -20239,7 +20489,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Main Table + Customer Detail Drawer */}
                     <div className="flex-1 flex overflow-hidden gap-3">
                       {/* Customers Table & Mobile Card Feed */}
-                      <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface">
+                      <div
+                        className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface"
+                        onScroll={(e) => {
+                          const target = e.currentTarget;
+                          if (target.scrollHeight - target.scrollTop - target.clientHeight < 300) {
+                            if (customerDisplayLimit < sortedCustomers.length) {
+                              setCustomerDisplayLimit((prev) => Math.min(prev + 60, sortedCustomers.length));
+                            }
+                          }
+                        }}
+                      >
                         {/* Mobile Responsive Customer Cards (< 768px) */}
                         <div className="md:hidden divide-y divide-border">
                           {loadingCustomers ? (
@@ -20251,7 +20511,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               No {(currentTaxonomy.client_plural || 'customers').toLowerCase()} match the selected filters.
                             </div>
                           ) : (
-                            sortedCustomers.map((cust) => {
+                            visibleCustomers.map((cust) => {
                               const isSelected = selectedCustomer?.id === cust.id;
                               const fuInfo = getFollowupScheduleInfo(cust.followup_date, cust.followup_time);
 
@@ -20310,6 +20570,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           <span>{currentTaxonomy.lead_badge_label || currentTaxonomy.lead_label || 'Lead'}</span>
                                         </span>
                                       )}
+                                      {(() => {
+                                        const isBrandNew = Boolean((cust as any).is_new_today);
+                                        const isActiveToday = Boolean((cust as any).is_active_today);
+                                        const isOutbound = (cust as any).last_message_direction === 'outbound';
+
+                                        if (isBrandNew) {
+                                          return (
+                                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-700 inline-flex items-center gap-1 shrink-0 animate-pulse" title="Brand new lead received today">
+                                              <Sparkles className="w-2.5 h-2.5 text-emerald-600 fill-emerald-500/20" />
+                                              <span>New Lead</span>
+                                            </span>
+                                          );
+                                        }
+                                        if (isActiveToday && isOutbound) {
+                                          return (
+                                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800 inline-flex items-center gap-1 shrink-0" title="AI automated follow-up sent today">
+                                              <Bot className="w-2.5 h-2.5 text-indigo-600" />
+                                              <span>AI Follow-up</span>
+                                            </span>
+                                          );
+                                        }
+                                        if (isActiveToday) {
+                                          return (
+                                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800 inline-flex items-center gap-1 shrink-0" title="Customer messaged today">
+                                              <MessageSquare className="w-2.5 h-2.5 text-sky-600" />
+                                              <span>Active Today</span>
+                                            </span>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
                                     </div>
 
                                     {/* Lead Status Pill */}
@@ -20348,8 +20639,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         </a>
                                       )}
                                       {(cust.age || cust.location) && (
-                                        <span className="text-[11px] font-sans text-text-muted">
-                                          • {[cust.age ? `${cust.age}y` : null, cust.location].filter(Boolean).join(', ')}
+                                        <span className="text-[11px] font-sans text-text-muted truncate max-w-[180px] inline-flex items-center" title={cust.location || undefined}>
+                                          • {[cust.age ? `${cust.age}y` : null, cust.location && cust.location.length > 30 ? cust.location.slice(0, 30) + '…' : cust.location].filter(Boolean).join(', ')}
                                         </span>
                                       )}
                                     </div>
@@ -20393,7 +20684,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-[#128C7E] dark:hover:text-[#25D366] group cursor-pointer max-w-full min-w-0 truncate"
                                     >
                                       <WhatsAppIcon className="w-3 h-3 text-[#25D366] shrink-0" />
-                                      <span className="truncate italic font-medium min-w-0">"{cust.last_message}"</span>
+                                      <span className="truncate italic font-medium min-w-0">
+                                        {(cust as any).last_message_direction === 'outbound' ? (
+                                          <span className="text-accent font-semibold not-italic mr-1">🤖 Auto Follow-up:</span>
+                                        ) : null}
+                                        "{cust.last_message}"
+                                      </span>
                                     </div>
                                   )}
 
@@ -20612,7 +20908,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </td>
                               </tr>
                             ) : (
-                              sortedCustomers.map((cust) => {
+                              visibleCustomers.map((cust) => {
                                 const isSelected = selectedCustomer?.id === cust.id;
                                 const fuInfo = getFollowupScheduleInfo(cust.followup_date, cust.followup_time);
 
@@ -20673,6 +20969,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 <span>{currentTaxonomy.lead_badge_label || currentTaxonomy.lead_label || 'Lead'}</span>
                                               </span>
                                             )}
+                                            {(() => {
+                                              const isBrandNew = Boolean((cust as any).is_new_today);
+                                              const isActiveToday = Boolean((cust as any).is_active_today);
+                                              const isOutbound = (cust as any).last_message_direction === 'outbound';
+
+                                              if (isBrandNew) {
+                                                return (
+                                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-700 inline-flex items-center gap-1 shrink-0 animate-pulse" title="Brand new lead received today">
+                                                    <Sparkles className="w-2.5 h-2.5 text-emerald-600 fill-emerald-500/20" />
+                                                    <span>New Lead</span>
+                                                  </span>
+                                                );
+                                              }
+                                              if (isActiveToday && isOutbound) {
+                                                return (
+                                                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800 inline-flex items-center gap-1 shrink-0" title="AI automated follow-up sent today">
+                                                    <Bot className="w-2.5 h-2.5 text-indigo-600" />
+                                                    <span>AI Follow-up</span>
+                                                  </span>
+                                                );
+                                              }
+                                              if (isActiveToday) {
+                                                return (
+                                                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800 inline-flex items-center gap-1 shrink-0" title="Customer messaged today">
+                                                    <MessageSquare className="w-2.5 h-2.5 text-sky-600" />
+                                                    <span>Active Today</span>
+                                                  </span>
+                                                );
+                                              }
+                                              return null;
+                                            })()}
                                           </div>
                                         </div>
 
@@ -20682,8 +21009,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           {(cust.age || cust.location) && (
                                             <>
                                               <span className="opacity-40">•</span>
-                                              <span className="font-sans text-[11px] text-text-muted">
-                                                {[cust.age ? `${cust.age}y` : null, cust.location].filter(Boolean).join(', ')}
+                                              <span className="font-sans text-[11px] text-text-muted truncate max-w-[180px] inline-flex items-center" title={cust.location || undefined}>
+                                                {[cust.age ? `${cust.age}y` : null, cust.location && cust.location.length > 30 ? cust.location.slice(0, 30) + '…' : cust.location].filter(Boolean).join(', ')}
                                               </span>
                                             </>
                                           )}
@@ -20692,7 +21019,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                               <span className="opacity-40">•</span>
                                               <span className="text-[10px] text-text-secondary flex items-center gap-1 font-sans font-medium">
                                                 <Clock className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                                <span>Last: {formatWhatsAppRelativeDate(cust.last_chat_at || (cust as any).last_messaged_at)}</span>
+                                                <span>{(cust as any).last_message_direction === 'outbound' ? 'AI Sent: ' : 'Last: '}{formatWhatsAppRelativeDate(cust.last_chat_at || (cust as any).last_messaged_at)}</span>
                                               </span>
                                             </>
                                           )}
@@ -20710,7 +21037,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             title={`Latest WhatsApp: "${cust.last_message}" (Click to view chat)`}
                                           >
                                             <WhatsAppIcon className="w-3 h-3 text-[#25D366] shrink-0 group-hover:scale-110 transition-transform" />
-                                            <span className="truncate italic font-medium min-w-0">"{cust.last_message}"</span>
+                                            <span className="truncate italic font-medium min-w-0">
+                                              {(cust as any).last_message_direction === 'outbound' ? (
+                                                <span className="text-accent font-semibold not-italic mr-1">🤖 Auto Follow-up:</span>
+                                              ) : null}
+                                              "{cust.last_message}"
+                                            </span>
                                           </div>
                                         )}
 
@@ -21165,15 +21497,43 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             )}
                           </tbody>
                         </table>
+
+                        {/* Progressive Load Bar when more patients exist */}
+                        {sortedCustomers.length > customerDisplayLimit && (
+                          <div className="py-2 px-3 bg-surface border-t border-border flex items-center justify-between text-xs text-text-muted shrink-0 sticky bottom-0 z-10 shadow-xs">
+                            <span>
+                              Showing <strong className="font-mono text-text-primary">{visibleCustomers.length}</strong> of{' '}
+                              <strong className="font-mono text-text-primary">{sortedCustomers.length}</strong> {(currentTaxonomy.client_plural || 'customers').toLowerCase()}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setCustomerDisplayLimit((prev) => Math.min(prev + 60, sortedCustomers.length))}
+                                className="px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-md text-xs font-semibold text-text-primary shadow-2xs cursor-pointer transition-colors"
+                              >
+                                Load Next 60
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCustomerDisplayLimit(sortedCustomers.length)}
+                                className="px-2.5 py-1 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded-md text-xs font-semibold text-accent cursor-pointer transition-colors"
+                              >
+                                Show All ({sortedCustomers.length})
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Customer Detail Drawer */}
                       {renderCustomerDetailDrawer()}
                     </div>
-                  </div>
-                )}
+                </div>
+
                 {/* ── SUB-VIEW: REPEAT CLIENTS & LOYALTY ────────────────────────── */}
-                {followupView === 'repeat' && renderRepeatClientsWorkspace()}
+                <div className={followupView === 'repeat' ? 'flex-1 flex flex-col overflow-hidden space-y-1 min-h-0' : 'hidden'}>
+                  {renderRepeatClientsWorkspace()}
+                </div>
 
 
                 {/* ── SUB-VIEW B: COMPLETE CUSTOMER DATABASE ───────────────────── */}
@@ -21416,13 +21776,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <div className="flex items-center gap-1.5">
                                           {cust.age && <span className="font-medium">{cust.age} yrs</span>}
                                           {cust.age && cust.location && <span>·</span>}
-                                          {cust.location && <span className="flex items-center gap-0.5 text-text-muted"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
+                                          {cust.location && <span className="flex items-center gap-0.5 text-text-muted truncate max-w-[160px]" title={cust.location}><MapPin className="w-2.5 h-2.5 shrink-0" />{cust.location && cust.location.length > 25 ? cust.location.slice(0, 25) + '…' : cust.location}</span>}
                                         </div>
                                       ) : (
                                         <span className="text-text-muted">—</span>
                                       )}
                                     </td>
-                                    <td className="p-2.5 text-text-secondary max-w-[160px] truncate text-[11px]" title={cust.health_concern}>
+                                    <td className="p-2.5 text-text-secondary max-w-[160px] truncate text-[11px]" title={cust.health_concern || undefined}>
                                       {cust.health_concern || '—'}
                                     </td>
                                     <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
@@ -21498,8 +21858,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 )}
 
                 {/* ── SUB-VIEW C: TASK CALENDAR VIEW ─────────────────────────── */}
-                {followupView === 'tasks' && (
-                    <div className="flex-1 flex flex-col overflow-y-auto space-y-4">
+                <div className={followupView === 'tasks' ? 'flex-1 flex flex-col overflow-y-auto space-y-4' : 'hidden'}>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 sm:p-3 bg-surface border border-border rounded-sm">
                       <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll max-w-full pb-0.5 shrink-0">
                         <span className="text-[11px] font-medium text-text-muted mr-1 shrink-0">Filter:</span>
@@ -21618,8 +21977,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         })
                       )}
                     </div>
-                  </div>
-                )}
+                </div>
 
                 {/* ── SUB-VIEW D: OVERALL NOTES VIEW ──────────────────────────── */}
                 {followupView === 'notes' && (
@@ -22849,9 +23207,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
             )}
 
-            {/* ── VIEW: REPEAT CLIENTS WORKSPACE ───────────────────── */}
-            {/* ── VIEW: REPEAT CLIENTS WORKSPACE (FALLBACK) ───────────────────── */}
-            {activeNav === 'repeat_clients' && renderRepeatClientsWorkspace()}
+            {/* ── VIEW: REPEAT CLIENTS WORKSPACE (Managed inside Unified Customer View) ── */}
 
 {/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
             {activeNav === 'marketing' && (
@@ -22876,16 +23232,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* Sub-Tab Switcher: 5 Segregated Purpose-Built Tabs */}
                 <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-md p-1 max-w-full overflow-x-auto no-scrollbar touch-scroll shrink-0">
                   {([
-                    { key: 'create_template', Icon: Sparkles, label: '✨ Create Template' },
-                    { key: 'template_library', Icon: FileText, label: `📋 Template Library (${marketingTemplates.length})` },
-                    { key: 'schedule_send', Icon: CalendarDays, label: '🚀 Schedule & Send' },
+                    { key: 'create_template', Icon: Sparkles, label: 'Create Template' },
+                    { key: 'template_library', Icon: FileText, label: `Template Library (${marketingTemplates.length})` },
+                    { key: 'schedule_send', Icon: CalendarDays, label: 'Schedule & Send' },
                     {
                       key: 'live_dispatch',
                       Icon: Activity,
-                      label: liveCampaign?.status === 'in_progress' ? '⚡ Live Sending' : '⚡ Live Sending',
+                      label: 'Live Sending',
                       isLive: liveCampaign?.status === 'in_progress'
                     },
-                    { key: 'analytics', Icon: BarChart2, label: '📊 Campaign Analytics' },
+                    { key: 'analytics', Icon: BarChart2, label: 'Campaign Analytics' },
                   ] as const).map((tab) => {
                     const isTabActive =
                       marketingSubTab === tab.key ||
@@ -23007,7 +23363,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-border">
                                     <button
                                       type="button"
-                                      onClick={() => handleSendNowCampaign(cmp.id)}
+                                      onClick={() => cmp.id && handleSendNowCampaign(cmp.id, cmp.campaign_name)}
                                       className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold flex items-center gap-1 cursor-pointer shadow-2xs transition-colors"
                                       title="Trigger broadcast dispatch immediately right now"
                                     >
@@ -23016,7 +23372,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleCancelCampaign(cmp.id)}
+                                      onClick={() => cmp.id && handleCancelCampaign(cmp.id, cmp.campaign_name)}
                                       className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 border border-amber-200 dark:border-amber-800 rounded text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
                                       title="Cancel this scheduled campaign"
                                     >
@@ -23025,7 +23381,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteCampaign(cmp.id)}
+                                      onClick={() => cmp.id && handleDeleteCampaign(cmp.id, cmp.campaign_name)}
                                       className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
                                       title="Delete campaign record"
                                     >
@@ -23082,7 +23438,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {(() => {
                       const selectedCampaignTpl = marketingTemplates.find((t) => t.name === campaignForm.template_name) ||
                                                   customTemplates.find((t) => t.name === campaignForm.template_name) as any;
-                      const hasCampaignImageHeader = selectedCampaignTpl?.header_type === 'IMAGE';
+                      const tplHeaderImg = selectedCampaignTpl?.header_sample_url || (selectedCampaignTpl as any)?.header_media_url || (selectedCampaignTpl as any)?.image_url || '';
+                      const hasCampaignImageHeader = selectedCampaignTpl?.header_type?.toUpperCase() === 'IMAGE' || !!tplHeaderImg;
+                      const activePosterUrl = campaignForm.header_image_url || tplHeaderImg;
                       const tplRawBody = selectedCampaignTpl?.body || '';
                       const tplMatchedVars = tplRawBody.match(/\{\{(\d+)\}\}/g);
                       const tplDetectedCount = tplMatchedVars ? new Set(tplMatchedVars).size : 0;
@@ -23108,7 +23466,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             className="px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border text-text-secondary hover:text-text-primary rounded text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
                           >
                             <FileText className="w-3.5 h-3.5 text-accent" />
-                            <span>📋 Template Library</span>
+                            <span>Template Library</span>
                           </button>
                         </div>
 
@@ -23383,7 +23741,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       className="text-[11px] text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
                                     >
                                       <FileText className="w-3 h-3" />
-                                      <span>📋 Template Library</span>
+                                      <span>Template Library</span>
                                     </button>
                                   </div>
                                 </div>
@@ -23391,11 +23749,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   value={campaignForm.template_name}
                                   onChange={(e) => {
                                     const chosen = e.target.value;
-                                    const tpl = marketingTemplates.find((t) => t.name === chosen);
+                                    const tpl = marketingTemplates.find((t) => t.name === chosen) ||
+                                                customTemplates.find((t) => t.name === chosen);
+                                    const imgUrl = tpl?.header_sample_url || (tpl as any)?.header_media_url || (tpl as any)?.image_url || '';
                                     setCampaignForm((prev) => ({
                                       ...prev,
                                       template_name: chosen,
-                                      header_image_url: tpl?.header_type === 'IMAGE' ? (tpl.header_sample_url || '') : '',
+                                      header_image_url: (tpl?.header_type?.toUpperCase() === 'IMAGE' || imgUrl) ? imgUrl : '',
                                     }));
                                   }}
                                   className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary font-medium"
@@ -23403,7 +23763,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {marketingTemplates.length > 0 ? (
                                     marketingTemplates.map((tpl) => (
                                       <option key={tpl.id || tpl.name} value={tpl.name}>
-                                        [{tpl.category || 'UTILITY'}] {tpl.label || tpl.name} ({tpl.status || 'APPROVED'}) {tpl.header_type === 'IMAGE' ? '🖼 Poster' : ''}
+                                        [{tpl.category || 'UTILITY'}] {tpl.label || tpl.name} ({tpl.status || 'APPROVED'}) {(tpl.header_type === 'IMAGE' || tpl.header_sample_url || (tpl as any).header_media_url) ? '🖼 Poster' : ''}
                                       </option>
                                     ))
                                   ) : (
@@ -23442,21 +23802,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     />
 
                                     {/* Inherited Poster Preview Card or Upload Prompt */}
-                                    {campaignForm.header_image_url ? (
+                                    {activePosterUrl ? (
                                       <div className="flex items-center justify-between gap-3 p-2 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded shadow-xs">
                                         <div className="flex items-center gap-2.5 min-w-0">
                                           <img
-                                            src={campaignForm.header_image_url}
+                                            src={activePosterUrl}
                                             alt="Poster thumbnail"
                                             className="w-12 h-12 object-cover bg-slate-100 dark:bg-slate-800 rounded border border-purple-300 dark:border-purple-700 shrink-0"
                                           />
                                           <div className="min-w-0">
                                             <p className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 truncate flex items-center gap-1">
                                               <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />
-                                              {selectedCampaignTpl?.header_sample_url === campaignForm.header_image_url ? 'Template Poster Inherited' : 'Custom Poster Attached'}
+                                              {campaignForm.header_image_url && tplHeaderImg && campaignForm.header_image_url !== tplHeaderImg
+                                                ? 'Custom Poster Attached'
+                                                : 'Template Poster Inherited'}
                                             </p>
                                             <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400/80 truncate max-w-xs font-mono">
-                                              {campaignForm.header_image_url}
+                                              {activePosterUrl}
                                             </p>
                                           </div>
                                         </div>
@@ -23471,10 +23833,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             <Upload className="w-3 h-3 text-accent" />
                                             Change
                                           </button>
-                                          {selectedCampaignTpl?.header_sample_url && campaignForm.header_image_url !== selectedCampaignTpl.header_sample_url && (
+                                          {tplHeaderImg && campaignForm.header_image_url && campaignForm.header_image_url !== tplHeaderImg && (
                                             <button
                                               type="button"
-                                              onClick={() => setCampaignForm((prev) => ({ ...prev, header_image_url: selectedCampaignTpl.header_sample_url || '' }))}
+                                              onClick={() => setCampaignForm((prev) => ({ ...prev, header_image_url: tplHeaderImg }))}
                                               className="text-[10px] px-2 py-1 text-purple-600 hover:text-purple-700 hover:bg-purple-100/50 rounded font-medium cursor-pointer"
                                               title="Reset to template default poster"
                                             >
@@ -23783,17 +24145,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             {/* Speech Bubble */}
                             <div className="bg-white dark:bg-[#202c33] rounded-md overflow-hidden shadow-sm text-xs space-y-2 text-slate-800 dark:text-slate-100 ml-auto border border-slate-100 dark:border-slate-800 max-w-[94%]">
                               {/* Header Poster Image if provided - Full Natural Height (No Cropping) */}
-                              {hasCampaignImageHeader && campaignForm.header_image_url && (
+                              {hasCampaignImageHeader && activePosterUrl && (
                                 <div className="relative w-full bg-slate-100 dark:bg-slate-800/80 overflow-hidden flex items-center justify-center border-b border-slate-200 dark:border-slate-700">
                                   <a
-                                    href={campaignForm.header_image_url}
+                                    href={activePosterUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     title="Click to view full poster image in new tab"
                                     className="block w-full group relative cursor-zoom-in"
                                   >
                                     <img
-                                      src={campaignForm.header_image_url}
+                                      src={activePosterUrl}
                                       alt="Campaign Poster"
                                       className="w-full h-auto max-h-[520px] object-contain rounded-t-md block mx-auto transition-transform group-hover:scale-[1.01]"
                                     />
@@ -23894,7 +24256,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <div className="flex items-center justify-end gap-1.5 pt-1">
                                       <button
                                         type="button"
-                                        onClick={() => handleSendNowCampaign(cmp.id)}
+                                        onClick={() => cmp.id && handleSendNowCampaign(cmp.id, cmp.campaign_name)}
                                         className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
                                       >
                                         <Zap className="w-2.5 h-2.5" />
@@ -23902,7 +24264,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => handleCancelCampaign(cmp.id)}
+                                        onClick={() => cmp.id && handleCancelCampaign(cmp.id, cmp.campaign_name)}
                                         className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded text-[10px] font-medium flex items-center gap-1 cursor-pointer"
                                       >
                                         <X className="w-2.5 h-2.5" />
@@ -23922,48 +24284,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
             )}
 
-                {/* ── SUB-TAB: LIVE SENDING & META TIER 1 MONITOR ── */}
+                {/* ── SUB-TAB: LIVE SENDING MONITOR (COMPACT & CLEAN) ── */}
                 {marketingSubTab === 'live_dispatch' && (
-                  <div className="space-y-4">
-                    {/* Header bar with campaign selector & actions */}
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-surface border border-border rounded-lg p-4 shadow-subtle">
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
-                            <Activity className="w-4 h-4 text-accent animate-pulse" />
-                            Live Broadcast Dispatch Monitor
-                          </h4>
-                          {liveCampaign && (
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                              liveCampaign.status === 'in_progress'
-                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-                                : liveCampaign.status === 'paused_tier_limit'
-                                ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-500/30'
-                                : liveCampaign.status === 'scheduled'
-                                ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30'
-                                : liveCampaign.status === 'completed'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-surface-subtle text-text-secondary border border-border'
-                            }`}>
-                              {liveCampaign.status === 'in_progress' && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />}
-                              {liveCampaign.status === 'in_progress'
-                                ? 'Live Sending'
-                                : liveCampaign.status === 'paused_tier_limit'
-                                ? 'Paused (24h Tier 1 Limit)'
-                                : liveCampaign.status === 'scheduled'
-                                ? 'Scheduled'
-                                : liveCampaign.status === 'completed'
-                                ? 'Completed'
-                                : liveCampaign.status}
-                            </span>
-                          )}
+                  <div className="space-y-2.5">
+                    {/* Unified Top Control Bar */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-surface border border-border rounded-lg px-3.5 py-2 shadow-subtle">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <div className="flex items-center gap-1.5 font-bold text-xs text-text-primary">
+                          <Activity className={`w-3.5 h-3.5 ${liveCampaign?.status === 'in_progress' ? 'text-accent animate-pulse' : 'text-text-muted'}`} />
+                          <span>Live Broadcast Monitor</span>
                         </div>
-                        <p className="text-xs text-text-muted">
-                          One-by-one customer template delivery with automated Meta 24-hour Tier 1 quota tracking and auto-resumption.
-                        </p>
-                      </div>
 
-                      <div className="flex items-center gap-2 flex-wrap">
+                        {liveCampaign && (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            liveCampaign.status === 'in_progress'
+                              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                              : liveCampaign.status === 'paused_tier_limit'
+                              ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-500/30'
+                              : liveCampaign.status === 'scheduled'
+                              ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30'
+                              : liveCampaign.status === 'completed'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-surface-subtle text-text-secondary border border-border'
+                          }`}>
+                            {liveCampaign.status === 'in_progress' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />}
+                            {liveCampaign.status === 'in_progress'
+                              ? 'Live Sending'
+                              : liveCampaign.status === 'paused_tier_limit'
+                              ? 'Paused (24h Limit)'
+                              : liveCampaign.status === 'scheduled'
+                              ? 'Scheduled'
+                              : liveCampaign.status === 'completed'
+                              ? 'Completed'
+                              : liveCampaign.status}
+                          </span>
+                        )}
+
                         {/* Campaign Switcher Dropdown */}
                         {campaigns.length > 0 && (
                           <div className="relative">
@@ -23974,26 +24330,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 setSelectedLiveCampaignId(newId);
                                 marketing.getLiveCampaignStatus(newId).then(setLiveCampaign).catch(() => {});
                               }}
-                              className="px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary cursor-pointer max-w-[220px] truncate"
+                              className="px-2 py-0.5 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-[11px] font-medium text-text-primary cursor-pointer max-w-[190px] truncate"
                             >
                               {campaigns.map((c) => (
                                 <option key={c.id} value={c.id}>
-                                  {c.campaign_name} ({c.status === 'in_progress' ? '🟢 Sending' : c.status === 'paused_tier_limit' ? '⏸️ Paused' : c.status})
+                                  {c.campaign_name} ({c.status === 'in_progress' ? 'Sending' : c.status === 'paused_tier_limit' ? 'Paused' : c.status})
                                 </option>
                               ))}
                             </select>
                           </div>
                         )}
+                      </div>
 
+                      <div className="flex items-center gap-1.5 self-end sm:self-center">
                         {liveCampaign && (liveCampaign.status === 'paused_tier_limit' || liveCampaign.status === 'scheduled') && (
                           <button
                             type="button"
-                            disabled={resumingCampaign}
+                            disabled={resumingCampaign || retryingFailed}
                             onClick={() => handleResumeCampaign(liveCampaign.id)}
-                            className="px-3 py-1.5 bg-accent text-white text-xs font-semibold rounded-sm flex items-center gap-1.5 hover:bg-accent/90 transition-colors cursor-pointer shadow-subtle disabled:opacity-50"
+                            className="px-2 py-0.5 bg-accent text-white text-[11px] font-semibold rounded-sm flex items-center gap-1 hover:bg-accent/90 transition-colors cursor-pointer shadow-subtle disabled:opacity-50"
                           >
-                            <Play className="w-3.5 h-3.5 fill-current" />
-                            {resumingCampaign ? 'Resuming...' : 'Resume Now'}
+                            <Play className="w-3 h-3 fill-current" />
+                            {resumingCampaign ? 'Resuming...' : 'Resume'}
+                          </button>
+                        )}
+
+                        {liveCampaign && ((liveCampaign.failed_count ?? 0) > 0 || liveCampaign.dispatch_logs?.some(l => l.status === 'failed')) && (
+                          <button
+                            type="button"
+                            disabled={retryingFailed || liveCampaign.status === 'in_progress'}
+                            onClick={() => handleRetryFailedCampaign(liveCampaign.id)}
+                            className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-semibold rounded-sm flex items-center gap-1 transition-colors cursor-pointer shadow-subtle disabled:opacity-50"
+                            title="Retry sending to failed recipients with safe pacing"
+                          >
+                            <RotateCcw className={`w-3 h-3 ${retryingFailed ? 'animate-spin' : ''}`} />
+                            <span>{retryingFailed ? 'Retrying...' : `Retry Failed (${liveCampaign.failed_count || liveCampaign.dispatch_logs?.filter(l => l.status === 'failed').length || 0})`}</span>
                           </button>
                         )}
 
@@ -24001,209 +24372,189 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           type="button"
                           onClick={() => {
                             if (selectedLiveCampaignId) {
-                              marketing.getLiveCampaignStatus(selectedLiveCampaignId).then(setLiveCampaign).catch(() => {});
+                              marketing.getLiveCampaignStatus(selectedLiveCampaignId, true).then(setLiveCampaign).catch(() => {});
                             } else {
-                              marketing.getLiveActiveCampaign().then(setLiveCampaign).catch(() => {});
+                              marketing.getLiveActiveCampaign(true).then(setLiveCampaign).catch(() => {});
                             }
                           }}
-                          className="px-2.5 py-1.5 bg-surface-subtle border border-border text-text-secondary hover:text-text-primary rounded-sm text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-                          title="Refresh live status"
+                          className="px-2 py-0.5 bg-surface-subtle hover:bg-surface border border-border text-text-secondary hover:text-text-primary rounded-sm text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Refresh live status & Meta tier"
                         >
-                          <RefreshCw className="w-3.5 h-3.5" />
+                          <RefreshCw className="w-3 h-3" />
                           <span>Refresh</span>
                         </button>
                       </div>
                     </div>
 
                     {!liveCampaign ? (
-                      <div className="bg-surface border border-border rounded-lg p-10 text-center space-y-3">
-                        <div className="w-12 h-12 rounded-full bg-accent/10 text-accent flex items-center justify-center mx-auto">
-                          <Activity className="w-6 h-6" />
+                      <div className="bg-surface border border-border rounded-lg p-6 text-center space-y-2">
+                        <div className="w-8 h-8 rounded-full bg-accent/10 text-accent flex items-center justify-center mx-auto">
+                          <Activity className="w-4 h-4" />
                         </div>
-                        <h4 className="text-sm font-semibold text-text-primary">No Active Broadcast Campaigns Yet</h4>
-                        <p className="text-xs text-text-muted max-w-md mx-auto">
-                          When you launch a marketing broadcast from the <strong>Schedule & Send Area</strong>, real-time one-by-one customer message delivery and the 24-hour Tier 1 reset countdown will appear here live.
+                        <h4 className="text-xs font-semibold text-text-primary">No Active Broadcast Campaigns</h4>
+                        <p className="text-[11px] text-text-muted max-w-sm mx-auto">
+                          Launch a marketing broadcast from <strong>Schedule & Send</strong> to monitor real-time delivery here.
                         </p>
                         <button
                           onClick={() => setMarketingSubTab('schedule_send')}
-                          className="px-3.5 py-1.5 bg-accent text-white text-xs font-semibold rounded-sm inline-flex items-center gap-1.5 hover:bg-accent/90 cursor-pointer transition-colors shadow-subtle"
+                          className="px-2.5 py-1 bg-accent text-white text-[11px] font-semibold rounded-sm inline-flex items-center gap-1 hover:bg-accent/90 cursor-pointer transition-colors shadow-subtle"
                         >
-                          <Send className="w-3.5 h-3.5" />
-                          Go to Schedule &amp; Send Area
+                          <Send className="w-3 h-3" />
+                          Schedule &amp; Send
                         </button>
                       </div>
                     ) : (
                       <>
-                        {/* Meta Tier 1 24-Hour Limit Alert Banner */}
+                        {/* Meta Tier 1 24-Hour Limit Alert Banner (Only when paused) */}
                         {liveCampaign.status === 'paused_tier_limit' && (
-                          <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 space-y-2">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-2.5">
-                                <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                                <div>
-                                  <h5 className="font-bold text-xs uppercase tracking-wider text-amber-900 dark:text-amber-200">
-                                    Meta 24-Hour Tier 1 Limit Reached (250 / 24 Hours)
-                                  </h5>
-                                  <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5 leading-relaxed">
-                                    Meta Cloud API limits new business accounts to <strong>250 business-initiated conversations</strong> per rolling 24 hours. Broadcast stopped safely at recipient #{liveCampaign.sent_count} of {liveCampaign.total_recipients}.
-                                  </p>
-                                </div>
+                          <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <div className="text-[11px]">
+                                <span className="font-bold">Meta 24h {liveCampaign.tier_info?.tier_display || 'Tier'} Limit Reached ({liveCampaign.tier_info?.limit_24h || 250} msgs).</span>{' '}
+                                <span className="text-text-muted">Paused at #{liveCampaign.sent_count}/{liveCampaign.total_recipients}. Auto-resumes in {formatRemainingTime(liveCampaign.scheduled_at)}.</span>
                               </div>
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-200/80 dark:bg-amber-900/60 text-amber-950 dark:text-amber-100 text-xs font-mono font-bold shrink-0">
-                                <Clock className="w-3.5 h-3.5" />
-                                Resumes in {formatRemainingTime(liveCampaign.scheduled_at)}
-                              </span>
                             </div>
-                            <div className="text-[11px] text-amber-800 dark:text-amber-300 pl-7 flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-amber-500/20">
-                              <span>
-                                ⏳ Remaining <strong>{liveCampaign.remaining_count} recipients</strong> will automatically resume dispatching on <strong>{liveCampaign.scheduled_at ? formatDateTime12(liveCampaign.scheduled_at) : 'the next reset'}</strong>.
-                              </span>
-                              <span className="font-semibold text-amber-950 dark:text-amber-100">
-                                🔔 Push notification will be sent only when all {liveCampaign.total_recipients} recipients are completed.
-                              </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {((liveCampaign.failed_count ?? 0) > 0 || liveCampaign.dispatch_logs?.some(l => l.status === 'failed')) && (
+                                <button
+                                  type="button"
+                                  disabled={retryingFailed}
+                                  onClick={() => handleRetryFailedCampaign(liveCampaign.id)}
+                                  className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-sm flex items-center gap-1 cursor-pointer transition-colors shadow-subtle disabled:opacity-50"
+                                >
+                                  <RotateCcw className={`w-2.5 h-2.5 ${retryingFailed ? 'animate-spin' : ''}`} />
+                                  <span>{retryingFailed ? 'Retrying...' : `Retry Failed (${liveCampaign.failed_count || liveCampaign.dispatch_logs?.filter(l => l.status === 'failed').length || 0})`}</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={resumingCampaign || retryingFailed}
+                                onClick={() => handleResumeCampaign(liveCampaign.id)}
+                                className="px-2 py-0.5 bg-accent text-white text-[10px] font-bold rounded-sm flex items-center gap-1 hover:bg-accent/90 cursor-pointer transition-colors shadow-subtle disabled:opacity-50"
+                              >
+                                <Play className="w-2.5 h-2.5 fill-current" />
+                                <span>Resume</span>
+                              </button>
                             </div>
                           </div>
                         )}
 
-                        {liveCampaign.status === 'in_progress' && (
-                          <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-3 h-3 rounded-full bg-emerald-500 animate-ping shrink-0" />
-                              <div>
-                                <p className="font-bold text-xs text-emerald-950 dark:text-emerald-200">
-                                  Live Dispatching in Progress (~1 message every 500ms)
-                                </p>
-                                <p className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                                  Messages are being delivered to WhatsApp. If the 24-hour Tier 1 quota (250) is reached, it will pause safely and resume tomorrow.
-                                </p>
-                              </div>
-                            </div>
-                            <span className="text-base font-bold font-mono text-emerald-800 dark:text-emerald-300 shrink-0">
-                              {liveCampaign.sent_count} / {liveCampaign.total_recipients} ({liveCampaign.progress_percent}%)
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Progress Bar & Breakdown */}
-                        <div className="bg-surface border border-border rounded-lg p-4 space-y-3 shadow-subtle">
-                          <div className="flex items-center justify-between text-xs font-semibold text-text-primary">
-                            <span className="flex items-center gap-1.5">
-                              <span>Campaign Delivery Progress</span>
-                              <span className="text-text-muted font-normal">({liveCampaign.campaign_name})</span>
-                            </span>
-                            <span className="font-mono text-accent">{liveCampaign.progress_percent}% Complete</span>
-                          </div>
-
-                          <div className="w-full h-3 bg-surface-subtle rounded-full overflow-hidden border border-border relative">
-                            <div
-                              className={`h-full transition-all duration-300 rounded-full ${
-                                liveCampaign.status === 'in_progress'
-                                  ? 'bg-accent bg-gradient-to-r from-accent to-emerald-500'
-                                  : liveCampaign.status === 'paused_tier_limit'
-                                  ? 'bg-amber-500'
-                                  : 'bg-emerald-600'
-                              }`}
-                              style={{ width: `${Math.min(100, Math.max(2, liveCampaign.progress_percent))}%` }}
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between text-[11px] text-text-muted font-mono">
-                            <span>0 recipients</span>
-                            <span className="text-amber-600 dark:text-amber-400 font-semibold">Tier 1 Cap: 250 / 24h</span>
-                            <span>{liveCampaign.total_recipients} total recipients</span>
-                          </div>
-                        </div>
-
-                        {/* 4 Real-time Metric Cards */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                          <div className="bg-surface border border-border rounded-lg p-3.5 space-y-1 shadow-subtle">
-                            <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Total Audience</p>
-                            <div className="flex items-baseline justify-between">
-                              <span className="text-xl font-bold font-headline text-text-primary">{liveCampaign.total_recipients}</span>
-                              <Users className="w-4 h-4 text-text-muted" />
-                            </div>
-                            <p className="text-[10px] text-text-muted truncate">Template: {liveCampaign.template_name || 'N/A'}</p>
-                          </div>
-
-                          <div className="bg-surface border border-border rounded-lg p-3.5 space-y-1 shadow-subtle">
-                            <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Dispatched Today</p>
-                            <div className="flex items-baseline justify-between">
-                              <span className="text-xl font-bold font-headline text-emerald-600">{liveCampaign.sent_count}</span>
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                            </div>
-                            <p className="text-[10px] text-text-muted">{liveCampaign.progress_percent}% delivered</p>
-                          </div>
-
-                          <div className="bg-surface border border-border rounded-lg p-3.5 space-y-1 shadow-subtle">
-                            <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Remaining in Queue</p>
-                            <div className="flex items-baseline justify-between">
-                              <span className="text-xl font-bold font-headline text-text-primary">{liveCampaign.remaining_count}</span>
-                              <Clock className="w-4 h-4 text-text-muted" />
-                            </div>
-                            <p className="text-[10px] text-text-muted">
-                              {liveCampaign.remaining_count === 0 ? 'All finished' : liveCampaign.status === 'paused_tier_limit' ? 'Queued for 24h reset' : 'Sending in progress'}
-                            </p>
-                          </div>
-
-                          <div className="bg-surface border border-border rounded-lg p-3.5 space-y-1 shadow-subtle">
-                            <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Meta 24h Tier 1 Quota</p>
-                            <div className="flex items-baseline justify-between">
-                              <span className="text-xl font-bold font-headline text-amber-600">
-                                {liveCampaign.tier_info.sent_last_24h} / {liveCampaign.tier_info.limit_24h}
+                        {/* Combined Slim Progress & 4 KPI Metrics */}
+                        <div className="bg-surface border border-border rounded-lg p-3 shadow-subtle space-y-2">
+                          {/* Progress Header & Slim Bar */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-medium text-text-primary flex items-center gap-1.5">
+                                <span>Delivery:</span>
+                                <span className="font-mono text-accent font-bold">{liveCampaign.sent_count} / {liveCampaign.total_recipients} ({liveCampaign.progress_percent}%)</span>
                               </span>
-                              <ShieldCheck className="w-4 h-4 text-amber-600" />
-                            </div>
-                            <p className="text-[10px] text-text-muted">
-                              {liveCampaign.tier_info.remaining_today > 0
-                                ? `${liveCampaign.tier_info.remaining_today} slots free today`
-                                : 'Daily quota maxed'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Customer by Customer Live Feed Table */}
-                        <div className="bg-surface border border-border rounded-lg shadow-subtle overflow-hidden space-y-0">
-                          <div className="p-3.5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                            <div>
-                              <h5 className="text-xs font-bold text-text-primary flex items-center gap-1.5">
-                                <Users className="w-3.5 h-3.5 text-accent" />
-                                Customer Dispatch Feed (One-by-One Live Logs)
-                              </h5>
-                              <p className="text-[11px] text-text-muted">
-                                Real-time audit trail of individual template dispatches to customer phone numbers.
-                              </p>
+                              <span className="text-text-muted font-mono text-[10px]">
+                                {liveCampaign.remaining_count === 0 ? '✓ Complete' : `${liveCampaign.remaining_count} remaining`}
+                              </span>
                             </div>
 
-                            <div className="relative max-w-xs w-full">
-                              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-                              <input
-                                type="text"
-                                placeholder="Filter by phone or name..."
-                                value={liveLogSearch}
-                                onChange={(e) => setLiveLogSearch(e.target.value)}
-                                className="w-full pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted"
+                            <div className="w-full h-1.5 bg-surface-subtle rounded-full overflow-hidden border border-border relative">
+                              <div
+                                className={`h-full transition-all duration-300 rounded-full ${
+                                  liveCampaign.status === 'in_progress'
+                                    ? 'bg-accent bg-gradient-to-r from-accent to-emerald-500'
+                                    : liveCampaign.status === 'paused_tier_limit'
+                                    ? 'bg-amber-500'
+                                    : 'bg-emerald-600'
+                                }`}
+                                style={{ width: `${Math.min(100, Math.max(2, liveCampaign.progress_percent))}%` }}
                               />
                             </div>
                           </div>
 
-                          <div className="overflow-x-auto max-h-96 overflow-y-auto divide-y divide-border">
+                          {/* 4 Compact Inline KPI Tiles */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-border/50">
+                            <div className="bg-surface-subtle/50 rounded px-2.5 py-1.5 border border-border/40">
+                              <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider block">Audience</span>
+                              <div className="flex items-baseline justify-between mt-0.5">
+                                <span className="text-sm font-bold font-mono text-text-primary">{liveCampaign.total_recipients}</span>
+                                <span className="text-[10px] text-text-muted truncate max-w-[85px]">{liveCampaign.template_name || 'Template'}</span>
+                              </div>
+                            </div>
+
+                            <div className="bg-surface-subtle/50 rounded px-2.5 py-1.5 border border-border/40">
+                              <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider block">Dispatched</span>
+                              <div className="flex items-baseline justify-between mt-0.5">
+                                <span className="text-sm font-bold font-mono text-emerald-600">{liveCampaign.sent_count}</span>
+                                <span className="text-[10px] font-semibold text-emerald-600 font-mono">{liveCampaign.progress_percent}%</span>
+                              </div>
+                            </div>
+
+                            <div className="bg-surface-subtle/50 rounded px-2.5 py-1.5 border border-border/40">
+                              <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider block">In Queue</span>
+                              <div className="flex items-baseline justify-between mt-0.5">
+                                <span className="text-sm font-bold font-mono text-text-primary">{liveCampaign.remaining_count}</span>
+                                <span className="text-[10px] text-text-muted">{liveCampaign.remaining_count === 0 ? 'Done' : 'Pending'}</span>
+                              </div>
+                            </div>
+
+                            <div 
+                              className="bg-surface-subtle/50 rounded px-2.5 py-1.5 border border-border/40"
+                              title={`Meta Messaging Limit: ${liveCampaign.tier_info?.tier_display || 'Tier 250'} (${liveCampaign.tier_info?.limit_24h || 250}/day) · Quality: ${liveCampaign.tier_info?.quality_rating || 'GREEN'}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider block truncate">24h Quota</span>
+                                <span className="inline-flex items-center gap-1 text-[9px] font-medium text-text-muted">
+                                  <span className={`w-1.5 h-1.5 rounded-full ${
+                                    liveCampaign.tier_info?.quality_rating === 'YELLOW' ? 'bg-amber-500' :
+                                    liveCampaign.tier_info?.quality_rating === 'RED' ? 'bg-rose-500' : 'bg-emerald-500'
+                                  }`} />
+                                  <span>{liveCampaign.tier_info?.tier_display || 'Tier 250'}</span>
+                                </span>
+                              </div>
+                              <div className="flex items-baseline justify-between mt-0.5">
+                                <span className="text-sm font-bold font-mono text-amber-600">
+                                  {liveCampaign.tier_info?.sent_last_24h ?? 0}/{liveCampaign.tier_info?.limit_24h ?? 250}
+                                </span>
+                                <span className="text-[10px] text-text-muted font-mono">{liveCampaign.tier_info?.remaining_today ?? 250} left</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Customer Dispatch Feed Table (Clean & Compact) */}
+                        <div className="bg-surface border border-border rounded-lg shadow-subtle overflow-hidden">
+                          <div className="px-3 py-1.5 border-b border-border flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                              <Users className="w-3 h-3 text-accent" />
+                              <span>Dispatch Logs ({liveCampaign.dispatch_logs.length})</span>
+                            </span>
+
+                            <div className="relative w-40 sm:w-52">
+                              <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+                              <input
+                                type="text"
+                                placeholder="Filter log..."
+                                value={liveLogSearch}
+                                onChange={(e) => setLiveLogSearch(e.target.value)}
+                                className="w-full pl-6 pr-2 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px] text-text-primary placeholder:text-text-muted"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto max-h-64 overflow-y-auto">
                             {liveCampaign.dispatch_logs.length === 0 ? (
-                              <div className="p-8 text-center text-xs text-text-muted">
-                                Waiting for dispatch logs... Messages will appear here as they are sent one by one.
+                              <div className="p-5 text-center text-xs text-text-muted">
+                                No dispatch records yet.
                               </div>
                             ) : (
                               <table className="w-full text-left border-collapse text-xs">
                                 <thead>
-                                  <tr className="bg-surface-subtle/80 text-[11px] text-text-muted border-b border-border font-semibold">
-                                    <th className="py-2 px-3 w-12">#</th>
-                                    <th className="py-2 px-3">Recipient / Customer</th>
-                                    <th className="py-2 px-3">Status</th>
-                                    <th className="py-2 px-3">Dispatch Time</th>
-                                    <th className="py-2 px-3">Delivery Info / WAMID</th>
-                                    <th className="py-2 px-3 text-right">Action</th>
+                                  <tr className="bg-surface-subtle/70 text-[10px] text-text-muted border-b border-border font-semibold uppercase tracking-wider">
+                                    <th className="py-1 px-3">Recipient</th>
+                                    <th className="py-1 px-3">Status</th>
+                                    <th className="py-1 px-3">Time</th>
+                                    <th className="py-1 px-3">WAMID / Details</th>
+                                    <th className="py-1 px-3 text-right">Action</th>
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y divide-border font-mono text-[11px]">
+                                <tbody className="divide-y divide-border/60 text-[11px]">
                                   {liveCampaign.dispatch_logs
                                     .filter((item) => {
                                       if (!liveLogSearch.trim()) return true;
@@ -24215,59 +24566,65 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       );
                                     })
                                     .map((item, idx) => (
-                                      <tr key={idx} className="hover:bg-surface-subtle transition-colors">
-                                        <td className="py-2 px-3 text-text-muted">{idx + 1}</td>
-                                        <td className="py-2 px-3 font-sans">
-                                          <div className="font-semibold text-text-primary text-xs">{item.name || 'Customer'}</div>
-                                          <div className="text-[11px] text-text-muted font-mono">{formatDisplayPhone(item.phone)}</div>
+                                      <tr key={idx} className="hover:bg-surface-subtle/50 transition-colors">
+                                        <td className="py-1 px-3 font-sans">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-semibold text-text-primary">{item.name || 'Customer'}</span>
+                                            <span className="text-[10px] text-text-muted font-mono">{formatDisplayPhone(item.phone)}</span>
+                                          </div>
                                         </td>
-                                        <td className="py-2 px-3">
-                                          {item.status === 'sent' ? (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        <td className="py-1 px-3">
+                                          {item.status === 'delivered' || item.status === 'read' ? (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                              <CheckCheck className="w-2.5 h-2.5 text-emerald-600" />
+                                              {item.status === 'read' ? 'Read' : 'Delivered'}
+                                            </span>
+                                          ) : item.status === 'sent' ? (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                              <CheckCircle2 className="w-2.5 h-2.5 text-blue-600" />
                                               Sent
                                             </span>
                                           ) : item.status === 'paused_tier_limit' ? (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-300">
-                                              <Clock className="w-3 h-3 text-amber-600" />
-                                              Paused (24h Limit)
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-300">
+                                              <Clock className="w-2.5 h-2.5 text-amber-600" />
+                                              Paused
                                             </span>
                                           ) : item.status === 'failed' ? (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">
-                                              <XCircle className="w-3 h-3 text-red-600" />
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-red-50 text-red-700 border border-red-200">
+                                              <XCircle className="w-2.5 h-2.5 text-red-600" />
                                               Failed
                                             </span>
                                           ) : (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                              <Clock className="w-3 h-3" />
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-slate-50 text-slate-700 border border-slate-200">
+                                              <Clock className="w-2.5 h-2.5" />
                                               {item.status}
                                             </span>
                                           )}
                                         </td>
-                                        <td className="py-2 px-3 text-text-muted font-sans text-xs">
+                                        <td className="py-1 px-3 text-text-muted font-sans text-[10px]">
                                           {item.timestamp ? formatDateTime12(item.timestamp) : '—'}
                                         </td>
-                                        <td className="py-2 px-3 text-text-muted truncate max-w-xs font-mono text-[10px]">
+                                        <td className="py-1 px-3 text-text-muted truncate max-w-xs font-mono text-[10px]">
                                           {item.error ? (
                                             <span className="text-red-600 truncate block" title={item.error}>
                                               {item.error}
                                             </span>
                                           ) : item.wamid ? (
                                             <span className="text-emerald-700 dark:text-emerald-400 truncate block" title={item.wamid}>
-                                              {item.wamid.slice(0, 24)}...
+                                              {item.wamid.slice(0, 20)}...
                                             </span>
                                           ) : (
                                             '—'
                                           )}
                                         </td>
-                                        <td className="py-2 px-3 text-right">
+                                        <td className="py-1 px-3 text-right">
                                           <button
                                             type="button"
                                             onClick={() => openChatForContact(item.phone)}
-                                            className="px-2 py-1 bg-surface-subtle hover:bg-surface border border-border text-text-primary rounded text-[11px] font-sans inline-flex items-center gap-1 cursor-pointer transition-colors"
+                                            className="px-2 py-0.5 bg-surface-subtle hover:bg-surface border border-border text-text-primary rounded text-[10px] font-sans inline-flex items-center gap-1 cursor-pointer transition-colors"
                                             title="Open Chat"
                                           >
-                                            <MessageSquare className="w-3 h-3 text-accent" />
+                                            <MessageSquare className="w-2.5 h-2.5 text-accent" />
                                             <span>Chat</span>
                                           </button>
                                         </td>
@@ -24283,9 +24640,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 )}
 
-                {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-                    SUB-TAB 3: ANALYTICS
-                â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
                 {/* ─────────────────────────────────────────────────────────
                     TAB 1: CREATE & EDIT TEMPLATE (META TEMPLATE STUDIO)
                 ───────────────────────────────────────────────────────── */}
@@ -24304,7 +24658,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             onClick={() => setMarketingSubTab('template_library')}
                             className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold cursor-pointer transition-colors"
                           >
-                            📋 View in Template Library
+                            View in Template Library
                           </button>
                           <button type="button" onClick={() => setTemplateManagerSuccess(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
                             <X className="w-3.5 h-3.5" />
@@ -25417,6 +25771,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     )}
                                   </div>
 
+                                  {/* Image Poster Preview Thumbnail if template has an image header */}
+                                  {(() => {
+                                    const cardImgUrl = tpl.header_sample_url || (tpl as any).header_media_url || (tpl as any).image_url;
+                                    if (!cardImgUrl && tpl.header_type !== 'IMAGE') return null;
+                                    return (
+                                      <div className="relative w-full rounded border border-purple-200 dark:border-purple-800/60 overflow-hidden bg-purple-50/30 dark:bg-purple-950/20">
+                                        {cardImgUrl ? (
+                                          <div className="relative group">
+                                            <img
+                                              src={cardImgUrl}
+                                              alt={`${tpl.name} poster`}
+                                              className="w-full h-32 object-cover block"
+                                              onError={(e) => {
+                                                (e.target as HTMLElement).style.display = 'none';
+                                              }}
+                                            />
+                                            <a
+                                              href={cardImgUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-[11px] font-semibold"
+                                            >
+                                              <ExternalLink className="w-3.5 h-3.5" />
+                                              <span>View Poster</span>
+                                            </a>
+                                          </div>
+                                        ) : (
+                                          <div className="py-2.5 px-2 text-center text-[10px] text-purple-600 dark:text-purple-400 font-medium flex items-center justify-center gap-1.5">
+                                            <ImageIcon className="w-3.5 h-3.5" />
+                                            <span>Image Header Template</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+
                                   {/* Body preview */}
                                   <div className="p-2.5 bg-surface-subtle/70 border border-border rounded text-[11px] text-text-primary leading-relaxed whitespace-pre-wrap font-sans max-h-28 overflow-y-auto">
                                     {tpl.body || `Hello {{1}}, your booking for {{2}} is confirmed.`}
@@ -25428,7 +25818,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setCampaignForm((prev) => ({ ...prev, template_name: tpl.name, message_mode: 'template' }));
+                                      const imgUrl = tpl.header_sample_url || (tpl as any).header_media_url || (tpl as any).image_url || '';
+                                      setCampaignForm((prev) => ({
+                                        ...prev,
+                                        template_name: tpl.name,
+                                        message_mode: 'template',
+                                        header_image_url: (tpl.header_type?.toUpperCase() === 'IMAGE' || imgUrl) ? imgUrl : '',
+                                      }));
                                       setMarketingSubTab('schedule_send');
                                       setActionNotice(`Template "${tpl.name}" selected for broadcast!`);
                                       setTimeout(() => setActionNotice(null), 3000);
@@ -27202,7 +27598,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     const isActive = settingsTab === tab.id ||
                       (tab.id === 'branding' && (settingsTab === 'localization' || settingsTab === 'terminology')) ||
                       (tab.id === 'calendar' && settingsTab === 'leaves') ||
-                      (tab.id === 'channels' && (settingsTab === 'whatsapp' || settingsTab === 'voice_calling' || settingsTab === 'website_form' || settingsTab === 'notifications' || settingsTab === 'account'));
+                      (tab.id === 'channels' && (settingsTab === 'whatsapp' || settingsTab === 'website_form' || settingsTab === 'notifications' || settingsTab === 'account'));
                     return (
                       <button
                         key={tab.id}
@@ -28581,433 +28977,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </div>
                           </div>
                         )}
-                      </div>
-
-                      {/* ── MISSED CALL → WHATSAPP AUTO-REPLY ─────────────────── */}
-                      <div className="bg-surface p-5 rounded-lg border border-border space-y-4">
-                        {/* Header */}
-                        <div className="flex items-start justify-between gap-3 pb-3 border-b border-border">
-                          <div>
-                            <h4 className="font-bold text-sm text-text-primary flex items-center gap-2">
-                              <PhoneCall className="w-4 h-4 text-amber-500" />
-                              <span>Missed Call → WhatsApp Auto-Reply</span>
-                            </h4>
-                            <p className="text-xs text-text-muted mt-0.5">
-                              Automatically send a WhatsApp follow-up whenever your Android phone or iPhone misses a call.
-                              Works via MacroDroid (Android) or Shortcuts (iPhone) — no SIM integration needed.
-                            </p>
-                          </div>
-                          <span className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <PhoneCall className="w-3 h-3" />
-                            Auto-Reply
-                          </span>
-                        </div>
-
-                        {/* How it works */}
-                        <div className="p-3 bg-amber-50/60 border border-amber-100 rounded-md text-xs text-amber-900 space-y-1">
-                          <p className="font-bold text-amber-800 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-600 inline shrink-0" /> How it works</p>
-                          <ul className="list-disc list-inside space-y-0.5 text-amber-800">
-                            <li>Your phone detects a missed call and triggers MacroDroid or iPhone Shortcuts.</li>
-                            <li>It sends an HTTP request to the webhook URL below with the caller's number.</li>
-                            <li>Our server looks up or creates the contact, then sends a WhatsApp template message.</li>
-                          </ul>
-                        </div>
-
-                        {/* Webhook URL display */}
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
-                            Your Webhook URL (with token)
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 min-w-0 bg-surface-subtle border border-border rounded-md px-3 py-2 font-mono text-[11px] text-text-primary overflow-x-auto whitespace-nowrap select-all">
-                              {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=[tel_number]`}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(
-                                `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=[tel_number]`,
-                                'missed_call_url'
-                              )}
-                              className="shrink-0 px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-                            >
-                              {copiedKey === 'missed_call_url' ? (
-                                <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /><span className="text-emerald-600">Copied!</span></>
-                              ) : (
-                                <><Copy className="w-3.5 h-3.5" /><span>Copy URL</span></>
-                              )}
-                            </button>
-                          </div>
-                          <p className="text-[10px] text-text-muted">
-                            Replace <code className="bg-surface-subtle px-1 rounded text-amber-700">CALLER_NUMBER</code> with the macro variable from MacroDroid / Shortcuts that holds the caller's phone number.
-                          </p>
-                        </div>
-
-                        {/* Security Token (read-only) */}
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
-                            Security Token (auto-computed)
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 min-w-0 bg-surface-subtle border border-border rounded-md px-3 py-2 font-mono text-xs text-text-primary tracking-wider select-all">
-                              {settingsForm.missed_call_webhook_token || '—'}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(settingsForm.missed_call_webhook_token || '', 'missed_call_token')}
-                              className="shrink-0 px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-                            >
-                              {copiedKey === 'missed_call_token' ? (
-                                <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /><span className="text-emerald-600">Copied!</span></>
-                              ) : (
-                                <><Copy className="w-3.5 h-3.5" /><span>Copy</span></>
-                              )}
-                            </button>
-                          </div>
-                          <p className="text-[10px] text-text-muted">This token authenticates incoming webhook calls. It is auto-derived from your account — no need to configure unless you want a custom value below.</p>
-                        </div>
-
-                        {/* Configurable fields (two-column on md+) */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* WhatsApp Template Name */}
-                          <div className="space-y-1">
-                            <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
-                              WhatsApp Template Name
-                            </label>
-                            <input
-                              type="text"
-                              value={(settingsForm as any).template_missed_call ?? 'missed_call_followup'}
-                              onChange={e => setSettingsForm(f => ({ ...f, template_missed_call: e.target.value }))}
-                              placeholder="missed_call_followup"
-                              className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
-                            />
-                            <p className="text-[10px] text-text-muted">Template approved in Meta WABA to send on missed call. Default: <code className="bg-surface-subtle px-1 rounded">missed_call_followup</code></p>
-                          </div>
-
-                          {/* Custom Token Override */}
-                          <div className="space-y-1">
-                            <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
-                              Custom Token Override <span className="text-text-muted normal-case font-normal">(optional)</span>
-                            </label>
-                            <input
-                              type="text"
-                              value={(settingsForm as any).missed_call_token ?? ''}
-                              onChange={e => setSettingsForm(f => ({ ...f, missed_call_token: e.target.value }))}
-                              placeholder="Leave blank to use auto-computed token"
-                              className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
-                            />
-                            <p className="text-[10px] text-text-muted">Set a custom secret token for extra security. Leave blank to use the auto-computed token above.</p>
-                          </div>
-                        </div>
-
-                        {/* ── Quick Setup Actions ── */}
-                        <div className="space-y-3 pt-1">
-                          {/* MacroDroid URL — copy and paste into MacroDroid HTTP Request action */}
-                          <div className="space-y-1.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
-                              <Smartphone className="w-3.5 h-3.5" />
-                              MacroDroid Webhook URL (copy → paste into MacroDroid HTTP Request)
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 min-w-0 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 font-mono text-[11px] text-amber-900 overflow-x-auto whitespace-nowrap select-all">
-                                {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${(settingsForm as any).missed_call_webhook_token || ''}&caller_phone=[tel_number]`}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const url = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${(settingsForm as any).missed_call_webhook_token || ''}&caller_phone=[tel_number]`;
-                                  navigator.clipboard.writeText(url).then(() => copyToClipboard(url, 'macrodroid_url'));
-                                }}
-                                className="shrink-0 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-                              >
-                                {copiedKey === 'macrodroid_url' ? (
-                                  <><CheckCircle2 className="w-3.5 h-3.5" /><span>Copied!</span></>
-                                ) : (
-                                  <><Copy className="w-3.5 h-3.5" /><span>Copy URL</span></>
-                                )}
-                              </button>
-                            </div>
-                            <p className="text-[10px] text-amber-700 font-medium">
-                              ⚠️ <strong>[tel_number]</strong> is a MacroDroid Magic Text variable — paste the full URL as-is. MacroDroid will automatically replace it with the caller's number.
-                            </p>
-                          </div>
-
-                          {/* Copy Setup Message */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const slug = settingsForm.slug || '';
-                              const tok  = (settingsForm as any).missed_call_webhook_token || '';
-                              const url  = `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${slug}&token=${tok}&caller_phone=[tel_number]`;
-                              const msg  = `📞 *Missed Call → WhatsApp Auto-Reply Setup*\n\n*Android — MacroDroid steps:*\n1. Open MacroDroid → tap ＋ → Add Macro\n2. Tap ＋ Triggers → Phone → Phone Call → Missed Call → Any Number → OK\n3. Tap ＋ Actions → Connectivity → HTTP Request\n4. Method: GET\n5. Paste this URL exactly:\n${url}\n   (the [tel_number] part is a Magic Text variable — paste as-is)\n6. Tap OK → Name macro → tap ✅ → Enable it\n7. Allow MacroDroid Phone permission + disable battery optimization\n\n✅ Test: Call the clinic number and don't answer. Within seconds a WhatsApp message will be sent to the caller.`;
-                              navigator.clipboard.writeText(msg).then(() => {
-                                copyToClipboard(msg, 'setup_msg');
-                              });
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface-subtle border border-border text-text-primary text-xs font-semibold rounded-md transition-colors cursor-pointer shadow-sm"
-                          >
-                            {copiedKey === 'setup_msg' ? (
-                              <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /><span className="text-emerald-600">Copied!</span></>
-                            ) : (
-                              <><Share2 className="w-3.5 h-3.5 text-text-muted" /><span>Copy Full Setup Instructions</span></>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Setup Guide — collapsible */}
-                        <details className="group">
-                          <summary className="cursor-pointer list-none flex items-center justify-between p-3 bg-surface-subtle/60 border border-border rounded-md text-xs font-semibold text-text-primary hover:bg-surface-subtle transition-colors">
-                            <span className="flex items-center gap-2">
-                              <Smartphone className="w-3.5 h-3.5 text-text-muted" />
-                              <span>Setup Guide: Android MacroDroid & iPhone Shortcuts</span>
-                            </span>
-                            <ChevronDown className="w-4 h-4 text-text-muted group-open:rotate-180 transition-transform" />
-                          </summary>
-                          <div className="mt-2 space-y-4 text-xs text-text-secondary p-3 bg-surface-subtle/40 border border-border rounded-md">
-
-                            {/* Android */}
-                            <div>
-                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5">Android — MacroDroid</p>
-                              <ol className="list-decimal list-inside space-y-1.5 text-text-secondary">
-                                <li>Open <strong>MacroDroid</strong> → tap <strong>+ Add Macro</strong>.</li>
-                                <li><strong>Trigger:</strong> Phone Call → Missed Call (select &quot;Any number&quot; or a specific number).</li>
-                                <li><strong>Action:</strong> Connectivity → HTTP Request.</li>
-                                <li>Set method to <strong>GET</strong>.</li>
-                                <li>Paste this URL in the URL field:<br />
-                                  <code className="break-all bg-surface border border-border px-2 py-1 rounded block mt-1 font-mono text-[10px] select-all">
-                                    {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || '<your-slug>'}&token=${settingsForm.missed_call_webhook_token || '<token>'}&caller_phone=[tel_number]`}
-                                  </code>
-                                </li>
-                                <li><strong>[tel_number]</strong> is a MacroDroid Magic Text variable — paste the URL as-is, MacroDroid automatically replaces it with the caller's phone number.</li>
-                                <li>Tap <strong>Save</strong>. Enable the macro.</li>
-                              </ol>
-                            </div>
-
-                            {/* iPhone */}
-                            <div>
-                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5">iPhone — Shortcuts Automation</p>
-                              <ol className="list-decimal list-inside space-y-1.5 text-text-secondary">
-                                <li>Open <strong>Shortcuts</strong> app → tap <strong>Automation</strong> tab → <strong>+</strong> → <strong>Create Personal Automation</strong>.</li>
-                                <li>Choose <strong>Phone</strong> → select <strong>Call Ends</strong> (choose &quot;Incoming Call&quot; if available, or all calls).</li>
-                                <li>Add action: <strong>Get Contents of URL</strong>.</li>
-                                <li>Set URL to:<br />
-                                  <code className="break-all bg-surface border border-border px-2 py-1 rounded block mt-1 font-mono text-[10px] select-all">
-                                    {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || '<your-slug>'}&token=${settingsForm.missed_call_webhook_token || '<token>'}&caller_phone=`}
-                                  </code>
-                                  Then append the <strong>Caller's Name / Number</strong> shortcut variable.
-                                </li>
-                                <li>Tap <strong>Next</strong> → disable &quot;Ask Before Running&quot; → tap <strong>Done</strong>.</li>
-                                <li><em>Note:</em> iPhone Shortcuts trigger on all ended calls, not just missed. Add a condition to only proceed if the call was not answered, or let the backend handle duplicates gracefully.</li>
-                              </ol>
-                            </div>
-                          </div>
-                        </details>
-
-                        {/* Live Test Tool */}
-                        <div className="space-y-2 pt-1">
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Test Webhook Now</p>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              id="missedCallTestPhone"
-                              placeholder="Enter phone number, e.g. 919876543210"
-                              className="flex-1 bg-input border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
-                            />
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const phoneInput = (document.getElementById('missedCallTestPhone') as HTMLInputElement);
-                                const phone = phoneInput?.value?.trim();
-                                if (!phone) { alert('Enter a phone number to test'); return; }
-                                const resultEl = document.getElementById('missedCallTestResult');
-                                if (resultEl) { resultEl.textContent = 'Sending…'; resultEl.className = 'text-xs text-text-muted mt-1'; }
-                                try {
-                                  const res = await fetch(`/webhooks/missed-call?tenant=${settingsForm.slug}&token=${(settingsForm as any).missed_call_webhook_token || ''}&caller_phone=${encodeURIComponent(phone)}`);
-                                  const data = await res.json();
-                                  if (resultEl) {
-                                    resultEl.textContent = res.ok
-                                      ? `Success — WhatsApp ${data.whatsapp_sent ? 'sent' : 'not sent'} to ${data.caller_phone || phone}. Template: ${data.template_used || '—'}`
-                                      : `Error ${res.status}: ${data.detail || JSON.stringify(data)}`;
-                                    resultEl.className = `text-xs mt-1 ${res.ok ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}`;
-                                  }
-                                } catch (err: any) {
-                                  if (resultEl) { resultEl.textContent = `Network error: ${err.message}`; resultEl.className = 'text-xs mt-1 text-rose-600 font-medium'; }
-                                }
-                              }}
-                              className="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-                            >
-                              <PhoneCall className="w-3.5 h-3.5" />
-                              <span>Test</span>
-                            </button>
-                          </div>
-                          <div id="missedCallTestResult" className="text-xs text-text-muted"></div>
-                        </div>
-
-                      </div>
-
-                    </div>
-                  )}
-
-                  {/* ── WHATSAPP AI VOICE CALLING SETTINGS ───────────────────── */}
-                  {(settingsTab === 'channels' || settingsTab === 'voice_calling') && settingsForm.plan !== 'review_only' && (
-                    <div className="space-y-6 bg-surface p-5 sm:p-6 rounded-xl border border-border shadow-xs">
-                      {/* Header Card */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shrink-0 shadow-sm">
-                            <PhoneCall className="w-5 h-5 stroke-[2]" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-bold text-sm text-text-primary tracking-tight">
-                                WhatsApp AI Real-Time Voice Calling
-                              </h3>
-                              {settingsForm.voice_calling_enabled ? (
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                  Active on WhatsApp
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-surface-subtle text-text-muted border border-border">
-                                  Deactivated / Calls Hidden
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-text-muted mt-1 leading-relaxed max-w-2xl">
-                              Allow customers to tap the call icon in WhatsApp to speak with your business. Inbound calls are answered directly by your AI in natural voice with zero third-party telecom costs.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Master Activation Toggle Switch */}
-                        <div className="flex items-center gap-3 bg-surface-subtle border border-border px-4 py-2.5 rounded-lg shrink-0">
-                          <div className="text-right">
-                            <div className="text-xs font-semibold text-text-primary">
-                              {settingsForm.voice_calling_enabled ? 'Voice Calls Active' : 'Voice Calls Disabled'}
-                            </div>
-                            <div className="text-[11px] text-text-muted">
-                              {settingsForm.voice_calling_enabled ? 'Call button visible' : 'Call button hidden'}
-                            </div>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(settingsForm.voice_calling_enabled)}
-                              onChange={(e) => setSettingsForm((prev) => ({ ...prev, voice_calling_enabled: e.target.checked }))}
-                              className="sr-only"
-                            />
-                            <div className={`w-11 h-6 rounded-full transition-colors p-0.5 ${settingsForm.voice_calling_enabled ? 'bg-emerald-600' : 'bg-surface-subtle border border-border'}`}>
-                              <div className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform ${settingsForm.voice_calling_enabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                            </div>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Main Configuration Panels */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        {/* Operating Hours Box */}
-                        <div className="bg-surface-subtle p-4 rounded-lg border border-border space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <CalendarClock className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
-                              <h4 className="text-xs font-bold text-text-primary">Operating Hours Restriction</h4>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(settingsForm.voice_calling_hours_enabled)}
-                                onChange={(e) => setSettingsForm((prev) => ({ ...prev, voice_calling_hours_enabled: e.target.checked }))}
-                                className="sr-only"
-                              />
-                              <div className={`w-9 h-5 rounded-full transition-colors p-0.5 ${settingsForm.voice_calling_hours_enabled ? 'bg-emerald-600' : 'bg-surface border border-border'}`}>
-                                <div className={`w-4 h-4 rounded-full bg-white shadow-xs transition-transform ${settingsForm.voice_calling_hours_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                              </div>
-                            </label>
-                          </div>
-                          <p className="text-[11px] text-text-muted leading-relaxed">
-                            Restrict WhatsApp voice calls to specific hours. Outside these hours, Meta automatically suppresses ringing and directs callers to send a WhatsApp message.
-                          </p>
-
-                          {settingsForm.voice_calling_hours_enabled && (
-                            <div className="grid grid-cols-2 gap-3 pt-2">
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-secondary mb-1">Start Time</label>
-                                <input
-                                  type="time"
-                                  value={settingsForm.voice_calling_start_time || '09:00'}
-                                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, voice_calling_start_time: e.target.value }))}
-                                  className="w-full px-3 py-1.5 bg-surface border border-border rounded-md text-xs font-mono text-text-primary focus:border-emerald-500 focus:outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-secondary mb-1">End Time</label>
-                                <input
-                                  type="time"
-                                  value={settingsForm.voice_calling_end_time || '21:00'}
-                                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, voice_calling_end_time: e.target.value }))}
-                                  className="w-full px-3 py-1.5 bg-surface border border-border rounded-md text-xs font-mono text-text-primary focus:border-emerald-500 focus:outline-none"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Preferred Language & Voice Engine */}
-                        <div className="bg-surface-subtle p-4 rounded-lg border border-border space-y-3">
-                          <div className="flex items-center gap-2">
-                            <Globe className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
-                            <h4 className="text-xs font-bold text-text-primary">Voice Language & Persona</h4>
-                          </div>
-                          <p className="text-[11px] text-text-muted leading-relaxed">
-                            The AI dynamically mirrors the customer's language. Choose the primary greeting language for incoming phone calls.
-                          </p>
-
-                          <div>
-                            <label className="block text-[11px] font-medium text-text-secondary mb-1">Primary Greeting Language</label>
-                            <select
-                              value={settingsForm.voice_calling_language || 'auto'}
-                              onChange={(e) => setSettingsForm((prev) => ({ ...prev, voice_calling_language: e.target.value }))}
-                              className="w-full px-3 py-1.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:border-emerald-500 focus:outline-none"
-                            >
-                              <option value="auto">Auto-Detect (Tamil / Tanglish / English / Hindi)</option>
-                              <option value="tanglish">Tanglish / Tamil Greeting (வணக்கம் / Vanakkam)</option>
-                              <option value="english">Professional English Greeting</option>
-                              <option value="hindi">Hindi Greeting (नमस्ते / Namaste)</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Architecture & Tech Partner Highlights */}
-                      <div className="p-4 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-xs text-text-secondary space-y-2">
-                        <div className="flex items-center gap-2 font-bold text-emerald-700 dark:text-emerald-400">
-                          <ShieldCheck className="w-4 h-4" />
-                          <span>Direct Meta Cloud API WebRTC Streaming</span>
-                        </div>
-                        <p className="leading-relaxed text-[11px]">
-                          Voice calls connect directly through your official Meta WhatsApp Business Cloud API. Media streams with sub-second latency directly between the caller and our dedicated voice intelligence engine, with full appointment booking and CRM logging.
-                        </p>
-                      </div>
-
-                      {/* Save Button Bar */}
-                      <div className="flex items-center justify-end pt-3 border-t border-border">
-                        <button
-                          type="submit"
-                          onClick={(e) => handleSaveSettings(e)}
-                          disabled={settingsSaving}
-                          className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                          {settingsSaving ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>Saving to Meta WhatsApp...</span>
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Save Voice Calling Settings</span>
-                            </>
-                          )}
-                        </button>
                       </div>
                     </div>
                   )}
@@ -30437,711 +30406,91 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <div className="pb-2 border-b border-border flex items-center justify-between">
                         <div>
                           <h4 className="font-semibold text-xs text-text-primary">Business Industry & CRM Terminology</h4>
-                          <p className="text-xs text-text-muted">Adapt labels across tables, dialogs, and filters to match your business terminology.</p>
+                          <p className="text-xs text-text-muted">Adapt labels across tables, dialogs, and filters to match your clinic terminology.</p>
                         </div>
                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">
-                          {INDUSTRY_PRESETS.find((p) => p.id === (settingsForm.industry || 'clinic'))?.name || 'Custom'}
+                          Clinic & Healthcare
                         </span>
                       </div>
 
-                      {/* 2-Type Primary Business Model Selector */}
-                      <div>
-                        <label className="block text-xs font-medium text-text-primary mb-1.5">
-                          Choose Business Engine (Auto-fills tabs & field terminology)
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {/* Card 1: Business & Services */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === 'business');
-                              setSettingsForm({
-                                ...settingsForm,
-                                industry: 'business',
-                                taxonomy: selectedPreset
-                                  ? { ...selectedPreset.taxonomy, requirement_presets: [...(selectedPreset.taxonomy.requirement_presets || [])] }
-                                  : settingsForm.taxonomy,
-                              });
-                            }}
-                            className={`p-3 rounded-md border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                              (settingsForm.industry === 'business' || !settingsForm.industry || settingsForm.industry === 'custom' || settingsForm.industry === 'clinic')
-                                ? 'border-accent bg-accent/5 ring-1 ring-accent/30 shadow-2xs'
-                                : 'border-border bg-surface hover:border-text-muted/50 hover:bg-surface-subtle/50'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between w-full">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center">
-                                  <Building2 className="w-4 h-4 text-accent stroke-[1.8]" />
-                                </div>
-                                <div>
-                                  <h5 className="font-semibold text-xs text-text-primary">Business & Services</h5>
-                                  <span className="text-[10px] text-text-muted">Agencies, Consulting, Clinics, Real Estate, B2B</span>
-                                </div>
-                              </div>
-                              {(settingsForm.industry === 'business' || !settingsForm.industry || settingsForm.industry === 'custom' || settingsForm.industry === 'clinic') && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent text-white uppercase tracking-wider">Active</span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-text-secondary mt-2">
-                              For leads, consultations, meetings, appointments, retainers, and repeat client check-ins.
-                            </p>
-                          </button>
-
-                          {/* Card 2: E-Commerce & Retail */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === 'ecommerce');
-                              setSettingsForm({
-                                ...settingsForm,
-                                industry: 'ecommerce',
-                                taxonomy: selectedPreset
-                                  ? { ...selectedPreset.taxonomy, requirement_presets: [...(selectedPreset.taxonomy.requirement_presets || [])] }
-                                  : settingsForm.taxonomy,
-                              });
-                            }}
-                            className={`p-3 rounded-md border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                              settingsForm.industry === 'ecommerce'
-                                ? 'border-accent bg-accent/5 ring-1 ring-accent/30 shadow-2xs'
-                                : 'border-border bg-surface hover:border-text-muted/50 hover:bg-surface-subtle/50'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between w-full">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center">
-                                  <ShoppingBag className="w-4 h-4 text-accent stroke-[1.8]" />
-                                </div>
-                                <div>
-                                  <h5 className="font-semibold text-xs text-text-primary">E-Commerce & Retail</h5>
-                                  <span className="text-[10px] text-text-muted">Products, D2C, Orders, Catalog, Restocks</span>
-                                </div>
-                              </div>
-                              {settingsForm.industry === 'ecommerce' && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent text-white uppercase tracking-wider">Active</span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-text-secondary mt-2">
-                              For product inquiries, orders, shipments, repeat buyers, repurchase alerts, and catalog sales.
-                            </p>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Full CRM Custom Fields & Terminology */}
-                      <div className="space-y-4 pt-1">
-                        {/* Section 1: Navigation Tab Labels */}
-                        <div className="p-3 bg-surface-subtle/50 rounded-md border border-border/80 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                              <span>1. Navigation Tab Labels</span>
-                              <span className="text-[10px] font-normal text-text-muted lowercase tracking-normal">(customize every sidebar tab)</span>
-                            </h5>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Chats / Inbox Tab</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.tab_chats_label ?? currentTaxonomy.tab_chats_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), tab_chats_label: e.target.value } })}
-                                placeholder="Chats"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Main Directory Tab</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.tab_clients_label ?? currentTaxonomy.tab_clients_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), tab_clients_label: e.target.value } })}
-                                placeholder="Clients / Customers / Leads"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Repeat Clients Tab</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.tab_repeat_label ?? currentTaxonomy.tab_repeat_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), tab_repeat_label: e.target.value } })}
-                                placeholder="Repeat Clients / Repeat Buyers"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Bookings / Orders Tab</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.tab_bookings_label ?? currentTaxonomy.tab_bookings_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), tab_bookings_label: e.target.value } })}
-                                placeholder="Bookings / Orders / Sessions"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Calendar Schedule Tab</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.tab_calendar_label ?? currentTaxonomy.tab_calendar_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), tab_calendar_label: e.target.value } })}
-                                placeholder="Calendar schedule"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Marketing Tab</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.tab_marketing_label ?? currentTaxonomy.tab_marketing_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), tab_marketing_label: e.target.value } })}
-                                placeholder="Marketing / Broadcasts"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
+                      {/* Core Clinic Business Entities & Actions */}
+                      <div className="p-4 bg-surface-subtle/50 rounded-md border border-border/80 space-y-3">
                         <div>
-                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider mb-2">2. Core Business Entities & Actions</h5>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Customer / Client (Singular)</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), client_label: e.target.value } })}
-                                placeholder="e.g. Patient / Student / Buyer"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Customers / Clients (Plural)</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.client_plural ?? currentTaxonomy.client_plural}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), client_plural: e.target.value } })}
-                                placeholder="e.g. Patients / Students / Buyers"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Preset Role / Staff Label</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.preset_role_label ?? settingsForm.taxonomy?.staff_label ?? presetRoleSingular}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), staff_label: e.target.value, preset_role_label: e.target.value } })}
-                                placeholder="e.g. Doctor / Specialist / Consultant / Staff"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Requirement / Concern / Inquiry</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), requirement_label: e.target.value } })}
-                                placeholder="e.g. Health Concern / Target Course"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Booking / Event Singular</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.event_label ?? currentTaxonomy.event_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), event_label: e.target.value } })}
-                                placeholder="e.g. Appointment / Demo Class"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Booking Button CTA Label</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.booking_cta ?? currentTaxonomy.booking_cta}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_cta: e.target.value } })}
-                                placeholder="e.g. + New Appointment / + Book Demo"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                          </div>
+                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider">
+                            Core Clinic Terminology
+                          </h5>
+                          <p className="text-[10px] text-text-muted mt-0.5">
+                            Customize how patients, doctors, concerns, and appointments are named across your entire CRM workspace.
+                          </p>
                         </div>
-
-                        {/* Section 3: Main Directory Tab (Customers / Leads Workspace) */}
-                        <div className="p-3.5 bg-surface-subtle/60 rounded-md border border-border/80 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                           <div>
-                            <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                              <span>3. Main Directory Tab (Customers / Leads Workspace)</span>
-                            </h5>
-                            <p className="text-[10px] text-text-muted mt-0.5">
-                              Configure the 3 primary table column headers, view sub-tabs, and inner customer card labels in the Main Directory.
-                            </p>
+                            <label className="block text-[11px] font-medium text-text-muted mb-1">Customer / Patient (Singular)</label>
+                            <input
+                              type="text"
+                              value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), client_label: e.target.value } })}
+                              placeholder="e.g. Patient"
+                              className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                            />
                           </div>
-
-                          {/* 3A: Main Directory Table Columns */}
-                          <div className="space-y-1.5">
-                            <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">A. Table Column Headers (Top of Directory Table)</span>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Column 1 Header (Client / Contact & Tags)</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.col_customer_label ?? currentTaxonomy.col_customer_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), col_customer_label: e.target.value } })}
-                                  placeholder="Customer & Tags"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Column 2 Header (Assigned & Outcome / Status)</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.col_assigned_label ?? currentTaxonomy.col_assigned_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), col_assigned_label: e.target.value } })}
-                                  placeholder="Status / Outcome"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Column 3 Header (Follow-up & Action)</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.col_followup_label ?? currentTaxonomy.col_followup_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), col_followup_label: e.target.value } })}
-                                  placeholder="Follow-up & Action"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* 3B: View Switcher Sub-Tabs */}
-                          <div className="space-y-1.5 pt-1 border-t border-border/60">
-                            <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">B. View Switcher Sub-Tabs (Pills Above Table)</span>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Follow-up Subtab</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.subtab_followup_label ?? currentTaxonomy.subtab_followup_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), subtab_followup_label: e.target.value } })}
-                                  placeholder="Follow-up"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Tasks Subtab</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.subtab_tasks_label ?? currentTaxonomy.subtab_tasks_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), subtab_tasks_label: e.target.value } })}
-                                  placeholder="Tasks"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Notes Subtab</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.subtab_notes_label ?? currentTaxonomy.subtab_notes_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), subtab_notes_label: e.target.value } })}
-                                  placeholder="Notes"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* 3C: Inner Customer Row Badges & Actions */}
-                          <div className="space-y-1.5 pt-1 border-t border-border/60">
-                            <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">C. Customer Card Badges & Actions (Inside Row)</span>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">First-Time Lead Badge</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.lead_badge_label ?? currentTaxonomy.lead_badge_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), lead_badge_label: e.target.value } })}
-                                  placeholder="Lead"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Repeat Client Badge</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.repeat_badge_label ?? currentTaxonomy.repeat_badge_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_badge_label: e.target.value } })}
-                                  placeholder="Repeat"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Add Note Button</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.add_note_label ?? currentTaxonomy.add_note_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), add_note_label: e.target.value } })}
-                                  placeholder="Add Note"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-medium text-text-muted mb-1">Schedule Follow-up Button</label>
-                                <input
-                                  type="text"
-                                  value={settingsForm.taxonomy?.set_datetime_label ?? currentTaxonomy.set_datetime_label}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), set_datetime_label: e.target.value } })}
-                                  placeholder="Set Date & Time"
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Section 4: Repeat Clients / Repeat Buyers Table Columns */}
-                        <div className="p-3.5 bg-surface-subtle/60 rounded-md border border-border/80 space-y-2.5">
                           <div>
-                            <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                              <span>4. Repeat Clients Tab (Retention & Loyalty Table)</span>
-                            </h5>
-                            <p className="text-[10px] text-text-muted mt-0.5">
-                              Customize all 7 column headers in the Repeat Clients workspace table.
-                            </p>
+                            <label className="block text-[11px] font-medium text-text-muted mb-1">Customers / Patients (Plural)</label>
+                            <input
+                              type="text"
+                              value={settingsForm.taxonomy?.client_plural ?? currentTaxonomy.client_plural}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), client_plural: e.target.value } })}
+                              placeholder="e.g. Patients"
+                              className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                            />
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Client / Buyer Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.repeat_col_client ?? currentTaxonomy.repeat_col_client}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_client: e.target.value } })}
-                                placeholder="Client & Contact"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Visits / Orders & Loyalty Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.repeat_col_visits ?? currentTaxonomy.repeat_col_visits}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_visits: e.target.value } })}
-                                placeholder="Visits & Loyalty / Orders & Repurchases"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Last Session / Order Details Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.repeat_col_last_session ?? currentTaxonomy.repeat_col_last_session}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_last_session: e.target.value } })}
-                                placeholder="Last Session Details / Last Order Details"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Retention / Customer Status Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.repeat_col_retention ?? currentTaxonomy.repeat_col_retention}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_retention: e.target.value } })}
-                                placeholder="Retention Status / Buyer Status"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Assigned Staff / Rep Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.repeat_col_staff ?? currentTaxonomy.repeat_col_staff}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_staff: e.target.value } })}
-                                placeholder="Assigned Staff / Assigned Rep"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Requirement / Service / Product Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.repeat_col_requirement ?? currentTaxonomy.repeat_col_requirement}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_requirement: e.target.value } })}
-                                placeholder="Requirement / Service / Product Interest"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Actions Column Header</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.repeat_col_actions ?? currentTaxonomy.repeat_col_actions}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_actions: e.target.value } })}
-                                placeholder="Direct Actions / Actions"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Section 5: Bookings / Orders Table Columns & CTAs */}
-                        <div className="p-3.5 bg-surface-subtle/60 rounded-md border border-border/80 space-y-2.5">
                           <div>
-                            <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                              <span>5. Bookings / Orders Tab (Schedule & Order Table)</span>
-                            </h5>
-                            <p className="text-[10px] text-text-muted mt-0.5">
-                              Customize all 6 column headers in the Bookings / Orders workspace table.
-                            </p>
+                            <label className="block text-[11px] font-medium text-text-muted mb-1">Doctor / Specialist Label</label>
+                            <input
+                              type="text"
+                              value={settingsForm.taxonomy?.preset_role_label ?? settingsForm.taxonomy?.staff_label ?? presetRoleSingular}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), staff_label: e.target.value, preset_role_label: e.target.value } })}
+                              placeholder="e.g. Doctor / Specialist"
+                              className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                            />
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Client / Customer Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.booking_col_client ?? currentTaxonomy.booking_col_client}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_client: e.target.value } })}
-                                placeholder="Client / Customer"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Service / Product Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.booking_col_service ?? currentTaxonomy.booking_col_service}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_service: e.target.value } })}
-                                placeholder="Service / Product SKU"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Scheduled Date & Time / Delivery Date Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.booking_col_datetime ?? currentTaxonomy.booking_col_datetime}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_datetime: e.target.value } })}
-                                placeholder="Scheduled date & time / Delivery Date"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Fee / Amount / Price Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.booking_col_fee ?? currentTaxonomy.booking_col_fee}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_fee: e.target.value } })}
-                                placeholder="Fee / Total Amount"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Status Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.booking_col_status ?? currentTaxonomy.booking_col_status}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_status: e.target.value } })}
-                                placeholder="Status / Order Status"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Action Column Header</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.booking_col_action ?? currentTaxonomy.booking_col_action}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_action: e.target.value } })}
-                                placeholder="Action"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Section 6: Chats / Inbox Tab Filters */}
-                        <div className="p-3.5 bg-surface-subtle/60 rounded-md border border-border/80 space-y-2.5">
                           <div>
-                            <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                              <span>6. Chats / Inbox Tab Filters</span>
-                            </h5>
-                            <p className="text-[10px] text-text-muted mt-0.5">
-                              Customize the filter pills displayed above the WhatsApp conversation inbox.
-                            </p>
+                            <label className="block text-[11px] font-medium text-text-muted mb-1">Health Concern / Symptoms Label</label>
+                            <input
+                              type="text"
+                              value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), requirement_label: e.target.value } })}
+                              placeholder="e.g. Health Concern / Symptoms"
+                              className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                            />
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">All Chats Filter</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.chat_filter_all ?? currentTaxonomy.chat_filter_all}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), chat_filter_all: e.target.value } })}
-                                placeholder="All"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Leads / Inquiries Filter</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.chat_filter_leads ?? currentTaxonomy.chat_filter_leads}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), chat_filter_leads: e.target.value } })}
-                                placeholder="Leads / Buyers"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Repeat Clients Filter</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.chat_filter_repeat ?? currentTaxonomy.chat_filter_repeat}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), chat_filter_repeat: e.target.value } })}
-                                placeholder="Repeat / Loyal Buyers"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Unread Messages Filter</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.chat_filter_unread ?? currentTaxonomy.chat_filter_unread}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), chat_filter_unread: e.target.value } })}
-                                placeholder="Unread"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Section 7: Detailed Database & CSV Export (Data Columns) */}
-                        <div className="p-3.5 bg-surface-subtle/60 rounded-md border border-border/80 space-y-2.5">
                           <div>
-                            <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                              <span>7. Detailed Database & CSV Export (Data Columns)</span>
-                            </h5>
-                            <p className="text-[10px] text-text-muted mt-0.5">
-                              Labels used when downloading customer CSV spreadsheets and viewing full database records.
-                            </p>
+                            <label className="block text-[11px] font-medium text-text-muted mb-1">Appointment / Consultation Label</label>
+                            <input
+                              type="text"
+                              value={settingsForm.taxonomy?.event_label ?? currentTaxonomy.event_label}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), event_label: e.target.value } })}
+                              placeholder="e.g. Appointment / Consultation"
+                              className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                            />
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Customer / Client Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), client_label: e.target.value } })}
-                                placeholder="Customer"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Phone Field Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.phone_label ?? currentTaxonomy.phone_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), phone_label: e.target.value } })}
-                                placeholder="Phone"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Age & Location Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.age_location_label ?? currentTaxonomy.age_location_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), age_location_label: e.target.value } })}
-                                placeholder="Age & Location / Shipping"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Requirement / Concern Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), requirement_label: e.target.value } })}
-                                placeholder="Requirement / Concern"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Staff / Specialist Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.staff_label ?? currentTaxonomy.staff_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), staff_label: e.target.value } })}
-                                placeholder="Staff"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Status / Pipeline Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.status_label ?? currentTaxonomy.status_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), status_label: e.target.value } })}
-                                placeholder="Status"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Lead Priority / Intent Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.lead_label ?? currentTaxonomy.lead_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), lead_label: e.target.value } })}
-                                placeholder="Lead / Intent Score"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Follow-up Due Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.followup_label ?? currentTaxonomy.followup_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), followup_label: e.target.value } })}
-                                placeholder="Follow-up Due"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Added / Joined Date Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.created_label ?? currentTaxonomy.created_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), created_label: e.target.value } })}
-                                placeholder="Added"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Latest Note Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.notes_label ?? currentTaxonomy.notes_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), notes_label: e.target.value } })}
-                                placeholder="Latest Note"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Action Button Column</label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.actions_label ?? currentTaxonomy.actions_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), actions_label: e.target.value } })}
-                                placeholder="Action"
-                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-muted mb-1">Booking Button CTA Label</label>
+                            <input
+                              type="text"
+                              value={settingsForm.taxonomy?.booking_cta ?? currentTaxonomy.booking_cta}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_cta: e.target.value } })}
+                              placeholder="e.g. + Book Appointment"
+                              className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                            />
                           </div>
                         </div>
                       </div>
 
-                      {/* Quick Concern / Requirement Presets Input */}
+                      {/* Quick Health Concern Presets Input */}
                       <div className="pt-3 border-t border-border space-y-1.5">
                         <label className="block text-[11px] font-medium text-text-primary">
-                          Quick {settingsForm.taxonomy?.requirement_label || currentTaxonomy.requirement_label || 'Requirement / Concern'} Presets (comma-separated quick-pick chips)
+                          Quick {settingsForm.taxonomy?.requirement_label || currentTaxonomy.requirement_label || 'Health Concern'} Presets (comma-separated quick-pick chips)
                         </label>
                         <input
                           type="text"
@@ -31150,7 +30499,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               ? settingsForm.taxonomy.requirement_presets
                               : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
                                 ? settingsForm.requirement_presets
-                                : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || []);
+                                : (PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic || []);
                             return list.join(', ');
                           })()}
                           onChange={(e) => {
@@ -31168,7 +30517,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans"
                         />
                         <p className="text-[10px] text-text-muted">
-                          These clickable chips appear under the requirement box when adding or editing a client/patient to rapidly assign their concern or inquiry. Selecting an Industry above automatically loads standard presets, or you can freely customize them here.
+                          These clickable chips appear when adding or editing a patient to rapidly assign their health concern or symptoms.
                         </p>
                         <div className="flex flex-wrap items-center gap-1 pt-1">
                           {(() => {
@@ -31176,7 +30525,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               ? settingsForm.taxonomy.requirement_presets
                               : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
                                 ? settingsForm.requirement_presets
-                                : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || []);
+                                : (PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic || []);
                             return chips.map((chip: string) => (
                               <span key={chip} className="px-2 py-0.5 rounded-sm text-[10px] bg-white border border-border text-text-secondary font-medium shadow-2xs">
                                 {chip}
@@ -31194,7 +30543,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </button>
                         </div>
                         <div className="pt-3 border-t border-border flex items-center justify-between">
-                          <p className="text-[11px] text-text-muted">All tables, forms, drawers, and exports instantly update with your custom terminology.</p>
+                          <p className="text-[11px] text-text-muted">All tables, forms, and drawers instantly update with your custom clinic terminology.</p>
                           <button
                             type="button"
                             onClick={() => handleSaveSettings()}

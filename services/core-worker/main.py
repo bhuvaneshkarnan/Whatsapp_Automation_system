@@ -19,6 +19,7 @@ import html
 import hashlib
 from typing import Optional, Any, Tuple, List, Dict
 import difflib
+import httpx
 
 import asyncpg
 import redis.asyncio as aioredis
@@ -35,12 +36,30 @@ try:
     from providers.transcription import transcribe_voice_message, TranscriptionError, analyze_inbound_image
     from providers.rule_engine import apply_rule_engine, db_row_to_rule
     from providers.whatsapp_sender import send_text, send_template, mark_as_read, send_typing_indicator, WhatsAppSendError
+    from providers.instagram_sender import send_instagram_text, send_instagram_typing
 except (ImportError, ModuleNotFoundError):
     from core_worker.providers.gemini import call_gemini, GeminiError
     from core_worker.providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response, strip_repetitive_greetings
     from core_worker.providers.transcription import transcribe_voice_message, TranscriptionError, analyze_inbound_image
     from core_worker.providers.rule_engine import apply_rule_engine, db_row_to_rule
     from core_worker.providers.whatsapp_sender import send_text, send_template, mark_as_read, send_typing_indicator, WhatsAppSendError
+    try:
+        from core_worker.providers.instagram_sender import send_instagram_text, send_instagram_typing
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+
+try:
+    from platform_engine.engine import PlatformEngine, GLOBAL_PLATFORM_CORE_DIRECTIVE
+    from platform_engine.tenant_brain import TenantBrain
+except (ImportError, ModuleNotFoundError):
+    try:
+        from core_worker.platform_engine.engine import PlatformEngine, GLOBAL_PLATFORM_CORE_DIRECTIVE
+        from core_worker.platform_engine.tenant_brain import TenantBrain
+    except (ImportError, ModuleNotFoundError):
+        PlatformEngine = None
+        GLOBAL_PLATFORM_CORE_DIRECTIVE = ""
+        TenantBrain = None
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -76,8 +95,10 @@ except Exception:
 # ── Phone & Self-Messaging Guards ───────────────────────────────────────────────
 def is_self_or_contact_phone(target_phone: str, bot_phone: str = "", contact_phone: str = "") -> tuple[bool, str]:
     """
-    Checks if a target WhatsApp phone number matches the bot's own number or the customer's number.
+    Checks if a target WhatsApp phone number matches the bot's own number.
     Meta WhatsApp Cloud API strictly rejects sending messages to the bot's own WABA number (#100 Invalid parameter).
+    Admins frequently test bookings using their personal phone number; admin notifications must ALWAYS be delivered
+    to the configured admin number even if the booking was initiated by the admin.
     """
     if not target_phone:
         return True, "empty_target"
@@ -90,11 +111,6 @@ def is_self_or_contact_phone(target_phone: str, bot_phone: str = "", contact_pho
         clean_bot = re.sub(r'[^0-9]', '', str(bot_phone))
         if len(clean_bot) >= 10 and clean_bot[-10:] == target_10:
             return True, "matches_bot_number"
-
-    if contact_phone:
-        clean_contact = re.sub(r'[^0-9]', '', str(contact_phone))
-        if len(clean_contact) >= 10 and clean_contact[-10:] == target_10:
-            return True, "matches_customer_number"
 
     return False, ""
 
@@ -180,7 +196,8 @@ EXCLUDE_LOCATION_WORDS = {
     'start', 'beginning', 'scratch', 'advance', 'touch', 'call', 'chat',
     'whatsapp', 'facebook', 'instagram', 'ad', 'ads', 'google', 'youtube',
     'headache', 'insomnia', 'distrubnse', 'disturbance', 'problem', 'issues',
-    'now', 'then', 'here', 'there', 'somewhere', 'anywhere', 'appointment'
+    'now', 'then', 'here', 'there', 'somewhere', 'anywhere', 'appointment',
+    'name', 'phone', 'number', 'mobile', 'doctor', 'patient', 'client'
 }
 
 COMMON_CITIES = [
@@ -191,6 +208,13 @@ COMMON_CITIES = [
     'Sriperumbudur', 'Tambaram', 'Avadi', 'Perumbakkam', 'Medavakkam', 'Velachery', 'Adyar',
     'Anna Nagar', 'T Nagar', 'Mylapore', 'Guindy', 'Porur', 'Chromepet', 'Pallavaram'
 ]
+
+# Patterns for names, greetings, conversational filler that must NEVER appear in a location
+NAME_OR_FILLER_PREFIX = re.compile(
+    r'^(?:hi|hello|hey|vanakkam|namaste|dear|sir|madam|dr|doctor|mr|mrs|ms|myself|i\s*am|i\'m|iam|im|'
+    r'we\s*are|we\s*r|this\s+is|my\s+name\s+is|name\s+is|here|there|and|but|so|please|kindly|[a-zA-Z]+\s+here)\b[\s,:-]*',
+    re.IGNORECASE
+)
 
 def extract_age(text: Optional[str]) -> Optional[int]:
     if not text or not isinstance(text, str):
@@ -223,11 +247,29 @@ def extract_age(text: Optional[str]) -> Optional[int]:
 def clean_location_candidate(cand: Optional[str]) -> Optional[str]:
     if not cand or not isinstance(cand, str):
         return None
+    
+    # Strip leading/trailing punctuation and quotes
     cand = cand.strip(' .,!?:;-_()[]{}"\'').strip()
-    # Strip conversational filler prefixes
-    cand = re.sub(r'^(?:yes|no|ok|okay|hi|hello|sorry|sir|madam|at|in|am|i\s*am|im|iam|we\s*r|we\s*are|but\s+i\s*am|but\s+am|but|and)\s+', '', cand, flags=re.IGNORECASE).strip()
+    
+    # Repeatedly strip greetings, person names intro, filler prefixes: "Hi Bhuvanesh, I am from", "Myself Rahul from", etc.
+    while True:
+        prev = cand
+        cand = NAME_OR_FILLER_PREFIX.sub('', cand).strip(' .,!?:;-_()[]{}"\'')
+        cand = re.sub(r'^(?:from|at|in|near|staying\s+in|living\s+in|residing\s+in)\s+', '', cand, flags=re.IGNORECASE).strip(' .,!?:;-_()[]{}"\'')
+        if cand == prev:
+            break
+            
+    # Cut off trailing parentheticals, phone numbers, or sentence continuations
+    # e.g. "Kanchipuram (7557247247)" -> "Kanchipuram"
+    cand = re.sub(r'\s*\(.*?\)', '', cand).strip()
+    # e.g. "Kanchipuram 7557247247" or "Kanchipuram +91..."
+    cand = re.sub(r'[\s,]+(?:\+?\d{10,12}|\d{3,5})\b.*$', '', cand).strip()
+    # e.g. "Kanchipuram. Please share more details" or "Kanchipuram, please share..."
+    cand = re.sub(r'[\s,]+(?:please|pls|kindly|share|send|how|what|can|let|we|our|for\s+our|timings?|timings?\?|fees?|charges?|price).*$', '', cand, flags=re.IGNORECASE).strip()
+    
     cand = cand.strip(' .,!?:;-_()[]{}"\'').strip()
-    if not cand or len(cand) < 3 or len(cand) > 45:
+    
+    if not cand or len(cand) < 3 or len(cand) > 50:
         return None
     if re.search(r'\d', cand):
         return None
@@ -235,7 +277,9 @@ def clean_location_candidate(cand: Optional[str]) -> Optional[str]:
         return None
     if any(w in cand.lower() for w in ['suffering', 'sleeping', 'disturb', 'technique', 'detail', 'service', 'cost', 'price', 'clinic', 'recovery', 'visit', 'treatment']):
         return None
-    return cand.title()
+        
+    # Title-case each word properly
+    return ' '.join(w.capitalize() for w in cand.split())
 
 def extract_address(text: Optional[str]) -> Optional[str]:
     """
@@ -252,28 +296,37 @@ def extract_address(text: Optional[str]) -> Optional[str]:
 
     cleaned = text.strip()
 
+    # Safety: An address is never an entire circular or novel. Reject long text or multi-paragraph messages
+    if len(cleaned) > 250 or cleaned.count('\n') > 4:
+        m_pfx = re.search(r'\b(?:my\s+address\s+is|address\s*(?:is|:|=|-)|home\s+address\s*(?:is|:|=|-)|collection\s+address\s*(?:is|:|=|-))\s*([^\n\r]+(?:\n[^\n\r]+){0,2})', cleaned, re.IGNORECASE)
+        if m_pfx:
+            cand = m_pfx.group(1).strip()
+            if 10 <= len(cand) <= 120 and not any(w in cand.lower() for w in ['recruit', 'job', 'salary', 'partner', 'earn', 'lakh', 'training', 'interview', 'http', 'www.', 'massage', 'therapy']):
+                return cand.strip(' .,!?:;-_()[]{}\"\'')
+        return None
+
     # 1. Explicit address prefix: 'address: ...', 'my address is ...', 'home address: ...'
-    m_pfx = re.search(r'\b(?:my\s+address\s+is|address\s*(?:is|:|=|-)|home\s+address\s*(?:is|:|=|-)|collection\s+address\s*(?:is|:|=|-)|location\s*(?:is|:|=|-))\s*([^\n\r]+(?:\n[^\n\r]+){0,3})', cleaned, re.IGNORECASE)
+    m_pfx = re.search(r'\b(?:my\s+address\s+is|address\s*(?:is|:|=|-)|home\s+address\s*(?:is|:|=|-)|collection\s+address\s*(?:is|:|=|-)|location\s*(?:is|:|=|-))\s*([^\n\r]+(?:\n[^\n\r]+){0,2})', cleaned, re.IGNORECASE)
     if m_pfx:
         cand = m_pfx.group(1).strip()
-        if len(cand) >= 10:
-            return cand.strip(' .,!?:;-_()[]{}"\'')
+        if 10 <= len(cand) <= 120 and not any(w in cand.lower() for w in ['recruit', 'job', 'salary', 'partner', 'earn', 'lakh', 'training', 'interview', 'http', 'www.', 'massage', 'therapy']):
+            return cand.strip(' .,!?:;-_()[]{}\"\'')
 
     # 2. Door/Flat/Plot pattern with street/nagar/locality
     has_number = bool(re.search(r'\b(?:no\.?|door\s*(?:no\.?)?|flat\s*(?:no\.?)?|plot\s*(?:no\.?)?|d\.?no\.?|#)\s*\d+[\w\/\-]*|\b\d{1,4}[A-Za-z]?[\/\-]\d{1,4}\b|\b\d{1,4}\b', cleaned, re.IGNORECASE))
     has_street_kw = bool(re.search(r'\b(?:street|st\.|road|rd\.|nagar|colony|layout|avenue|ave|salai|apartment|apartments|apts?|enclave|vihar|phase|block|sector|cross|main|lane|gali)\b', cleaned, re.IGNORECASE))
     has_locality = bool(re.search(r'\b(?:chennai|virugambakkam|porur|annanagar|anna nagar|vadapalani|t nagar|t\.nagar|kk nagar|k\.k\. nagar|velachery|tambaram|guindy|adyar|mylapore|alwarpet|ashok nagar|saidapet|kodambakkam|madipakkam|sholinganallur|omr|ecr|chromepet|pallavaram|medavakkam|perumbakkam|ambattur|avadi|villivakkam|nungambakkam|triplicane|egmore|royapettah|kilpauk|chetpet|thiruvanmiyur|besant nagar|koyambedu|ramapuram|valasaravakkam|nesapakkam|saligramam|kattupakkam|poonamallee|tiruppur|coimbatore|madurai|bengaluru|bangalore|hyderabad|mumbai|delhi|600\d{3}|641\d{3}|625\d{3}|638\d{3}|\d{6})\b', cleaned, re.IGNORECASE))
 
-    if (has_number and (has_street_kw or has_locality)) and len(cleaned) >= 12:
-        # Exclude pure health concern, price inquiry, or general questions
-        if any(w in cleaned.lower() for w in ['suffering', 'sleeping', 'treatment', 'consultation', 'available', 'how much', 'cost', 'price']):
+    if (has_number and (has_street_kw or has_locality)) and 12 <= len(cleaned) <= 140:
+        # Exclude pure health concern, price inquiry, recruitment, circulars
+        if any(w in cleaned.lower() for w in ['suffering', 'sleeping', 'treatment', 'consultation', 'available', 'how much', 'cost', 'price', 'job', 'recruit', 'salary', 'earn', 'partner', 'lakh', 'training', 'interview', 'http', 'www.', 'massage', 'therapy']):
             return None
         # Clean up any leading greetings or affirmative words
         addr = re.sub(r'^(?:yes|sure|ok|okay|hi|hello|vanakkam|please|kindly|here\s+is\s+my\s+address|my\s+address\s+is|address\s+is)[,\s!:]+', '', cleaned, flags=re.IGNORECASE).strip()
         # Remove trailing phone numbers if customer pasted phone at the end of address
         addr = re.sub(r'(?:phone|ph|mobile|contact|tel)?\s*[:=\-]?\s*\+?\d{10,12}\s*$', '', addr, flags=re.IGNORECASE).strip()
-        if len(addr) >= 10:
-            return addr.strip(' .,!?:;-_()[]{}"\'')
+        if 10 <= len(addr) <= 120:
+            return addr.strip(' .,!?:;-_()[]{}\"\'')
 
     return None
 
@@ -286,48 +339,46 @@ def extract_location(text: Optional[str]) -> Optional[str]:
     if addr:
         return addr
         
+    # Ignore questions asking about the business's location: e.g. 'You are from madurai ?', 'Are you from Chennai?'
+    if re.search(r'\b(?:you\s+are\s+from|are\s+you\s+from|you\s+from|u\s+from|office\s+from|clinic\s+from|business\s+from|office\s+located|clinic\s+located)\b', text, re.IGNORECASE):
+        return None
+
     cleaned_text = re.sub(r'\b(?:suffering|disturbed|facing|recovering)\s+from\b', '', text, flags=re.IGNORECASE)
     # Ignore visiting/travelling to clinic: e.g. 'come to chennai', 'visit your clinic in chennai'
     cleaned_text = re.sub(r'\b(?:visit(?:ing)?|come|coming|travel(?:ling)?|go(?:ing)?)\s+(?:to|towards)\s+(?:your\s+clinic\s+(?:in|at)\s+|the\s+clinic\s+(?:in|at)\s+)?[A-Za-z\s]+', '', cleaned_text, flags=re.IGNORECASE)
     
-    # 1. 'iam from changalputtu', 'from bangalore', 'i am from chennai'
-    m = re.search(r'\b(?:i\s*am\s+from|i\'m\s+from|iam\s+from|im\s+from|from)\s+([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
-    if m:
-        loc = clean_location_candidate(m.group(1))
-        if loc:
-            return loc
+    # 1. Look for explicit location triggers: "from X", "staying in X", "living in X", "location: X"
+    # We allow commas (e.g. "Velachery, Chennai") but stop at end of clause / sentence / parenthetical / connector
+    end_clause = r'(?:[.!;\n?(]|$|,\s*(?:please|pls|share|send|how|what|can|let|we|our|for|and|but|timings?|fees?|price))'
+    triggers = [
+        rf'\b(?:i\s*am\s+from|i\'m\s+from|iam\s+from|im\s+from|myself\s+from|we\s*are\s+from|we\s*r\s+from|from)\s+([A-Za-z\s,]+?){end_clause}',
+        rf'\b(?:staying\s+in|living\s+in|residing\s+in|we\s+r\s+in|we\s+are\s+in|i\s*am\s+in|i\'m\s+in|iam\s+in|im\s+in|am\s+in)\s+([A-Za-z\s,]+?){end_clause}',
+        rf'\b(?:i\s*am\s+at|i\'m\s+at|iam\s+at|im\s+at|am\s+at)\s+([A-Za-z\s,]+?){end_clause}',
+        rf'\b(?:location|place|city|area)\s*(?:is|:|=|-)\s*([A-Za-z\s,]+?){end_clause}'
+    ]
+    for trig in triggers:
+        m = re.search(trig, cleaned_text, re.IGNORECASE)
+        if m:
+            loc = clean_location_candidate(m.group(1))
+            if loc:
+                return loc
 
-    # 2. 'staying in X', 'living in X', 'residing in X', 'we r in X', 'we are in X', 'i am in X', 'am in X'
-    m = re.search(r'\b(?:staying\s+in|living\s+in|residing\s+in|we\s+r\s+in|we\s+are\s+in|i\s*am\s+in|i\'m\s+in|iam\s+in|im\s+in|am\s+in)\s+([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
-    if m:
-        loc = clean_location_candidate(m.group(1))
-        if loc:
-            return loc
-
-    # 3. 'am at X', 'i am at X' (e.g. 'Am at rajapalayam')
-    m = re.search(r'\b(?:i\s*am\s+at|i\'m\s+at|iam\s+at|im\s+at|am\s+at)\s+([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
-    if m:
-        loc = clean_location_candidate(m.group(1))
-        if loc:
-            return loc
-
-    # 4. 'location: X', 'location is X', 'place: X', 'city: X', 'area: X'
-    m = re.search(r'\b(?:location|place|city|area)\s*(?:is|:|=|-)\s*([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
-    if m:
-        loc = clean_location_candidate(m.group(1))
-        if loc:
-            return loc
-
-    # 5. Check for known Indian cities/localities
+    # 2. Check for known Indian cities/localities
     for city in COMMON_CITIES:
         if re.search(r'\b' + re.escape(city) + r'\b', cleaned_text, re.IGNORECASE):
-            m = re.search(r'\b([A-Za-z\s,]+?\b' + re.escape(city) + r'(?:\s+[A-Za-z,]+)?)\b', cleaned_text, re.IGNORECASE)
-            if m:
-                cand = m.group(1).strip()
-                cand = re.sub(r'^(?:yes|no|ok|okay|hi|hello|age|\d+)\s*', '', cand, flags=re.IGNORECASE).strip()
-                cleaned = clean_location_candidate(cand)
-                if cleaned:
-                    return cleaned
+            # Check if there's a recognized locality prefix right before the city (e.g. "Velachery, Chennai" or "T Nagar, Chennai")
+            # We strictly limit the prefix to at most 2 words and reject any names/pronouns/verbs
+            m_locality = re.search(r'\b([A-Za-z]{3,15}(?:\s+[A-Za-z]{3,15})?)[,\s]+\b' + re.escape(city) + r'\b', cleaned_text, re.IGNORECASE)
+            if m_locality:
+                locality_cand = m_locality.group(1).strip()
+                # Ensure the locality is not a name, greeting, pronoun, or common filler
+                if not NAME_OR_FILLER_PREFIX.search(locality_cand) and locality_cand.lower() not in EXCLUDE_LOCATION_WORDS:
+                    if not any(w in locality_cand.lower() for w in ['name', 'phone', 'call', 'from', 'am', 'is', 'are', 'was', 'were', 'have', 'has', 'clinic']):
+                        cand = f"{locality_cand}, {city}"
+                        cleaned = clean_location_candidate(cand)
+                        if cleaned:
+                            return cleaned
+            # Otherwise return just the city itself
             return city.title()
 
     return None
@@ -464,6 +515,43 @@ def resolve_package_and_fee(
             resolved_service = "Full Body Relaxation Massage (60 mins)"
             if eff_price <= 0:
                 eff_price = 999.0
+
+    # 1c. Check Mind Body Recovery (Foot Reflexology ₹1000, Abhyangam ₹1850, Packages ₹800, Basic ₹500, etc.)
+    is_mbr_slug = (
+        clean_slug in ("mindbodyrecovery", "mind-body-recovery", "mindbody")
+        or "mind body recovery" in search_text
+        or "shantha" in search_text
+        or "reflexology" in curr_str
+    )
+    if is_mbr_slug:
+        if any(w in search_text for w in ["reflexology", "foot reflex", "foot massage", "feet", "foot"]) or any(w in curr_str for w in ["reflexology", "foot reflex", "foot massage", "feet", "foot"]):
+            resolved_service = "Foot Reflexology"
+            if eff_price <= 0:
+                eff_price = 1000.0
+        elif any(w in search_text for w in ["abhyangam", "ayurveda massage", "ayurvedic massage"]) or any(w in curr_str for w in ["abhyangam", "ayurveda massage", "ayurvedic massage"]):
+            resolved_service = "Ayurveda Massage (Abhyangam)"
+            if eff_price <= 0:
+                eff_price = 1850.0
+        elif any(w in search_text for w in ["sports", "conditioning", "sports massage"]) or any(w in curr_str for w in ["sports", "conditioning", "sports massage"]):
+            resolved_service = "Sports Conditioning Massage"
+            if eff_price <= 0:
+                eff_price = 1000.0
+        elif any(w in search_text for w in ["package", "combo", "combined", "consultation and treatment"]) or any(w in curr_str for w in ["package", "combo", "combined", "consultation and treatment"]):
+            resolved_service = "Combined Consultation & Treatment Package"
+            if eff_price <= 0:
+                eff_price = 800.0
+        elif any(w in search_text for w in ["cupping", "acupuncture", "basic therapy", "basic therapies"]) or any(w in curr_str for w in ["cupping", "acupuncture", "basic therapy", "basic therapies"]):
+            resolved_service = "Basic Therapy Session"
+            if eff_price <= 0:
+                eff_price = 500.0
+        elif any(w in search_text for w in ["sameer", "senior doctor", "senior consultation", "dr sameer", "dr. sameer"]) or any(w in curr_str for w in ["sameer", "senior doctor", "senior consultation", "dr sameer", "dr. sameer"]):
+            resolved_service = "Senior Doctor Consultation (Dr. Sameer)"
+            if eff_price <= 0:
+                eff_price = 500.0
+        elif any(w in search_text for w in ["junior doctor", "junior consultation"]) or any(w in curr_str for w in ["junior doctor", "junior consultation"]):
+            resolved_service = "Junior Doctor Consultation"
+            if eff_price <= 0:
+                eff_price = 300.0
 
     # 2. Check for price in service string if not resolved yet
     if eff_price <= 0:
@@ -775,70 +863,32 @@ def parse_action_payload(payload_str: str) -> dict:
 
 
 GLOBAL_DEFAULT_STRICT_RULES = (
-    "- ACCURATE CUSTOMER QUERY COMPREHENSION (FIRST PRIORITY):\n"
-    "  * Always read and genuinely understand what the customer is saying in the context of the conversation before replying.\n"
-    "  * When the customer gives a short reply (e.g. '3 pm', 'tomorrow', 'hydrafacial', 'yes', 'T Nagar', 'give me a demo', 'today evening'): Connect their reply directly to the previous messages. They are answering your previous question or continuing the ongoing topic. NEVER evaluate short answers in isolation and NEVER reset the conversation context.\n"
-    "  * ANSWER FIRST, QUALIFY SECOND: If the customer asks a direct question (pricing, hours, services, doctors, packages, location, duration), your FIRST sentence MUST directly and accurately answer what they asked from the verified knowledge base. Sentence 2 can guide them forward with a natural next step. Never force an artificial qualification flow if the customer is asking a direct question or wants to book immediately.\n"
-    "  * TIME / SLOT PROVIDED: When the customer provides a time or day (e.g. 'today evening', '5:30 pm', 'tomorrow at 3'), understand they are selecting their slot! Immediately confirm that exact time with warmth and append [ACTION:CREATE_BOOKING: ...] with date and time.\n"
-    "- CLICK-TO-WHATSAPP (CTWA) / AD REFERRALS (MANDATORY FOR ALL TENANTS):\n"
-    "  * When an incoming customer message contains '[Ad Referral: ...]' or asks for info on an ad, offer, or promotional campaign:\n"
-    "    1. The customer reached out directly from clicking your Facebook or Instagram ad campaign!\n"
-    "    2. Immediately acknowledge their specific inquiry about that ad or service (e.g. the specific massage, treatment, test, doctor specialty, or product mentioned in the ad referral).\n"
-    "    3. Provide the exact package details, pricing, duration, and benefits from your knowledge base with high warmth and sales enthusiasm.\n"
-    "    4. Invite them to schedule a convenient time or day for an appointment.\n"
-    "    5. NEVER treat ad referral messages as generic greetings or send error messages. Answer the ad offer directly!\n"
-    "- DIRECT QUESTION ANSWERING:\n"
-    "  * Always identify what the customer is specifically asking and answer THAT question directly. Never respond with a generic greeting or service list when a specific question was asked.\n"
-    "- VAGUE REFERENCE HANDLING:\n"
-    "  * When customer says 'this', 'it', 'that service', 'the offer' without specifying, look at conversation history to understand what they're referring to, then answer specifically.\n"
-    "- NO GENERIC OPENERS:\n"
-    "  * Never start a reply with just 'Welcome to [Business Name]!' or 'Thank you for contacting us!' as the ENTIRE reply. These are greetings, not answers.\n"
-    "- LOCATION & GOOGLE MAPS INQUIRIES:\n"
-    "  * When the customer asks about our location, address, route, or directions: If a Google Maps URL is provided in the verified business ground truth, you MUST include BOTH our full physical address AND the Google Maps link in your reply. Never omit the maps link.\n"
-    "- TEMPORAL REASONING & DATE/TIME RESOLUTION (ZERO AMBIGUITY):\n"
-    "  * Live Timestamp Awareness: Check the current time provided at the top of the prompt.\n"
-    "  * If customer mentions a time without a date (e.g. '3 pm', 'at 11', '5:30 PM'):\n"
-    "    1. If that time has ALREADY PASSED today (e.g. current time is 11:50 PM and customer says '3 pm', or current time is 4 PM and customer says '11 am'), OR if today's operating hours have closed, OR if today has no slots left:\n"
-    "       That time AUTOMATICALLY refers to TOMORROW (or the next available business day)! Never assume they are asking for a past time on today!\n"
-    "    2. Never reject the customer or make excuses about timings.\n"
-    "    3. Immediately confirm the booking for TOMORROW at that time (e.g. 'Great! I have scheduled your demo for tomorrow at 3:00 PM.') and append [ACTION:CREATE_BOOKING: ...] with tomorrow's date!\n"
-    "- AFTER-HOURS / NIGHT-TIME INQUIRIES & CALENDAR ACCURACY:\n"
-    "  * When messaging outside operating hours: The business is simply closed for today. Offer to schedule for tomorrow during regular hours.\n"
-    "  * Do not volunteer calendar availability unless the customer specifically asks about appointment openings.\n"
-    "- NATURAL CONVERSATION FLOW (NO RIGID FORMULAS OR TEMPLATES):\n"
-    "  * Reply with natural flow without following strict template patterns or repeating the same message structure for every question.\n"
-    "  * DO NOT ALWAYS USE THE 3-STEP SALES AGENT TECHNIQUE: Use qualification questions only when ACTUALLY needed (e.g. when a new customer's requirement is broad, vague, or exploratory). When a customer asks a direct question (e.g. price, timings, features, address), simply answer their question directly, clearly, and helpfully. Do NOT force a diagnostic question or a booking pitch onto every single answer.\n"
-    "  * When guiding to a booking or consult, ask what day and convenient time works best for them within operating hours. NEVER force 2 rigid arbitrary times (such as '10:00 AM or 4:30 PM' or 'morning or evening').\n"
-    "- OPERATING HOURS INTEGRITY:\n"
-    "  * When a customer asks about clinic / business timings, operating hours, working hours, opening or closing times, always state our exact operating hours from the knowledge base (as configured in this business's knowledge base). NEVER infer, guess, or invent operating hours from open calendar slots or list of available slots.\n"
-    "- ACTIVE OBJECTION RE-FRAMING:\n"
-    "  * When a customer expresses price resistance ('too expensive') or delay ('will check and let you know'), never accept a dead-end. Reframe value in 1 sentence and offer a zero-friction micro-step.\n"
-    "- EASY INDIAN ENGLISH & NATURAL HUMAN TONE:\n"
-    "  * Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.\n"
-    "- REAL-TIME DYNAMIC LANGUAGE SWITCHING:\n"
-    "  * ALWAYS mirror the language and script of the customer's LATEST message on every single turn.\n"
-    "  * If the customer previously messaged in Tamil but now writes in English, switch and reply 100% in natural English (EXCEPTION FOR AADHIRAN CENTER: Aadhiran Center operates EXCLUSIVELY in Tanglish and Tamil. If an Aadhiran customer writes in English or sends an English voice note, reply in natural spoken Tanglish, NEVER English!).\n"
-    "  * If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish.\n"
-    "  * If the customer sends a neutral short acknowledgment (like 'ok', 'yes', 'sure', '3 pm'), continue in the previously established language.\n"
-    "- NUMBERS AND PRICES IN DIGITS (TAMIL / TANGLISH):\n"
-    "  * ALWAYS write prices, fees, duration, and numbers strictly in numerical digits with ₹ (e.g. ₹700, ₹999, ₹1399, ₹1499, 60 mins). STRICTLY NEVER spell numbers out in Tamil words (e.g. NEVER write 'ஆயிரத்து நானூறு', write '₹1400'; never write 'எழுநூறு', write '₹700'; never write 'அறுபது', write '60 mins'; never write 'ஆயிரத்து முனுநூற்று தொண்ணூறு', write '₹1399').\n"
-    "- SERVICE NAME INTEGRITY & ZERO HALLUCINATION:\n"
-    "  * Only offer and describe services and packages that explicitly exist in THIS business's verified catalog below. Never invent, extrapolate, or confuse services.\n"
-    "  * In Tamil/Tanglish, translate service terms accurately according to this business's specific vocabulary instructions.\n"
-    "- CONVERSATIONAL WHATSAPP BREVITY (NO ESSAYS):\n"
-    "  * Keep responses to 2 to 3 natural sentences (25 to 50 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis.\n"
-    "  * IMPORTANT FORMATTING EXCEPTION: Forward slashes (/) are ALLOWED and REQUIRED. Always write '24/7' with the slash, never as '247'. Use '24/7' whenever referring to round-the-clock or always-on availability.\n"
-    "- TRAILING SENTENCE VARIETY (CRITICAL — APPLIES TO ALL TENANTS):\n"
-    "  * NEVER end two or more consecutive messages with the same closing sentence, call-to-action, question, or website link.\n"
-    "  * Check your own previous reply. If it already ended with 'Would you like to check out our website...', 'Let me know if you have any questions', 'Would you like to book an appointment?', or any similar CTA, you MUST use a DIFFERENT or completely OMIT a closing CTA in the next reply.\n"
-    "  * Each reply must have a UNIQUE, CONTEXTUALLY FRESH closing that directly matches what the customer just said. DO NOT fall back to generic repeated CTAs.\n"
-    "  * If a customer has already been asked 'Would you like to book?' or 'Would you like more details?' in the last message, do NOT ask the same thing again. Instead, directly answer their new question and stop there.\n"
-    "- NO-QUESTION CONFIRMATION PROGRESSION (ANTI-REPETITION):\n"
-    "  * If you asked 'Is there anything else you would like to know before we finalize?' or similar pre-booking readiness question, and the customer replies 'No', 'Nothing', 'illa', or expresses they have no questions: Understand they are ready to finalize now! Do NOT re-ask if they have questions or repeat yourself. Immediately proceed to confirm/lock the proposed slot (e.g. 'Noted [Name]! Shall I go ahead and confirm your consultation for [Day] at [Time]?').\n"
-    "- PHONE CALL & CALLBACK REQUESTS (MANDATORY ADMIN ALERT):\n"
-    "  * When a customer asks to be called (e.g. 'call me', 'please call', 'give me a call', 'call back', 'call pannunga', 'can you call me', 'pesanum'):\n"
-    "    1. Warmly reassure them in 1 to 2 short natural sentences: 'Sure! I have notified our team to give you a call directly on this number shortly.'\n"
-    "    2. The platform automatically alerts the admin to call them. Do NOT append [ACTION:HUMAN_TAKEOVER] so AI remains active to answer any future customer questions."
+    "You are the friendly front-desk coordinator for this business on WhatsApp.\n"
+    "Reply like a real, polite human texting on WhatsApp — never like an AI, bot, or corporate script.\n\n"
+    "1. LANGUAGE & REAL INDIAN VIBE:\n"
+    "- Mirror the customer's language and script turn-by-turn.\n"
+    "- Tanglish: Spoken WhatsApp Tanglish (e.g. 'Kandippa sir, ungalukku eppo convenient-ah irukkum?', 'Sollunga, ungalukku enna help venum?').\n"
+    "- Tamil (தமிழ்): Natural spoken Tamil (பேச்சுத் தமிழ்). Never use textbook grammar.\n"
+    "- English: Friendly, everyday Easy Indian English (e.g. 'Sure! What time works best for you tomorrow?').\n"
+    "- Hindi: Conversational everyday Hindi/Hinglish (e.g. 'Haan ji bilkul, kal 3 baje ka time theek rahega?').\n\n"
+    "2. DOCTORS, SPECIALISTS & DUTY TIMINGS (ZERO RESTRICTIONS):\n"
+    "- If specific doctors, specialists, visiting days, or consultation fees are listed in the knowledge base below:\n"
+    "  * Freely and naturally talk about them! Share the doctor's name, specialty, and available timings openly.\n"
+    "  * When a customer wants to consult a specific doctor, match them to that doctor's schedule and confirm their slot.\n"
+    "  * No artificial restrictions — if doctor details are provided, share them helpfully.\n"
+    "- For non-medical businesses, naturally talk about the services, packages, or staff listed.\n\n"
+    "3. WHATSAPP FORMATTING (NO ROBOTIC TEXT):\n"
+    "- Strictly 1 to 2 short natural sentences (20 to 45 words max).\n"
+    "- ZERO asterisks (*), ZERO bullets (-), ZERO numbered lists.\n"
+    "- Write numbers, fees, and times in plain digits (₹500, 10:30 AM). Forward slash (/) is allowed for '24/7' and dates.\n\n"
+    "4. ANSWER FIRST, GUIDE SECOND:\n"
+    "- Directly answer direct questions (price, doctor, address, timings) in Sentence 1 from the facts below.\n"
+    "- Sentence 2 offers a natural next step or asks for convenient day/time.\n"
+    "- When date and time are agreed, lock it with: [ACTION:CREATE_BOOKING: service | YYYY-MM-DD | HH:MM | Name].\n"
+    "- If a customer asks to be called ('call me', 'call pannunga'), reassure them: 'Sure! I have notified our team to give you a call shortly.'\n"
+    "- For severe medical emergencies, advise calling 108 immediately.\n\n"
+    "5. 100% FACTUAL GROUNDING:\n"
+    "- Quote only services, prices, doctors, and hours listed in THIS business's knowledge base below. Never invent details."
 )
 
 def _esc_html(val: Any) -> str:
@@ -1325,6 +1375,54 @@ CONSUMER_GROUP = "core-workers"
 STATUS_STREAM_KEY = "stream:message.status"
 STATUS_CONSUMER_GROUP = "status-workers"
 CONSUMER_NAME  = f"worker-{os.getenv('HOSTNAME', 'local')}"
+def parse_and_format_flow_response(body_or_json: Any) -> tuple[str, Optional[str], Optional[str]]:
+    """
+    Parses WhatsApp Flow nfm_reply payload or raw '[Flow Response: {...}]' string.
+    Returns (formatted_text, extracted_name, extracted_email).
+    """
+    if not body_or_json:
+        return str(body_or_json or ""), None, None
+    raw_json_str = None
+    if isinstance(body_or_json, dict):
+        data = body_or_json
+    else:
+        m = re.search(r'\[Flow Response:\s*(\{[\s\S]*?\})\]', str(body_or_json), re.I)
+        if m:
+            raw_json_str = m.group(1)
+        elif str(body_or_json).strip().startswith('{') and str(body_or_json).strip().endswith('}'):
+            raw_json_str = str(body_or_json).strip()
+        else:
+            return str(body_or_json), None, None
+        try:
+            data = json.loads(raw_json_str)
+        except Exception:
+            return str(body_or_json), None, None
+
+    if not isinstance(data, dict):
+        return str(body_or_json), None, None
+
+    name = None
+    email = None
+    lines = ["📋 WhatsApp Form Submitted:"]
+    for k, v in data.items():
+        if str(k).lower() in ("flow_token",) or str(k).startswith("__"):
+            continue
+        if v is None or v == "":
+            continue
+        clean_val = str(v).strip()
+        clean_key = re.sub(r'^screen_\d+_?', '', str(k), flags=re.I)
+        clean_key = re.sub(r'_\d+$', '', clean_key)
+        clean_key = clean_key.replace('_', ' ').strip().title()
+
+        if "name" in clean_key.lower() and not name:
+            name = clean_val
+        if ("email" in clean_key.lower() or "@" in clean_val) and not email:
+            email = clean_val
+
+        lines.append(f"• {clean_key}: {clean_val}")
+
+    formatted_text = "\n".join(lines) if len(lines) > 1 else "📋 WhatsApp Form Submitted"
+    return formatted_text, name, email
 
 
 class CoreWorker:
@@ -1446,17 +1544,58 @@ class CoreWorker:
                                 if row_t:
                                     tenant_id = str(row_t["tenant_id"])
                             if tenant_id:
+                                err_raw = str(fields.get("errors") or "[]")
+                                err_code = None
+                                if err_raw and err_raw != "[]":
+                                    try:
+                                        err_list = json.loads(err_raw) if isinstance(err_raw, str) else err_raw
+                                        if isinstance(err_list, list) and len(err_list) > 0 and isinstance(err_list[0], dict):
+                                            err_code = str(err_list[0].get("code") or "")
+                                    except Exception:
+                                        pass
+
                                 await self.db_pool.execute(
                                     """UPDATE messages 
-                                       SET status = $1, updated_at = now() 
-                                       WHERE wa_message_id = $2 AND tenant_id = $3::uuid""",
-                                    status, wa_message_id, tenant_id
+                                       SET status = $1, error_code = COALESCE($2, error_code), updated_at = now() 
+                                       WHERE wa_message_id = $3 AND tenant_id = $4::uuid""",
+                                    status, err_code, wa_message_id, tenant_id
                                 )
-                                logger.info("status_updated", wa_message_id=wa_message_id, status=status, tenant_id=tenant_id)
+                                logger.info("status_updated", wa_message_id=wa_message_id, status=status, tenant_id=tenant_id, error_code=err_code)
+
+                                # If this was a marketing broadcast message, update campaign stats
+                                try:
+                                    if status in ("delivered", "read", "failed"):
+                                        c_match = await self.db_pool.fetchrow(
+                                            """SELECT id FROM marketing_campaigns
+                                               WHERE tenant_id = $1::uuid AND dispatch_logs::text LIKE '%' || $2 || '%'
+                                               LIMIT 1""",
+                                            tenant_id, wa_message_id
+                                        )
+                                        if c_match:
+                                            cid = c_match["id"]
+                                            if status in ("delivered", "read"):
+                                                await self.db_pool.execute(
+                                                    """UPDATE marketing_campaigns
+                                                       SET delivered_count = (
+                                                             SELECT count(m.id) FROM messages m
+                                                             WHERE m.wa_message_id = ANY(ARRAY(
+                                                               SELECT elem->>'wamid' FROM jsonb_array_elements(dispatch_logs) elem WHERE elem->>'wamid' IS NOT NULL
+                                                             )) AND m.tenant_id = $1::uuid AND m.status IN ('delivered', 'read')
+                                                           ),
+                                                           read_count = (
+                                                             SELECT count(m.id) FROM messages m
+                                                             WHERE m.wa_message_id = ANY(ARRAY(
+                                                               SELECT elem->>'wamid' FROM jsonb_array_elements(dispatch_logs) elem WHERE elem->>'wamid' IS NOT NULL
+                                                             )) AND m.tenant_id = $1::uuid AND m.status = 'read'
+                                                           )
+                                                       WHERE id = $2::uuid AND tenant_id = $1::uuid""",
+                                                    tenant_id, cid
+                                                )
+                                except Exception as c_err:
+                                    logger.debug("campaign_live_status_sync_warn", error=str(c_err))
                                 if status == "failed" and tenant_id:
-                                    err_raw = str(fields.get("errors") or "[]")
                                     if "131042" in err_raw:
-                                        logger.error("meta_waba_payment_currency_error_131042", tenant_id=tenant_id, wa_message_id=wa_message_id)
+                                        logger.warning("meta_waba_payment_currency_error_131042", tenant_id=tenant_id, wa_message_id=wa_message_id)
                                         try:
                                             await self.db_pool.execute("""
                                                 INSERT INTO notifications (id, tenant_id, type, title, body, is_read, data, created_at)
@@ -1468,11 +1607,62 @@ class CoreWorker:
                                             """,
                                             str(uuid.uuid4()), tenant_id,
                                             "⚠️ Meta Payment Required for Outbound WhatsApp Templates",
-                                            "Meta blocked outbound template delivery (Error 131042): WhatsApp Business Account currency is not configured. Visit Meta Business Manager Billing Hub to resolve.",
+                                            "Meta blocked outbound template delivery (Error 131042): WhatsApp Business Account currency or tax information is not configured. Visit Meta Business Manager Billing Hub to resolve.",
                                             json.dumps({"code": 131042, "raw": err_raw})
                                             )
                                         except Exception as e_ntf:
                                             logger.debug("notification_insert_skipped", error=str(e_ntf))
+
+                                    # Automated Text Fallback for failed templates if customer is within 24h window
+                                    try:
+                                        failed_msg = await self.db_pool.fetchrow(
+                                            "SELECT id, conversation_id, content_type, body FROM messages WHERE wa_message_id = $1 AND tenant_id = $2::uuid",
+                                            wa_message_id, tenant_id
+                                        )
+                                        if failed_msg and failed_msg["content_type"] == "template" and failed_msg["body"]:
+                                            c_id = failed_msg["conversation_id"]
+                                            last_inb = await self.db_pool.fetchval(
+                                                "SELECT created_at FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND direction = 'inbound' ORDER BY created_at DESC LIMIT 1",
+                                                c_id, tenant_id
+                                            )
+                                            is_inside_24h = False
+                                            if last_inb:
+                                                if last_inb.tzinfo is None:
+                                                    last_inb = last_inb.replace(tzinfo=datetime.timezone.utc)
+                                                is_inside_24h = (datetime.datetime.now(datetime.timezone.utc) - last_inb).total_seconds() < 86400
+
+                                            if is_inside_24h:
+                                                contact_phone = await self.db_pool.fetchval(
+                                                    """SELECT co.phone FROM conversations c 
+                                                       JOIN contacts co ON c.contact_id = co.id 
+                                                       WHERE c.id = $1::uuid AND c.tenant_id = $2::uuid""",
+                                                    c_id, tenant_id
+                                                )
+                                                recent_fb = await self.db_pool.fetchval(
+                                                    """SELECT id FROM messages 
+                                                       WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid 
+                                                         AND direction = 'outbound' AND content_type = 'text' 
+                                                         AND created_at > now() - interval '60 seconds'""",
+                                                    c_id, tenant_id
+                                                )
+                                                if contact_phone and not recent_fb:
+                                                    t_creds = await self.get_tenant_credentials(tenant_id)
+                                                    if t_creds and t_creds.get("phone_number_id") and t_creds.get("access_token"):
+                                                        fb_wa_id = await send_text(
+                                                            phone_number_id=t_creds["phone_number_id"],
+                                                            access_token=t_creds["access_token"],
+                                                            to=contact_phone,
+                                                            body=failed_msg["body"]
+                                                        )
+                                                        fb_msg_id = str(uuid.uuid4())
+                                                        await self.db_pool.execute(
+                                                            """INSERT INTO messages (id, conversation_id, tenant_id, channel, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                                                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'whatsapp', 'outbound', 'text', $4, 'sent', $5, true)""",
+                                                            fb_msg_id, c_id, tenant_id, failed_msg["body"], fb_wa_id
+                                                        )
+                                                        logger.info("fallback_text_sent_after_async_template_failure", fb_msg_id=fb_msg_id, wa_id=fb_wa_id, conv_id=str(c_id))
+                                    except Exception as e_auto_fb:
+                                        logger.warning("auto_fallback_text_dispatch_error", error=str(e_auto_fb))
                             else:
                                 logger.warning("status_update_skipped_unresolved_tenant", wa_message_id=wa_message_id)
                         await self.redis.xack(STATUS_STREAM_KEY, STATUS_CONSUMER_GROUP, msg_id)
@@ -1597,40 +1787,159 @@ class CoreWorker:
                 )
         # ── End of Safeguard 4 lock acquisition ──────────────────────────────
 
+        channel = fields.get("channel", "whatsapp")
+        sender_id = fields.get("senderId", "") or (fields.get("from", "").replace("ig:", "").strip() if channel == "instagram" else "")
+        ig_message_id = fields.get("igMessageId") or (wa_message_id if channel == "instagram" else None)
+        contact_name = fields.get("contactName") or None
+        ig_username = None
+
+        ig_profile_pic_url = None
+        if channel == "instagram" and sender_id:
+            ig_token = fields.get("accessToken")
+            if not ig_token:
+                ig_creds = await self._get_tenant_instagram_creds(tenant_id)
+                ig_token = (ig_creds or {}).get("access_token")
+            if ig_token:
+                try:
+                    ig_profile = await self._get_instagram_user_profile(sender_id, ig_token)
+                    if ig_profile:
+                        ig_username = ig_profile.get("username") or None
+                        ig_real_name = ig_profile.get("name") or None
+                        ig_profile_pic_url = ig_profile.get("profile_picture_url") or None
+                        if ig_real_name:
+                            contact_name = ig_real_name
+                        elif ig_username:
+                            contact_name = f"@{ig_username.replace('@', '')}"
+                except Exception as ig_err:
+                    logger.warning("ig_profile_fetch_in_handle_failed", sender_id=sender_id, error=str(ig_err))
+
         try:
             # ── 1. Upsert contact ─────────────────────────────────────────────
             contact_id = await self._upsert_contact(
                 tenant_id=tenant_id,
                 phone=fields["from"],
-                name=fields.get("contactName") or None,
+                name=contact_name,
+                channel=channel,
+                ig_user_id=sender_id,
+                ig_username=ig_username or (contact_name.replace('@', '') if (contact_name and contact_name.startswith('@')) else None),
             )
 
+            # ── 1a. Store IG profile picture into contact metadata ─────────────
+            if channel == "instagram" and contact_id and ig_profile_pic_url:
+                try:
+                    await self.db_pool.execute(
+                        """UPDATE contacts
+                           SET metadata = jsonb_set(
+                               COALESCE(metadata, '{}'::jsonb),
+                               '{profile_pic}',
+                               $1::jsonb
+                           ),
+                           updated_at = now()
+                           WHERE id = $2::uuid AND tenant_id = $3::uuid
+                             AND (metadata->>'profile_pic' IS NULL OR metadata->>'profile_pic' = '')""",
+                        json.dumps(ig_profile_pic_url),
+                        contact_id,
+                        tenant_id,
+                    )
+                except Exception as _avatar_err:
+                    logger.debug("ig_contact_avatar_store_failed", contact_id=contact_id, error=str(_avatar_err))
+
             # ── 1b. Automatically ensure customer record exists in Customers tab ──
-            clean_from = re.sub(r'\D', '', str(fields.get("from", "")))
-            try:
-                await self.db_pool.execute(
-                    """
-                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, followup_date, followup_time, health_concern, preferred_doctor, last_messaged_at, created_at, updated_at)
-                    VALUES ($1::uuid, $2, $3, 'new', 'warm', NULL, NULL, NULL, NULL, NOW(), NOW(), NOW())
-                    ON CONFLICT (tenant_id, phone) DO UPDATE
-                    SET updated_at = NOW(),
-                        last_messaged_at = NOW(),
-                        status = CASE WHEN customers.status = 'converted' THEN 'converted' ELSE 'new' END,
-                        name = CASE 
-                            WHEN customers.name IS NULL OR customers.name = '' OR customers.name = 'Customer'
-                            THEN COALESCE(EXCLUDED.name, customers.name)
-                            ELSE customers.name 
-                        END
-                    """,
-                    tenant_id,
-                    clean_from or fields["from"],
-                    fields.get("contactName") or "Customer",
-                )
-            except Exception as cust_err:
-                logger.warning("auto_upsert_customer_failed", phone=fields.get("from"), error=str(cust_err))
+            if channel == "instagram":
+                clean_handle = (ig_username or "").strip().replace("@", "")
+                if contact_name and clean_handle and clean_handle.lower() not in contact_name.lower() and contact_name.lower() not in ("customer", "instagram user"):
+                    display_ig_name = f"{contact_name} (@{clean_handle})"
+                elif clean_handle:
+                    display_ig_name = f"@{clean_handle}"
+                else:
+                    display_ig_name = contact_name or "Instagram User"
+
+                ig_phone_raw = str(fields.get("from", "")).strip()
+                if not ig_phone_raw.startswith("ig:"):
+                    ig_phone_raw = f"ig:{sender_id or ig_phone_raw}"
+                digits_phone = re.sub(r'[^0-9]', '', ig_phone_raw)
+
+                try:
+                    existing_cust = await self.db_pool.fetchrow(
+                        """
+                        SELECT id, name FROM customers 
+                        WHERE tenant_id = $1::uuid 
+                          AND (
+                            phone = $2 
+                            OR phone = $3
+                            OR (length($3) >= 10 AND RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($3, 10))
+                          )
+                        LIMIT 1
+                        """,
+                        tenant_id,
+                        ig_phone_raw,
+                        digits_phone,
+                    )
+                    if existing_cust:
+                        await self.db_pool.execute(
+                            """
+                            UPDATE customers 
+                            SET source = 'instagram',
+                                phone = $3,
+                                name = CASE 
+                                    WHEN name IS NULL OR name = '' OR name IN ('Customer', 'Instagram User')
+                                    THEN $2
+                                    WHEN $2 LIKE '%@%' AND name NOT LIKE '%@%'
+                                    THEN $2
+                                    ELSE name
+                                END,
+                                last_messaged_at = NOW(),
+                                updated_at = NOW()
+                            WHERE id = $1::uuid AND tenant_id = $4::uuid
+                            """,
+                            existing_cust["id"],
+                            display_ig_name,
+                            ig_phone_raw,
+                            tenant_id,
+                        )
+                    else:
+                        await self.db_pool.execute(
+                            """
+                            INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, source, followup_date, followup_time, health_concern, preferred_doctor, last_messaged_at, created_at, updated_at)
+                            VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'new', 'warm', 'instagram', NULL, NULL, NULL, NULL, NOW(), NOW(), NOW())
+                            ON CONFLICT (tenant_id, phone) DO UPDATE
+                            SET source = 'instagram',
+                                name = EXCLUDED.name,
+                                last_messaged_at = NOW(),
+                                updated_at = NOW()
+                            """,
+                            tenant_id,
+                            ig_phone_raw,
+                            display_ig_name,
+                        )
+                except Exception as cust_err:
+                    logger.warning("auto_upsert_ig_customer_failed", phone=ig_phone_raw, error=str(cust_err))
+            else:
+                clean_from = re.sub(r'\D', '', str(fields.get("from", "")))
+                try:
+                    await self.db_pool.execute(
+                        """
+                        INSERT INTO customers (tenant_id, phone, name, status, lead_probability, source, followup_date, followup_time, health_concern, preferred_doctor, last_messaged_at, created_at, updated_at)
+                        VALUES ($1::uuid, $2, $3, 'new', 'warm', 'whatsapp', NULL, NULL, NULL, NULL, NOW(), NOW(), NOW())
+                        ON CONFLICT (tenant_id, phone) DO UPDATE
+                        SET updated_at = NOW(),
+                            last_messaged_at = NOW(),
+                            status = CASE WHEN customers.status = 'converted' THEN 'converted' ELSE 'new' END,
+                            name = CASE 
+                                WHEN customers.name IS NULL OR customers.name = '' OR customers.name = 'Customer'
+                                THEN COALESCE(EXCLUDED.name, customers.name)
+                                ELSE customers.name 
+                            END
+                        """,
+                        tenant_id,
+                        clean_from or fields["from"],
+                        contact_name or "Customer",
+                    )
+                except Exception as cust_err:
+                    logger.warning("auto_upsert_customer_failed", phone=fields.get("from"), error=str(cust_err))
 
             # ── 2. Get or create conversation ─────────────────────────────────
-            conv_id, conv_status = await self._get_or_create_conversation(tenant_id, contact_id)
+            conv_id, conv_status = await self._get_or_create_conversation(tenant_id, contact_id, channel=channel)
 
             # ── 3. WhatsApp Read Receipts (2 Blue Ticks) ──────────────────────
             tenant_ctx = await self.load_tenant_context(tenant_id)
@@ -1827,6 +2136,43 @@ class CoreWorker:
                         emoji = raw_data.get("reaction", {}).get("emoji")
                         body_text = f"Reaction: {emoji}" if emoji else "Reaction"
 
+            # ── 4c. WhatsApp Flow Form Extraction & Profile Enrichment ────────
+            flow_name = None
+            flow_email = None
+            inter_obj = raw_data.get("interactive", {}) if isinstance(raw_data, dict) else {}
+            nfm_obj = inter_obj.get("nfm_reply", {}) if isinstance(inter_obj, dict) else {}
+            if nfm_obj and nfm_obj.get("response_json"):
+                body_text, flow_name, flow_email = parse_and_format_flow_response(nfm_obj.get("response_json"))
+            elif "[Flow Response:" in str(body_text):
+                body_text, flow_name, flow_email = parse_and_format_flow_response(body_text)
+
+            if flow_name or flow_email:
+                try:
+                    clean_from_digits = re.sub(r'\D', '', str(fields.get("from", "")))
+                    last10_digits = clean_from_digits[-10:] if len(clean_from_digits) >= 10 else clean_from_digits
+                    if flow_name:
+                        await self.db_pool.execute(
+                            "UPDATE contacts SET name = $1, updated_at = now() WHERE id = $2::uuid",
+                            flow_name, contact_id
+                        )
+                        await self.db_pool.execute(
+                            """UPDATE customers 
+                               SET name = $1, updated_at = now() 
+                               WHERE tenant_id = $2::uuid AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
+                            flow_name, tenant_id, clean_from_digits, last10_digits
+                        )
+                    if flow_email:
+                        await self.db_pool.execute(
+                            """UPDATE customers 
+                               SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{email}', to_jsonb($1::text)),
+                                   updated_at = now()
+                               WHERE tenant_id = $2::uuid AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
+                            flow_email, tenant_id, clean_from_digits, last10_digits
+                        )
+                    logger.info("flow_lead_details_synced", conv_id=conv_id, name=flow_name, email=flow_email)
+                except Exception as sync_flow_err:
+                    logger.warning("flow_profile_sync_failed", error=str(sync_flow_err))
+
             # ── 5. Persist inbound message ────────────────────────────────────
             inbound_media_id = None
             if msg_type == "image" or "image" in raw_data:
@@ -1914,21 +2260,41 @@ class CoreWorker:
                 body=body_text,
                 content_type=safe_content_type,
                 media_url=inbound_media_url,
+                channel=channel,
+                ig_message_id=ig_message_id,
             )
 
-            # ── 5a. Dispatch Web Push for inbound customer WhatsApp message ────
+            # If Instagram DM, check if customer shared a phone number
+            if channel == "instagram" and body_text:
+                phone_match = re.search(r'(?:\+?91[\s-]?)?([6-9]\d{4}[\s-]?\d{5})\b', body_text)
+                if phone_match:
+                    raw_extracted = phone_match.group(0)
+                    try:
+                        await self._unify_instagram_customer_phone(
+                            tenant_id=tenant_id,
+                            sender_id=sender_id or str(fields.get("from", "")).replace("ig:", "").strip(),
+                            phone_input=raw_extracted,
+                            contact_name=contact_name,
+                            contact_id=contact_id,
+                            ig_username=ig_username,
+                        )
+                    except Exception as ph_sync_err:
+                        logger.debug("instagram_shared_phone_sync_skip", error=str(ph_sync_err))
+
+            # ── 5a. Dispatch Web Push for inbound customer message ────
             try:
-                contact_display = fields.get("contactName") or fields.get("from") or "Customer"
+                contact_display = contact_name or (f"@{ig_username.replace('@', '')}" if ig_username else None) or fields.get("contactName") or fields.get("from") or "Customer"
                 body_snippet = (body_text[:120] + "...") if len(body_text) > 120 else body_text
+                ch_icon = "📸 Instagram DM" if channel == "instagram" else "💬 WhatsApp"
                 asyncio.create_task(
                     dispatch_push_notification(
                         pool=self.db_pool,
                         tenant_id=tenant_id,
-                        title=f"💬 {contact_display}",
+                        title=f"{ch_icon}: {contact_display}",
                         body=body_snippet,
                         notif_type="message",
                         url="/dashboard#inbox",
-                        data={"contact_phone": fields.get("from", ""), "conversation_id": conv_id}
+                        data={"contact_phone": fields.get("from", ""), "conversation_id": conv_id, "channel": channel}
                     )
                 )
             except Exception as push_err:
@@ -2059,9 +2425,18 @@ class CoreWorker:
             _global_ai_paused = _t_settings.get("ai_paused", False) if isinstance(_t_settings, dict) else False
             is_global_ai_off = (_global_ai_enabled is False or _global_ai_paused is True)
 
+            # Real-time check for paused workspace
+            is_workspace_paused = (is_active is False)
+            if not is_workspace_paused and self.redis:
+                try:
+                    if await self.redis.exists(f"tenant_paused:{tenant_id}"):
+                        is_workspace_paused = True
+                except Exception:
+                    pass
+
             if sub_delinquent:
                 logger.warn("skipping_ai_subscription_not_active", conv_id=conv_id, tenant_id=tenant_id, stage=stage, sub_status=sub_status)
-            elif is_active is False:
+            elif is_workspace_paused:
                 logger.warn("skipping_ai_tenant_paused", conv_id=conv_id, tenant_id=tenant_id)
             elif is_global_ai_off:
                 logger.info("skipping_ai_global_tenant_ai_disabled", conv_id=conv_id, tenant_id=tenant_id)
@@ -2077,11 +2452,30 @@ class CoreWorker:
                     logger.info("skipping_ai_human_mode_fresh_check", conv_id=conv_id, tenant_id=tenant_id, status=fresh_status)
                 else:
                     typing_started_at = time.monotonic()
-                    if creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
-                        try:
-                            await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
-                        except Exception as e:
-                            logger.warning("typing_indicator_dispatch_failed", error=str(e))
+                    ig_creds = None
+                    if channel == "instagram":
+                        ig_creds = await self._get_tenant_instagram_creds(tenant_id)
+                        ig_acc = (ig_creds or {}).get("account_id")
+                        ig_page = (ig_creds or {}).get("page_id")
+                        if sender_id and (sender_id == ig_acc or sender_id == ig_page or sender_id == "17841442516939355"):
+                            logger.info("skipping_self_instagram_inbound", tenant_id=tenant_id, sender_id=sender_id)
+                            return
+                        if ig_creds and ig_creds.get("access_token") and sender_id:
+                            try:
+                                await send_instagram_typing(
+                                    access_token=ig_creds["access_token"],
+                                    recipient_id=sender_id,
+                                    page_id=ig_creds.get("page_id")
+                                )
+                            except Exception as e:
+                                logger.warning("ig_typing_indicator_dispatch_failed", error=str(e))
+                    else:
+                        if creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
+                            try:
+                                await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
+                            except Exception as e:
+                                logger.warning("typing_indicator_dispatch_failed", error=str(e))
+
                     await self._generate_and_send_reply(
                         tenant_id=tenant_id,
                         conv_id=conv_id,
@@ -2091,6 +2485,9 @@ class CoreWorker:
                         inbound_wa_message_id=wa_message_id,
                         typing_started_at=typing_started_at,
                         tenant_ctx=tenant_ctx,
+                        channel=channel,
+                        sender_id=sender_id,
+                        ig_creds=ig_creds,
                     )
 
             # ── 7. Update conversation timestamp ──────────────────────────────
@@ -2187,6 +2584,110 @@ end
         except Exception:
             return default_val
 
+    @staticmethod
+    def _extract_doctors_from_unified_kb(kb_text: str) -> list[dict]:
+        """Extract structured doctor roster from Unified Knowledge Base markdown."""
+        if not kb_text:
+            return []
+        sec_match = re.search(
+            r'###\s*(?:\d+\.\s*)?(?:DOCTORS[^\n]*|OFFICIAL VERIFIED DOCTORS[^\n]*|DOCTORS & SPECIALISTS[^\n]*)(.*?)(?=\n###|\Z)',
+            kb_text, re.DOTALL | re.IGNORECASE
+        )
+        if not sec_match:
+            return []
+        sec_content = sec_match.group(1).strip()
+        doctors = []
+        cur_doc = None
+        for line in sec_content.splitlines():
+            l_strip = line.strip()
+            if not l_strip:
+                continue
+            m_doc = re.match(r'^[-\*•]\s+(?:(Dr\.?|Mr\.?|Mrs\.?|Ms\.?)\s+)?([A-Za-z\s\.]+?)(?:,\s*([A-Za-z\s\.\/]+?))?:\s*(.+)$', l_strip)
+            if m_doc and not l_strip.startswith(('* Schedule', '* Fee', '* Consultation Fee', '* Available', '* Consultation')):
+                title = m_doc.group(1) or ""
+                name_raw = m_doc.group(2).strip()
+                qual = (m_doc.group(3) or "").strip()
+                spec = m_doc.group(4).strip()
+                full_name = f"{title} {name_raw}".strip() if title else name_raw
+                cur_doc = {
+                    "name": full_name,
+                    "qualification": qual,
+                    "specialty": spec,
+                    "schedule": "",
+                    "fee": None,
+                    "available_days": []
+                }
+                doctors.append(cur_doc)
+                continue
+            if cur_doc:
+                m_sched = re.search(r'Schedule:\s*(.+)$', l_strip, re.I)
+                if m_sched:
+                    cur_doc["schedule"] = m_sched.group(1).strip()
+                    days_found = []
+                    for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]:
+                        if d.lower() in cur_doc["schedule"].lower():
+                            days_found.append(d)
+                    if "daily" in cur_doc["schedule"].lower():
+                        days_found = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                    cur_doc["available_days"] = days_found
+                m_fee = re.search(r'(?:Consultation\s+)?Fee:\s*[₹$]?\s*([0-9,]+)', l_strip, re.I)
+                if m_fee:
+                    try:
+                        cur_doc["fee"] = float(m_fee.group(1).replace(",", ""))
+                    except Exception:
+                        pass
+        return doctors
+
+    @staticmethod
+    def _extract_services_from_unified_kb(kb_text: str) -> str:
+        """Extract verified services text catalog from Unified Knowledge Base markdown."""
+        if not kb_text:
+            return ""
+        sec_match = re.search(
+            r'###\s*(?:\d+\.\s*)?(?:VERIFIED SERVICES[^\n]*|SERVICES[^\n]*)(.*?)(?=\n###|\Z)',
+            kb_text, re.DOTALL | re.IGNORECASE
+        )
+        if not sec_match:
+            return ""
+        raw = sec_match.group(1).strip()
+        lines = []
+        for l in raw.splitlines():
+            l_strip = l.strip()
+            if "STRICT PRICING RULES" in l_strip.upper() or "PRICING ON REQUEST" in l_strip.upper():
+                break
+            if l_strip:
+                lines.append(l_strip)
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _extract_address_from_unified_kb(kb_text: str) -> tuple[str, str]:
+        """Extract (physical_address, google_maps_url) from Unified Knowledge Base markdown."""
+        if not kb_text:
+            return "", ""
+        addr = ""
+        maps_url = ""
+        m_addr = re.search(r'[-•*]?\s*(?:Physical\s+Address|Address|Street\s+Address)\s*[:\-]\s*(.+?)(?:\n|$)', kb_text, re.IGNORECASE)
+        if m_addr:
+            raw_a = re.sub(r'https?://[^\s]+', '', m_addr.group(1)).strip(' .\n\r-')
+            if len(raw_a) > 5:
+                addr = raw_a
+        m_map = re.search(r'(https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|share\.google|maps\.google\.[a-z]+|www\.google\.[a-z]+/maps)[^\s]+)', kb_text, re.IGNORECASE)
+        if m_map:
+            maps_url = m_map.group(1).strip().rstrip(').,')
+        return addr, maps_url
+
+    @staticmethod
+    def _extract_founder_from_unified_kb(kb_text: str) -> str:
+        """Extract founder / leadership name from Unified Knowledge Base markdown."""
+        if not kb_text:
+            return ""
+        m = re.search(r'[-•*]?\s*(?:Founder(?:\s*(?:&|\/)\s*(?:Leadership|Managing\s*Director|MD))?|Managing\s*Director)\s*[:\-]\s*(.+?)(?:\n|$)', kb_text, re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip()
+            if cand and not any(w in cand.lower() for w in ["foundation", "welfare", "hospital", "clinic", "company"]):
+                return cand
+        return ""
+
     async def load_tenant_context(self, tenant_id: str, force_refresh: bool = False) -> dict:
         """
         Single-Pass Tenant Context Fetcher:
@@ -2205,7 +2706,19 @@ end
             if cached_entry:
                 ts, ctx = cached_entry
                 if (now_mono - ts) < 60.0:
-                    return ctx
+                    if self.redis:
+                        try:
+                            is_paused = await self.redis.exists(f"tenant_paused:{tenant_id_str}")
+                            if is_paused:
+                                ctx["is_active"] = False
+                                return ctx
+                            elif ctx.get("is_active") is False:
+                                # Workspace was paused but is now resumed; discard stale L1 entry
+                                cached_entry = None
+                        except Exception:
+                            pass
+                    if cached_entry:
+                        return ctx
 
         # 2. Redis L2 cache check
         cache_key = f"tenant_context:{tenant_id_str}"
@@ -2239,8 +2752,15 @@ end
             "SELECT provider, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND is_active = true",
             tenant_id_str
         )
+        owner_user_task = self.db_pool.fetchrow(
+            """SELECT display_name, email FROM users 
+               WHERE tenant_id = $1::uuid AND is_active = true 
+               ORDER BY (role = 'owner') DESC, (role = 'super_admin') DESC, (role = 'admin') DESC, created_at ASC 
+               LIMIT 1""",
+            tenant_id_str
+        )
 
-        t_row, ai_cfg_row, creds_rows = await asyncio.gather(t_row_task, ai_cfg_task, creds_task)
+        t_row, ai_cfg_row, creds_rows, owner_user_row = await asyncio.gather(t_row_task, ai_cfg_task, creds_task, owner_user_task)
 
         # Parse tenant row & settings
         tenant_name = (t_row["name"] if t_row and t_row["name"] else "")
@@ -2270,7 +2790,22 @@ end
             "methodology": "dogfooding",
             "custom_prompt": ""
         }
+        assistant_name = (ai_cfg.get("assistant_name") or "Assistant").strip()
+        custom_instructions = (ai_cfg.get("system_prompt") or "").strip()
         services_text = (ai_cfg.get("services_text") or settings.get("services_text") or "").strip()
+        is_placeholder_services = not services_text or any(p in services_text.lower() for p in [
+            "contact our team for current",
+            "contact team for current",
+            "no services configured",
+            "services will be updated",
+            "please contact us for service",
+            "contact us for pricing",
+            "contact us for offerings",
+        ])
+        if is_placeholder_services:
+            services_text = ""
+            if custom_instructions:
+                services_text = self._extract_services_from_unified_kb(custom_instructions)
         structured_services = settings.get("services") or []
         if isinstance(structured_services, list) and structured_services:
             structured_catalog_lines = []
@@ -2287,8 +2822,6 @@ end
                         s_name = s_line.split("(")[0].split(":")[0].strip()
                         if s_name.lower() not in services_text.lower():
                             services_text += f"\n{s_line}"
-        assistant_name = (ai_cfg.get("assistant_name") or "Assistant").strip()
-        custom_instructions = (ai_cfg.get("system_prompt") or "").strip()
 
         # Parse credentials
         whatsapp_creds = None
@@ -2355,6 +2888,21 @@ end
             or "muthra" in tenant_slug
             or "muthra" in tenant_name.lower()
         )
+        is_a3_ayush = (
+            tenant_id_str == "be802442-70e5-4911-a674-f750fa963639"
+            or "a3-ayush" in tenant_slug
+            or "a3 ayush" in tenant_name.lower()
+        )
+        is_soilsons = (
+            tenant_id_str == "5aade72a-dab6-4cf4-acac-59a8b2428b73"
+            or "soilsons" in tenant_slug
+            or "soil" in tenant_name.lower()
+        )
+        is_balance_and_bliss = (
+            tenant_id_str == "1cb23ca7-0f84-43c4-bdad-94eb4c0facb3"
+            or "balance-and-bliss" in tenant_slug
+            or "balance" in tenant_name.lower()
+        )
 
         # Facility Term & Primary Language
         facility_term = (
@@ -2404,10 +2952,16 @@ end
             full_location = "AVM Ave 1st Main Rd, Aranganathan Nagar, Virugambakkam, Chennai, Tamil Nadu 600092"
         elif not full_location and is_muthra:
             full_location = "Madurai, Tamil Nadu"
+        elif not full_location and is_balance_and_bliss:
+            full_location = "Balance And Bliss Healing Therapies And Academy, B6/17 Housing Board Colony, Mullai Apartments, K.K. Nagar, Near Annanagar Police Station, Madurai 625020.\nGoogle map link : https://maps.app.goo.gl/99eTZ6NfGrVmuDK27"
         elif not full_location and custom_instructions:
-            m_addr = re.search(r'[-•*]\s*(?:Address|Location)\s*[:\-]\s*(.+?)(?:\n|$)', custom_instructions, re.IGNORECASE)
-            if m_addr:
-                full_location = m_addr.group(1).strip()
+            cand_addr, cand_maps = self._extract_address_from_unified_kb(custom_instructions)
+            if cand_addr and cand_maps:
+                full_location = f"{cand_addr}\n{cand_maps}"
+            elif cand_addr:
+                full_location = cand_addr
+            elif cand_maps:
+                full_location = cand_maps
 
         # Google Maps URL & Physical Address extraction
         google_maps_url = (settings.get("google_maps_url") or "").strip()
@@ -2417,18 +2971,32 @@ end
             m_url = re.search(r'(https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|share\.google|maps\.google\.[a-z]+|www\.google\.[a-z]+/maps)[^\s]+)', full_location)
             if m_url:
                 google_maps_url = m_url.group(1).strip()
+        if not google_maps_url and custom_instructions:
+            _, cand_maps = self._extract_address_from_unified_kb(custom_instructions)
+            if cand_maps:
+                google_maps_url = cand_maps
         if not google_maps_url and is_aadhiran:
             google_maps_url = "https://maps.app.goo.gl/zixd3wGegQCDdCYM8?g_st=ac"
         elif not google_maps_url and is_vetrivel:
             google_maps_url = "https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+        elif not google_maps_url and is_balance_and_bliss:
+            google_maps_url = "https://maps.app.goo.gl/99eTZ6NfGrVmuDK27"
 
         physical_address = (settings.get("location") or "").strip()
         if not physical_address:
             physical_address = re.sub(r'https?://[^\s]+', '', full_location).strip(' .\n\r-')
+        if not physical_address and custom_instructions:
+            cand_addr, _ = self._extract_address_from_unified_kb(custom_instructions)
+            if cand_addr:
+                physical_address = cand_addr
+                if not full_location or full_location == google_maps_url:
+                    full_location = f"{physical_address}\n{google_maps_url}".strip() if google_maps_url else physical_address
         if not physical_address and is_aadhiran:
             physical_address = "14/18, M.G.R Nagar, 5th Street, P.N. Road East, Tiruppur – 641602"
         elif not physical_address and is_vetrivel:
             physical_address = "Villupuram to Gingee Main Road, Appampattu, Meenambur post, Gingee TK, 604205"
+        elif not physical_address and is_balance_and_bliss:
+            physical_address = "B6/17 Housing Board Colony, Mullai Apartments, K.K. Nagar, Near Annanagar Police Station, Madurai 625020"
 
         # Admin phone & name
         admin_phone = ""
@@ -2450,8 +3018,49 @@ end
             admin_phone = "+918870341570"
         elif not admin_phone and is_abinayaa:
             admin_phone = "9092117662"
+        elif not admin_phone and is_balance_and_bliss:
+            admin_phone = "8838452088"
 
-        admin_name = (settings.get("admin_name") or settings.get("founder_name") or tenant_name or "our team").strip()
+        user_disp_name = (owner_user_row["display_name"] if owner_user_row and owner_user_row.get("display_name") else "").strip()
+        _is_generic_company = lambda n: (not n) or (n.lower().strip() == (tenant_name or "").lower().strip()) or any(w in n.lower() for w in [
+            "clinic", "hospital", "diagnostics", "lab", "health", "centre", "center",
+            "care", "wellness", "enterprise", "mobile", "tech", "solutions", "services", "foundation"
+        ])
+
+        # Step 1: Candidate founder
+        candidate_founder = (
+            settings.get("founder_name")
+            or settings.get("founder")
+            or ("Bhuvanesh Karnan" if is_boldlabs else "")
+            or (user_disp_name if user_disp_name and not _is_generic_company(user_disp_name) else "")
+            or (settings.get("admin_name") if settings.get("admin_name") and not _is_generic_company(settings.get("admin_name")) else "")
+            or ""
+        ).strip()
+
+        if (not candidate_founder or _is_generic_company(candidate_founder)) and custom_instructions:
+            cand_f = self._extract_founder_from_unified_kb(custom_instructions)
+            if cand_f:
+                candidate_founder = cand_f
+
+        if not candidate_founder or _is_generic_company(candidate_founder):
+            if user_disp_name and not _is_generic_company(user_disp_name):
+                candidate_founder = user_disp_name
+            elif is_boldlabs:
+                candidate_founder = "Bhuvanesh Karnan"
+            else:
+                candidate_founder = f"{tenant_name} Leadership & Management Team"
+
+        founder_name = candidate_founder
+
+        # Step 2: Candidate admin name
+        candidate_admin = (
+            settings.get("admin_name")
+            or founder_name
+            or (user_disp_name if user_disp_name and not _is_generic_company(user_disp_name) else "")
+            or tenant_name
+            or "our team"
+        ).strip()
+        admin_name = candidate_admin
 
         # Timezone, Currency
         timezone_str = (settings.get("timezone") or "Asia/Kolkata").strip()
@@ -2467,6 +3076,7 @@ end
             or (str(settings.get("opening_time", "")).strip() in ("00:00", "00:00:00", "12:00 AM")
                 and str(settings.get("closing_time", "")).strip() in ("23:59", "23:59:59", "24:00", "11:59 PM"))
             or is_vetrivel
+            or (custom_instructions and any(p in custom_instructions.lower() for p in ("open 24 hours", "24/7", "24 hours daily", "24x7")))
         )
 
         opening_time_raw = "06:00" if is_aadhiran else ("00:00" if is_24_7 else ("07:00" if is_abinayaa else ("09:00" if is_boldlabs else ("10:00" if is_muthra else "09:00"))))
@@ -2501,6 +3111,10 @@ end
             op_hours_display = "10:00 AM to 08:00 PM"
             fmt_open = "10:00 AM"
             fmt_close = "08:00 PM"
+        elif is_balance_and_bliss:
+            op_hours_display = "10:30 AM to 01:30 PM and 05:30 PM to 08:00 PM, Monday to Saturday (Sunday closed)"
+            fmt_open = "10:30 AM"
+            fmt_close = "08:00 PM"
         else:
             fmt_open = self._fmt_ampm_util(opening_time_raw, '09:00 AM', is_closing=False)
             fmt_close = self._fmt_ampm_util(closing_time_raw, '08:00 PM', is_closing=True)
@@ -2521,6 +3135,21 @@ end
                 {"name": "Dr. Prathiba", "name_ta": "டாக்டர் பிரதிபா", "qualification": "BSMS", "specialty": "Siddha", "specialty_ta": "சித்த மருத்துவர்", "schedule": "Daily: 10:00 AM to 1:00 PM", "schedule_ta": "தினமும்: காலை 10:00 AM முதல் மதியம் 1:00 PM வரை", "fee": 200, "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
                 {"name": "Dr. Sakthivel", "name_ta": "டாக்டர் சக்திவேல்", "qualification": "MBBS", "specialty": "General Physician", "specialty_ta": "பொது மருத்துவர் & அவசர சிகிச்சை", "schedule": "Daily: 6:00 PM to 6:00 AM", "schedule_ta": "தினமும்: மாலை 6:00 PM முதல் காலை 6:00 AM வரை", "fee": 150, "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
             ]
+        elif not doctors and is_mbr:
+            doctors = [
+                {
+                    "name": "Dr. Sameer",
+                    "qualification": "Senior Ayurveda & Naturopathy Specialist",
+                    "specialty": "Ayurveda, Naturopathy, Holistic Pain Management & Recovery",
+                    "schedule": "Daily: 7:00 AM to 9:30 PM",
+                    "fee": 500,
+                    "available_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                }
+            ]
+        elif not doctors and custom_instructions:
+            extracted_docs = self._extract_doctors_from_unified_kb(custom_instructions)
+            if extracted_docs:
+                doctors = extracted_docs
         known_doctor_names = []
         if doctors:
             for d in doctors:
@@ -2581,6 +3210,7 @@ end
             "facility_term": facility_term,
             "admin_phone": admin_phone,
             "admin_name": admin_name,
+            "founder_name": founder_name,
             "timezone": timezone_str,
             "currency": currency_str,
             "currency_symbol": currency_sym,
@@ -2612,7 +3242,10 @@ end
             "is_boldlabs": is_boldlabs,
             "is_abinayaa": is_abinayaa,
             "is_muthra": is_muthra,
+            "is_a3_ayush": is_a3_ayush,
             "is_mbr": is_mbr,
+            "is_soilsons": is_soilsons,
+            "is_balance_and_bliss": is_balance_and_bliss,
             "primary_language": primary_language,
         }
 
@@ -2655,6 +3288,13 @@ end
         google_maps_url = tenant_ctx.get("google_maps_url", "")
         physical_address = tenant_ctx.get("physical_address", "")
         admin_phone = tenant_ctx.get("admin_phone", "")
+        admin_name = tenant_ctx.get("admin_name", "")
+        is_boldlabs = tenant_ctx.get("is_boldlabs", False)
+        founder_name = (
+            tenant_ctx.get("founder_name")
+            or ("Bhuvanesh Karnan" if is_boldlabs else "")
+            or admin_name
+        ).strip()
         op_hours_display = tenant_ctx.get("op_hours_display", "")
         fmt_open = tenant_ctx.get("fmt_open", "")
         fmt_close = tenant_ctx.get("fmt_close", "")
@@ -2663,7 +3303,6 @@ end
         services_text = tenant_ctx.get("services_text") or ""
         is_aadhiran = tenant_ctx.get("is_aadhiran", False)
         is_vetrivel = tenant_ctx.get("is_vetrivel", False)
-        is_boldlabs = tenant_ctx.get("is_boldlabs", False)
         is_abinayaa = tenant_ctx.get("is_abinayaa", False)
 
         # 1. Doctors block
@@ -2689,14 +3328,37 @@ end
                 + "\n".join(doc_lines) + "\n"
                 + "STRICT DOCTOR RULES:\n"
                 + "- NEVER invent, hallucinate, or mention any doctor not in this list.\n"
-                + "- Only quote the exact consultation days, hours, and fees listed above.\n"
-                + "- If a doctor is available only on specific days (e.g. Dr. Pallavan on Sunday only), NEVER claim they are available on other days!\n"
-                + "- SYMPTOM & SPECIALTY MATCHING MANDATE: When a patient asks which doctor to see or asks about a symptom/condition (e.g. joint/bone pain / மூட்டு வலி -> Ortho Dr. Nethaji MS / டாக்டர் நேதாஜி, skin -> Dr. Raju MD, child -> Dr. Thamizharasan MD, general fever/health -> Dr. Sakthivel MBBS or Dr. Tamilmani MD, neuro -> Dr. Pallavan MCh, gynecology -> Dr. Nithiya Priyadharshini MD): You MUST explicitly NAME the matched doctor (e.g. Dr. Nethaji / டாக்டர் நேதாஜி) and state their consultation fee (₹200) directly in Sentence 1. NEVER give a generic answer without naming the specific doctor and fee!"
+                + "- Only quote the exact consultation days and hours listed above.\n"
+                + "- Quote consultation fees ONLY when the customer specifically asks for the price, cost, or fee. Never mention fees unprompted.\n"
+                + "- If a doctor is available only on specific days (e.g. Dr. Pallavan on Sunday only), NEVER claim they are available on other days!"
             )
+            if is_vetrivel:
+                doctors_block += (
+                    "\n- SYMPTOM & SPECIALTY MATCHING: When a patient asks which doctor to see or asks about a symptom/condition (e.g. joint/bone pain / மூட்டு வலி -> Ortho Dr. Nethaji MS / டாக்டர் நேதாஜி, skin -> Dr. Raju MD, child -> Dr. Thamizharasan MD, general fever/health -> Dr. Sakthivel MBBS or Dr. Tamilmani MD, neuro -> Dr. Pallavan MCh, gynecology -> Dr. Nithiya Priyadharshini MD): Explicitly name the matched doctor and their availability. Quote fee only if specifically asked."
+                )
+            else:
+                specs = [
+                    f"{d.get('name', 'Doctor')} ({d.get('specialty')})"
+                    for d in doctors
+                    if isinstance(d, dict) and d.get("specialty")
+                ]
+                if specs:
+                    specs_str = ", ".join(specs)
+                    doctors_block += (
+                        f"\n- SYMPTOM & SPECIALTY MATCHING: When a patient asks which doctor or specialist to consult for a symptom or medical concern, match their need to the appropriate doctor from our roster ({specs_str}). Explicitly name the doctor and their consultation days/timings. Quote consultation fee only if specifically asked."
+                    )
         else:
             if is_aadhiran:
                 doctors_block = (
-                    "OFFICIAL STAFF & PRACTITIONER GROUND TRUTH:\n"
+                    "OFFICIAL STAFF & PRACTITIONER GROUND TRUTH (STRICT):\n"
+                    "- MALE THERAPISTS ONLY (CRITICAL GROUND TRUTH):\n"
+                    "  * At Aadhiran Center, ONLY certified MALE THERAPISTS are available (ஆண் தெரபிஸ்ட் மட்டுமே).\n"
+                    "  * ZERO FEMALE THERAPISTS: We do NOT have any female therapists at all (பெண் தெரபிஸ்ட் கிடையாது).\n"
+                    "  * If customer asks about female therapists, cross-gender massage, or 'female therapist irukangala' / 'male ku female pannuvangala/pannamatangala':\n"
+                    "    Explicitly, politely, and clearly state that ONLY certified male therapists are available at our center, and we DO NOT have female therapists.\n"
+                    "    Tanglish: 'Namma center-la certified male therapists mattum thaan irukanga sir, female therapists kidaiyathu. Ungalukku body relaxation massage slot book panna venuma sir?'\n"
+                    "    Tamil: 'எங்கள் மையத்தில் ஆண் தெரபிஸ்ட்கள் மட்டுமே உள்ளனர். பெண் தெரபிஸ்ட்கள் கிடையாது. தங்களுக்கு உடற்பிடிப்பு (Body Relaxation Massage) சிகிச்சை முன்பதிவு செய்ய வேண்டுமா?'\n"
+                    "  * NEVER say or imply that there are female therapists, never say 'female therapist vera yarukkum vendam', and never imply female therapists exist for female clients!\n"
                     "- ZERO DOCTORS ON STAFF: This is a wellness and relaxation center, NOT a medical clinic or hospital.\n"
                     "- STRICT PROHIBITION: NEVER use the title 'Dr.' or 'Doctor' or 'டாக்டர்'. There are NO doctors here!\n"
                     "- Refer to staff strictly as 'our wellness therapists' or 'நமது சிகிச்சை நிபுணர்' / 'therapist'."
@@ -2704,9 +3366,11 @@ end
             elif is_boldlabs:
                 doctors_block = (
                     "OFFICIAL TEAM GROUND TRUTH:\n"
-                    "- ZERO DOCTORS: Boldlabs is a B2B AI SaaS software product company, NOT a medical facility.\n"
-                    "- Host for live demos: Rakshaya (Product Specialist).\n"
-                    "- STRICT PROHIBITION: Never refer to doctors, consultations, or treatments."
+                    "- ZERO CLINICAL DOCTORS ON STAFF: Boldlabs is a B2B AI SaaS software product company, NOT a medical facility. Our clients are doctors and healthcare clinics.\n"
+                    "- Founder & Leadership: Bhuvanesh Karnan (Founder & CEO, Direct Contact: +918870341570).\n"
+                    "- Solutions Consultant & Product Specialist: Rakshaya.\n"
+                    "- Primary Focus: Direct consultative sales, feature walkthrough, and 24-hour clinic onboarding on WhatsApp. Do NOT push for Google Meet / online demos unless the prospect explicitly insists on a screen-share.\n"
+                    "- STRICT PROHIBITION: Never refer to clinical medical treatments or consultations for ourselves."
                 )
             elif is_abinayaa:
                 doctors_block = (
@@ -2715,9 +3379,20 @@ end
                     "- There are no OP consulting doctors on general WhatsApp duty."
                 )
             else:
+                staff_lead = f"- Founder / Leadership: {founder_name}\n" if founder_name else ""
+                fac_lower = (facility_term or "").lower()
+                if any(w in fac_lower for w in ["clinic", "hospital", "medical", "health", "dental", "ayurved"]):
+                    staff_desc = "- Services and treatments are provided by our qualified medical and clinical care staff."
+                elif any(w in fac_lower for w in ["wellness", "spa", "massage", "therapy"]):
+                    staff_desc = "- Services and treatments are provided by our certified wellness specialists and therapists."
+                elif any(w in fac_lower for w in ["lab", "diagnostic", "pathology"]):
+                    staff_desc = "- Tests and diagnostic services are conducted by certified technicians."
+                else:
+                    staff_desc = "- Services, consultations, and support are handled directly by our qualified team and dedicated specialists."
                 doctors_block = (
-                    "OFFICIAL STAFF GROUND TRUTH:\n"
-                    "- Services are provided by qualified professionals and therapists on staff."
+                    "OFFICIAL STAFF & TEAM GROUND TRUTH:\n"
+                    + staff_lead
+                    + staff_desc
                 )
 
         # 2. Services & Pricing Block
@@ -2733,9 +3408,11 @@ end
         # 3. Location Block
         if is_boldlabs:
             location_block = (
-                f"OFFICIAL MEETING & DEMO LOCATION:\n"
-                f"- {full_location}\n"
-                "- NEVER give a physical clinic address or tell customers to visit an office in person."
+                "OFFICIAL COMPANY HEADQUARTERS & SERVICE DELIVERY:\n"
+                "- Cloud AI Software Platform headquartered in Tamil Nadu, India.\n"
+                "- 100% REMOTE SETUP NATIONWIDE: Serving clinics, doctors, and healthcare practices across India.\n"
+                "- ZERO PHYSICAL VISITS NEEDED: All setup, WhatsApp AI configuration, Google Calendar integration, and CRM access are activated 100% remotely within 24 hours. Neither clinic visits nor in-person office visits are required.\n"
+                "- If a prospect asks where you are based or located, state: 'We are based in Tamil Nadu, serving healthcare clinics across India. The entire setup is 100% cloud-based and activated remotely within 24 hours, so no clinic visit is needed!'"
             )
         elif is_vetrivel:
             maps_info = f"\n- Google Maps Link: {google_maps_url or 'https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb'}"
@@ -2784,12 +3461,43 @@ end
             )
         elif is_boldlabs:
             lang_mandate = (
-                "\n6. MANDATORY IDENTITY FOR BOLDLABS:\n"
-                "- Boldlabs is a B2B AI SaaS software technology product company.\n"
-                "- Never call Boldlabs a clinic, medical practice, or hospital. All demos are 100% online via Google Meet."
+                "\n6. MANDATORY IDENTITY & SALES DIRECTIVE FOR BOLDLABS:\n"
+                "- Boldlabs is a B2B AI SaaS software technology company providing WhatsApp AI Automation & CRM for healthcare clinics.\n"
+                "- Never call Boldlabs a clinic, medical practice, or hospital. Our clients are doctors and clinic owners.\n"
+                "- CONSULTATIVE CLOSING ON WHATSAPP: Explain features clearly, answer pricing/ROI/setup queries directly in chat, and guide prospects to activate their clinic plan (₹2499/mo, ₹0 setup fee, live in 24 hours). Do NOT deflect or push them to book a Google Meet or demo call unless they explicitly demand one."
             )
         else:
-            lang_mandate = ""
+            primary_lang = (tenant_ctx.get("primary_language") or "").lower().strip()
+            if primary_lang in ("tamil", "ta"):
+                lang_mandate = (
+                    "\n6. MANDATORY OUTPUT LANGUAGE:\n"
+                    "- STRICT TAMIL SCRIPT ONLY (தமிழ் எழுத்துக்களில் மட்டுமே பதிலளிக்கவும்).\n"
+                    "- You MUST write your entire response ONLY in clear Tamil script (தமிழ்).\n"
+                    "- English words or Latin letters are not allowed except numbers/digits and currency symbols."
+                )
+            elif primary_lang in ("tanglish", "tamil_english"):
+                lang_mandate = (
+                    "\n6. MANDATORY OUTPUT LANGUAGE:\n"
+                    "- STRICT TANGLISH / TAMIL SCRIPT (Friendly WhatsApp Tanglish or Tamil script).\n"
+                    "- Reply in natural colloquial Tanglish as commonly spoken on WhatsApp in Tamil Nadu."
+                )
+            elif primary_lang in ("hindi", "hi"):
+                lang_mandate = (
+                    "\n6. MANDATORY OUTPUT LANGUAGE:\n"
+                    "- STRICT HINDI (देवनागरी लिपि / Hinglish).\n"
+                    "- Reply in natural, polite Hindi or conversational Hinglish matching the customer's style."
+                )
+            elif primary_lang in ("english", "en"):
+                lang_mandate = (
+                    "\n6. MANDATORY OUTPUT LANGUAGE:\n"
+                    "- STRICT ENGLISH: Reply in professional, concise, friendly English."
+                )
+            else:
+                lang_mandate = (
+                    "\n6. DYNAMIC LANGUAGE POLICY:\n"
+                    "- MIRROR CUSTOMER LANGUAGE: Immediately detect and reply in the EXACT language used by the customer in their latest message (e.g. English -> English, Tamil -> Tamil, Tanglish -> Tanglish, Hindi -> Hindi).\n"
+                    "- Maintain a friendly, clear, helpful conversational tone."
+                )
 
         ssot_block = (
             "================================================================================\n"
@@ -2799,6 +3507,7 @@ end
             f"1. BUSINESS IDENTITY & CONTACT:\n"
             f"- Business Name: {tenant_name}\n"
             f"- Facility Term: Strictly '{facility_term}' (NEVER call it something else)\n"
+            + (f"- Founder / Leadership: {founder_name}\n" if founder_name else "")
             + (f"- Official Phone: {admin_phone}\n" if admin_phone else "")
             + f"\n2. LOCATION & ADDRESS:\n{location_block}\n\n"
             f"3. OPERATING HOURS:\n{hours_block}\n\n"
@@ -2826,6 +3535,8 @@ end
         is_vetrivel = tenant_ctx.get("is_vetrivel", False)
         is_boldlabs = tenant_ctx.get("is_boldlabs", False)
         is_abinayaa = tenant_ctx.get("is_abinayaa", False)
+        is_soilsons = tenant_ctx.get("is_soilsons", False)
+        is_balance_and_bliss = tenant_ctx.get("is_balance_and_bliss", False)
         facility_term = tenant_ctx.get("facility_term", "clinic")
 
         # 0. Vetrivel Language Guard & Strict Location Grounding
@@ -3039,21 +3750,40 @@ end
         doctors = tenant_ctx.get("doctors") or []
         primary_language = tenant_ctx.get("primary_language", "auto")
         if not doctors:
-            if re.search(r'\b(?:dr\.|doctor)\s+[A-Za-z]+', text, re.I) or "டாக்டர்" in text:
-                if is_aadhiran:
-                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'our therapist', text)
-                    text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது சிகிச்சை நிபுணர்', text)
-                elif is_boldlabs:
-                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'Rakshaya', text)
-                elif is_abinayaa or facility_term in ("diagnostic", "diagnostics", "lab"):
-                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'our lab technician', text)
-                elif facility_term in ("center", "wellness", "spa", "salon"):
-                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', 'our therapist', text)
-                    text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது சிகிச்சை நிபுணர்', text)
-                else:
-                    admin_rep = tenant_ctx.get("admin_name") if tenant_ctx.get("admin_name") and tenant_ctx.get("admin_name") != tenant_ctx.get("tenant_name") else "our specialist"
-                    text = re.sub(r'(?i)\b(?:dr\.|doctor)\s+[A-Za-z]+', admin_rep, text)
-                    text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது நிபுணர்', text)
+            _NON_DOC_WORDS = {
+                "consultation", "consult", "consulting", "visit", "appointment", "checkup", "checkups",
+                "fee", "fees", "charge", "charges", "cost", "costs", "rate", "rates",
+                "service", "services", "schedule", "schedules", "timing", "timings",
+                "availability", "available", "slot", "slots", "team", "care", "advice",
+                "opinion", "recommendation", "recommendations", "prescription", "prescriptions",
+                "assigned", "details", "profile", "profiles", "info", "information",
+                "roster", "specialist", "specialists", "assistant", "staff", "associate", "associates",
+                "therapist", "therapists", "technician", "technicians", "package", "packages",
+                "for", "to", "at", "in", "on", "with", "by", "and", "or", "is", "are", "was", "were",
+                "will", "can", "should", "may", "must", "of", "from", "about", "your", "our", "their",
+                "my", "you", "we", "he", "she", "it", "they", "this", "that", "these", "those"
+            }
+            def _replace_hallucinated_doc(m, replacement):
+                word = m.group(1).lower()
+                if word in _NON_DOC_WORDS:
+                    return m.group(0)
+                return replacement
+
+            if is_aadhiran:
+                text = re.sub(r'(?i)\b(?:dr\.?\s+|doctor\s+)([A-Za-z]+)', lambda m: _replace_hallucinated_doc(m, 'our therapist'), text)
+                text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது சிகிச்சை நிபுணர்', text)
+            elif is_boldlabs:
+                # Boldlabs sells software to doctors and clinic owners. Preserve client Dr. titles.
+                text = re.sub(r'(?i)\bour\s+(?:doctor|physician|consultant doctor)\b', 'our team', text)
+            elif is_abinayaa or facility_term in ("diagnostic", "diagnostics", "lab"):
+                text = re.sub(r'(?i)\b(?:dr\.?\s+|doctor\s+)([A-Za-z]+)', lambda m: _replace_hallucinated_doc(m, 'our lab technician'), text)
+            elif facility_term in ("center", "wellness", "spa", "salon"):
+                text = re.sub(r'(?i)\b(?:dr\.?\s+|doctor\s+)([A-Za-z]+)', lambda m: _replace_hallucinated_doc(m, 'our therapist'), text)
+                text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது சிகிச்சை நிபுணர்', text)
+            else:
+                admin_rep = tenant_ctx.get("admin_name") if tenant_ctx.get("admin_name") and tenant_ctx.get("admin_name") != tenant_ctx.get("tenant_name") else "our specialist"
+                text = re.sub(r'(?i)\b(?:dr\.?\s+|doctor\s+)([A-Za-z]+)', lambda m: _replace_hallucinated_doc(m, admin_rep), text)
+                text = re.sub(r'டாக்டர்\s+[^\s,.]+', 'நமது நிபுணர்', text)
 
         # Facility Terminology Cross-Contamination Guard
         if facility_term in ("store", "shop"):
@@ -3063,42 +3793,74 @@ end
             text = re.sub(r'\b(?:at|in|to)\s+(?:the|our)\s+clinic\b', f'at our {facility_term}', text, flags=re.I)
             text = re.sub(r'\bclinic\b', facility_term, text, flags=re.I)
 
-        elif not is_vetrivel:
-            # Dynamic Doctor Schedule & Off-day Guard for ANY clinic tenant
+
+        # Dynamic Doctor Schedule & Off-day Guard for ANY clinic tenant
+        is_service_or_catalog_inquiry = any(w in inbound_clean for w in [
+            "service", "services", "treatment", "treatments", "therapy", "therapies", 
+            "what do you offer", "what you offer", "packages", "menu", "list", 
+            "facilities", "facility", "all services", "about", "location", "address",
+            "சிகிச்சை", "சேவை", "வசதி", "விலை", "விலைப்பட்டியல்"
+        ])
+        if not is_vetrivel and doctors and not is_service_or_catalog_inquiry:
             for doc in doctors:
                 d_name = doc.get("name", "")
                 d_days = doc.get("available_days", [])
                 d_fee = doc.get("fee")
                 d_sched = doc.get("schedule", "")
                 d_clean_name = re.sub(r'(?i)\bdr\.?\s*', '', d_name).strip().lower()
-                if d_clean_name and (d_clean_name in inbound_clean or d_clean_name in text.lower()):
-                    if d_days and len(d_days) < 7:
-                        day_stems = {
-                            "Monday": ["monday", "thingal", "திங்கள்", "திங்கட்"],
-                            "Tuesday": ["tuesday", "sevvai", "செவ்வாய்"],
-                            "Wednesday": ["wednesday", "budhan", "புதன்"],
-                            "Thursday": ["thursday", "viyazhan", "வியாழ"],
-                            "Friday": ["friday", "velli", "வெள்ளி"],
-                            "Saturday": ["saturday", "sani", "சனி"],
-                            "Sunday": ["sunday", "ஞாயிறு", "ஞாயிற்று"]
-                        }
-                        off_days = [d for d in day_stems.keys() if d not in d_days]
-                        has_off_day_inquiry = False
-                        for od in off_days:
-                            if any(stem in inbound_clean for stem in day_stems[od]):
-                                has_off_day_inquiry = True
-                                break
-                        if has_off_day_inquiry or not any(any(stem in text.lower() for stem in day_stems[vd]) for vd in d_days):
-                            days_str = ", ".join(d_days)
-                            if is_vetrivel or primary_language == "tamil":
-                                if "pallavan" in d_clean_name or "பல்லவன்" in d_clean_name:
-                                    text = "டாக்டர் பல்லவன் (MCh - நரம்பியல் அறுவை சிகிச்சை நிபுணர்) ஞாயிற்றுக்கிழமை மட்டும் மதியம் 1:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார் (கட்டணம்: ₹300). உங்களுக்கு ஞாயிற்றுக்கிழமை நேரம் முன்பதிவு செய்யலாமா?"
-                                else:
-                                    fee_str = f" (கட்டணம்: ₹{d_fee})" if d_fee else ""
-                                    text = f"{d_name} ({doc.get('specialty', 'சிறப்பு மருத்துவர்')}) {days_str} மட்டுமே ஆலோசனை வழங்குவார்{fee_str}. உங்களுக்கு {days_str} நேரம் முன்பதிவு செய்யலாமா?"
+                user_asking_doctor = (
+                    (d_clean_name and d_clean_name in inbound_clean) or
+                    any(w in inbound_clean for w in ["doctor", "dr", "consult", "consultation", "டாக்டர்", "மருத்துவர்", "ஆலோசனை"])
+                )
+                if user_asking_doctor and d_days and len(d_days) < 7:
+                    day_stems = {
+                        "Monday": ["monday", "thingal", "திங்கள்", "திங்கட்"],
+                        "Tuesday": ["tuesday", "sevvai", "செவ்வாய்"],
+                        "Wednesday": ["wednesday", "budhan", "புதன்"],
+                        "Thursday": ["thursday", "viyazhan", "வியாழ"],
+                        "Friday": ["friday", "velli", "வெள்ளி"],
+                        "Saturday": ["saturday", "sani", "சனி"],
+                        "Sunday": ["sunday", "ஞாயிறு", "ஞாயிற்று"]
+                    }
+                    off_days = [d for d in day_stems.keys() if d not in d_days]
+                    has_off_day_inquiry = False
+                    asked_off_day = None
+                    for od in off_days:
+                        if any(stem in inbound_clean for stem in day_stems[od]):
+                            has_off_day_inquiry = True
+                            asked_off_day = od
+                            break
+                    is_schedule_query = any(w in inbound_clean for w in [
+                        "timing", "timings", "schedule", "when", "which days", "days", "time", "available", 
+                        "நேரம்", "எப்போது", "நாட்கள்", "எந்த நாள்"
+                    ])
+                    should_correct = False
+                    if has_off_day_inquiry:
+                        should_correct = True
+                    elif is_schedule_query and not any(any(stem in text.lower() for stem in day_stems[vd]) for vd in d_days):
+                        should_correct = True
+
+                    if should_correct:
+                        days_str = ", ".join(d_days)
+                        op_disp = tenant_ctx.get("op_hours_display") or "10:00 AM to 8:00 PM"
+                        if primary_language == "tamil":
+                            if "pallavan" in d_clean_name or "பல்லவன்" in d_clean_name:
+                                text = "டாக்டர் பல்லவன் (MCh - நரம்பியல் அறுவை சிகிச்சை நிபுணர்) ஞாயிற்றுக்கிழமை மட்டும் மதியம் 1:00 PM முதல் 2:00 PM வரை ஆலோசனை வழங்குவார் (கட்டணம்: ₹300). உங்களுக்கு ஞாயிற்றுக்கிழமை நேரம் முன்பதிவு செய்யலாமா?"
                             else:
-                                fee_str = f" (Fee: ₹{d_fee})" if d_fee else ""
-                                text = f"{d_name} ({doc.get('specialty', 'Specialist')}) is available only on {days_str}{fee_str}. Would you like to book a slot for {days_str}?"
+                                fee_str = f" (கட்டணம்: ₹{d_fee})" if d_fee else ""
+                                if asked_off_day:
+                                    ta_day_map = {"Monday": "திங்கட்கிழமை", "Tuesday": "செவ்வாய்க்கிழமை", "Wednesday": "புதன்கிழமை", "Thursday": "வியாழக்கிழமை", "Friday": "வெள்ளிக்கிழமை", "Saturday": "சனிக்கிழமை", "Sunday": "ஞாயிற்றுக்கிழமை"}
+                                    ta_od = ta_day_map.get(asked_off_day, asked_off_day)
+                                    text = f"இல்லை, {d_name} {ta_od} அன்று ஆலோசனை வழங்க மாட்டார். {d_name} ({doc.get('specialty', 'சிறப்பு மருத்துவர்')}) {days_str} மட்டுமே ஆலோசனை வழங்குவார்{fee_str}. கிளினிக் மற்றும் சிகிச்சைகள் வழக்கமான நேரங்களில் ({op_disp}) இயங்கும். உங்களுக்கு {days_str} ஆலோசனை தேவையா அல்லது பிற சிகிச்சைகளுக்கு நேரம் முன்பதிவு செய்யலாமா?"
+                                else:
+                                    text = f"{d_name} ({doc.get('specialty', 'சிறப்பு மருத்துவர்')}) {days_str} மட்டுமே ஆலோசனை வழங்குவார்{fee_str}. கிளினிக் மற்றும் சிகிச்சைகள் வழக்கமான நேரங்களில் ({op_disp}) இயங்கும். உங்களுக்கு {days_str} ஆலோசனை தேவையா அல்லது பிற சிகிச்சைகளுக்கு நேரம் முன்பதிவு செய்யலாமா?"
+                        else:
+                            fee_str = f" (Fee: ₹{d_fee})" if d_fee else ""
+                            if asked_off_day:
+                                text = f"No, {d_name} is not available on {asked_off_day}. {d_name} ({doc.get('specialty', 'Specialist')}) is available for consultation only on {days_str}{fee_str}. Our clinic and therapies are open regularly ({op_disp}). Would you like to book a consultation for {days_str}, or schedule a therapy visit?"
+                            else:
+                                text = f"{d_name} ({doc.get('specialty', 'Specialist')}) is available for consultation only on {days_str}{fee_str}. Our clinic and therapies are open regularly ({op_disp}). Would you like to book a consultation for {days_str}, or schedule a therapy visit?"
+                        break
 
         # 2. Pricing verification
         if is_aadhiran:
@@ -3164,6 +3926,160 @@ end
         elif is_abinayaa:
             if "basic" in inbound_clean or "basic" in text.lower():
                 text = re.sub(r'[₹Rs.]*\s*(?:599|699|799|899|1099)\b', '₹999', text)
+        elif is_soilsons:
+            # 1. Soil Son's Welfare Foundation Branding & Normalization:
+            text = re.sub(r'(?i)\b(?:soil\s*sons\s*clinic|sayil\s*sons\s*clinic|சாயில்\s*சன்ஸ்\s*கிளினிக்)\b', "Soil Son's Welfare Foundation", text)
+            text = re.sub(r'(?i)\bsayil\s*sons\b', "Soil Son's", text)
+            if "கிளினிக்" in text and "பவுண்டேஷன்" not in text:
+                text = text.replace("சாயில் சன்ஸ் கிளினிக்", "சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷன்")
+                text = text.replace("எங்கள் கிளினிக்", "சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷன்")
+            if "எங்கள் ஜெனரல் பிசிஷியன்" in text:
+                text = text.replace("எங்கள் ஜெனரல் பிசிஷியன்", "சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷனில் பொது மருத்துவம்")
+
+            # Identity check: who are you / who is speaking
+            is_identity_query = any(w in inbound_clean for w in [
+                "who are you", "who is speaking", "who speaking", "neenga yaar", "neengal yaar",
+                "நீங்கள் யார்", "யார் பேசுகிறீர்கள்", "யார் பேசறீங்க", "யாரும் என்னிடம் பேசுவது", "யாரையும் என்னிடம் பேசுவது"
+            ])
+            if is_identity_query:
+                is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (text + inbound_clean))
+                if is_tam_script:
+                    text = "வணக்கம்! நான் சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷனின் (Soil Son's Welfare Foundation) வாட்ஸ்அப் AI உதவியாளர். திரு. எம். சத்திஸ்குமார் (Mr. M. Sathiskumar, MD) அவர்கள் எங்கள் பவுண்டேஷனின் நிறுவனர் மற்றும் நிர்வாக இயக்குநர் ஆவார். உங்களுக்கு என்ன உதவி தேவை?"
+                elif any(w in inbound_clean for w in ["vanakkam", "epdi", "enna", "sollunga"]):
+                    text = "Vanakkam! Naan Soil Son's Welfare Foundation (சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷன்) WhatsApp AI assistant. Mr. M. Sathiskumar, MD avargal engal Foundation-in Founder & MD. Ungalukku eppadi udhava mudiyum?"
+                else:
+                    text = "Hello! I am the WhatsApp AI Assistant for Soil Son's Welfare Foundation. Mr. M. Sathiskumar, MD is our Founder & Managing Director. How may I assist you today?"
+            else:
+                is_greeting = (
+                    any(w in inbound_clean for w in ["வணக்கம்", "காலை வணக்கம்", "மாலை வணக்கம்"])
+                    or any(re.search(rf'(?:\b|^){re.escape(g)}(?:\b|$)', inbound_clean) for g in ["hi", "hii", "hiii", "hello", "hey", "vanakkam"])
+                ) and len(inbound_clean.split()) <= 4
+                if is_greeting:
+                    if not any(k in text.lower() for k in ["soil son", "சாயில் சன்ஸ்"]):
+                        is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (text + inbound_clean))
+                        if is_tam_script:
+                            text = "வணக்கம்! சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷனுக்கு (Soil Son's Welfare Foundation) உங்களை அன்புடன் வரவேற்கிறோம். குடி, போதை மறுவாழ்வு மற்றும் பொது மருத்துவ சேவைகளுக்கு நாங்கள் 24 மணி நேரமும் உதவுகிறோம். உங்களுக்கு என்ன உதவி தேவை?"
+                        elif any(w in inbound_clean for w in ["vanakkam", "epdi", "enna", "irukku", "sollunga"]):
+                            text = "Vanakkam! Welcome to Soil Son's Welfare Foundation (சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷன்). Ungalukku eppadi assist pannalam sollunga?"
+                        else:
+                            text = "Hello! Welcome to Soil Son's Welfare Foundation. We are available 24/7 for de-addiction, psychiatric care, and general consultations. How can I assist you today?"
+
+                # 3. Location / Doctor / Founder intent guards:
+                is_location_query = any(w in inbound_clean for w in ["location", "address", "where", "map", "maps", "place", "எங்கே", "எங்கு", "இடம்", "முகவரி", "வழி", "மருவால்வம் எங்கே"])
+                is_doctor_query = any(w in inbound_clean for w in ["doctor", "psychiatrist", "physician", "maruthuvar", "மருத்துவர்", "டாக்டர்", "கஸ்ட்ரோ", "kastro", "பெயர்"])
+                is_founder_query = any(w in inbound_clean for w in ["founder", "director", "owner", "head", "md", "நிறுவனர்", "தலைவர்", "யார் நிறுவனர்"])
+
+                # De-addiction & General Pricing Mandate:
+                is_pricing_query = any(w in inbound_clean for w in [
+                    "fee", "fees", "cost", "charge", "charges", "price", "pricing", "rate", "rates",
+                    "how much", "evlo", "evvalavu", "கட்டணம்", "செலவு", "விலை"
+                ])
+                is_general_physician_only = any(w in inbound_clean for w in [
+                    "general physician", "physician", "general doctor", "dr nandhini", "nandhini", "fever", "cold", "பொது மருத்துவம்"
+                ]) and not any(w in inbound_clean for w in ["de addiction", "deaddiction", "addiction", "rehab", "குடி", "போதை"])
+
+                has_55k = ("55,000" in text or "55000" in text or "55k" in text.lower())
+                has_full_breakdown = ("22,000" in text or "22000" in text) and ("18,000" in text or "18000" in text) and ("15,000" in text or "15000" in text)
+
+                # ONLY override with pricing IF the user specifically asked for pricing/fees/charges, AND did NOT ask for location/doctor/founder!
+                if is_general_physician_only and is_pricing_query:
+                    is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (text + inbound_clean))
+                    if is_tam_script:
+                        text = "சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷனில் பொது மருத்துவம் (General Physician) ஆலோசனை கட்டணம் ₹50 ஆகும். நீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                    elif any(w in inbound_clean for w in ["what", "how", "fee", "cost"]) and not any(w in inbound_clean for w in ["la", "enna"]):
+                        text = "At Soil Son's Welfare Foundation, the consultation fee for general physician is ₹50. When would you like to visit?"
+                    else:
+                        text = "Soil Son's Welfare Foundation-la general physician consultation fee ₹50 sir. Neenga eppo visit panna poringa?"
+                elif (is_pricing_query or (has_55k and not is_location_query and not is_doctor_query and not is_founder_query)) and not has_full_breakdown and not is_location_query and not is_doctor_query and not is_founder_query:
+                    is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (text + inbound_clean))
+                    is_pure_english = not is_tam_script and any(w in inbound_clean for w in ["what", "how", "tell", "give", "please"]) and not any(w in inbound_clean for w in ["la", "enna", "kudi", "bothai", "evlo", "vanakkam"])
+                    if is_tam_script:
+                        text = (
+                            "சாயில் சன்ஸ் வெல்ஃபேர் பவுண்டேஷனில் (Soil Son's Welfare Foundation) பொது மருத்துவம் கட்டணம் ₹50 ஆகும்.\n\n"
+                            "3 மாத முழுமையான குடி, போதை மற்றும் மனநல மறுவாழ்வு (De-addiction) தங்கும் சிகிச்சை பேக்கேஜ் விவரங்கள்:\n"
+                            "1st Month: ₹22,000 (அட்மிஷன், ஆரம்ப கட்ட டீடாக்ஸ், இரத்த பரிசோதனைகள், ECG, மருத்துவர் ஆலோசனை, மருந்துகள், தங்குமிடம், உணவு மற்றும் கவுன்சலிங்)\n"
+                            "2nd Month: ₹18,000 (மருத்துவ பராமரிப்பு, தொடர் மருந்துகள், தங்குமிடம், உணவு, நர்சிங் கேர் மற்றும் தினசரி கவுன்சலிங்)\n"
+                            "3rd Month: ₹15,000 (மனநல நிலைநிறுத்தம், மருந்துகள், தங்குமிடம், உணவு, கவுன்சலிங் மற்றும் போதை மீண்டும் வராமல் தடுக்கும் பயிற்சிகள்)\n"
+                            "3 மாதங்களுக்கான மொத்த கட்டணம் ₹55,000 ஆகும்.\n\n"
+                            "முக்கிய குறிப்பு: நோயாளியின் போதை மறுவாழ்வு குணமடைவது குடும்பத்தினரின் ஆதரவை அடிப்படையாகக் கொண்டது.\n"
+                            "நீங்கள் எப்போது நேரில் வந்து மருத்துவரை சந்திக்க விரும்புகிறீர்கள்?"
+                        )
+                    elif is_pure_english:
+                        text = (
+                            "At Soil Son's Welfare Foundation, our general physician consultation fee is ₹50.\n\n"
+                            "Our 3-month comprehensive inpatient package for alcohol, drug de-addiction and mental health rehabilitation (குடி, போதை மற்றும் மனநல மறுவாழ்வு) breakdown:\n"
+                            "1st Month: ₹22,000 (admission, initial medical detox, blood tests, ECG, doctor consultation, medicines, accommodation, food, counselling)\n"
+                            "2nd Month: ₹18,000 (medical care, ongoing medicines, accommodation, food, nursing care, counselling)\n"
+                            "3rd Month: ₹15,000 (psychiatric stabilization, medicines, accommodation, food, counselling, relapse prevention)\n"
+                            "Total: ₹55,000 for 3 months.\n\n"
+                            "Important Note: The patient's de-addiction will be cured based on family support.\n"
+                            "When would you like to visit our foundation to consult our medical team?"
+                        )
+                    else:
+                        text = (
+                            "Soil Son's Welfare Foundation-la pothu maruthuvam (General Physician) consultation fee ₹50 sir.\n\n"
+                            "3 months complete kudi, bothai matrum mananalam (De-addiction) admission package breakdown:\n"
+                            "1st Month: ₹22,000 (admission, initial medical detox, blood tests, ECG, doctor consultation, medicines, accommodation, food, counselling)\n"
+                            "2nd Month: ₹18,000 (medicines, accommodation, food, daily nursing care, counselling)\n"
+                            "3rd Month: ₹15,000 (psychiatric stabilization, medicines, accommodation, food, counselling, relapse prevention)\n"
+                            "Total 3 months package: ₹55,000.\n\n"
+                            "Note: Patient recovery is based on family support.\n"
+                            "Neenga eppo foundation-ku visit panna convenient-ah irukkum?"
+                        )
+        elif is_balance_and_bliss:
+            # 1. Balance And Bliss Branding & Normalization:
+            text = re.sub(r'(?i)\bbalance\s*and\s*bliss\b(?!\s*Healing)', 'Balance And Bliss Healing Therapies And Academy', text)
+            if "எங்கள் கிளினிக்" in text:
+                text = text.replace("எங்கள் கிளினிக்", "பேலன்ஸ் அண்ட் பிளிஸ் ஹீலிங் தெரப்பீஸ் அண்ட் அகாடமி")
+            if "எங்கள் சென்டர்" in text:
+                text = text.replace("எங்கள் சென்டர்", "பேலன்ஸ் அண்ட் பிளிஸ்")
+
+            is_greeting = (
+                any(w in inbound_clean for w in ["வணக்கம்", "காலை வணக்கம்", "மாலை வணக்கம்"])
+                or any(re.search(rf'(?:\b|^){re.escape(g)}(?:\b|$)', inbound_clean) for g in ["hi", "hii", "hiii", "hello", "hey", "vanakkam", "namaste"])
+            ) and len(inbound_clean.split()) <= 4
+            if is_greeting:
+                if not any(k in text.lower() for k in ["balance and bliss", "பேலன்ஸ்"]):
+                    is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (text + inbound_clean))
+                    if is_tam_script:
+                        text = "வணக்கம்! பேலன்ஸ் அண்ட் பிளிஸ் ஹீலிங் தெரப்பீஸ் அண்ட் அகாடமிக்கு (Balance And Bliss Healing Therapies And Academy) உங்களை அன்புடன் வரவேற்கிறோம். உங்களுக்கு எவ்வாறு உதவலாம்?"
+                    elif any(w in inbound_clean for w in ["vanakkam", "epdi", "enna", "irukku", "sollunga"]):
+                        text = "Vanakkam! Welcome to Balance And Bliss Healing Therapies And Academy. Ungalukku eppadi assist pannalam sollunga?"
+                    else:
+                        text = "Hello! Welcome to Balance And Bliss Healing Therapies And Academy. How can I assist you today?"
+
+            # 3. Foot Reflexology Standalone Query Guard:
+            # Foot reflexology is NOT a separate standalone therapy. It is included in the ₹1000 Complete Healing Package or with consultation!
+            is_foot_reflexology = any(w in inbound_clean for w in [
+                "foot reflexology", "foot massage", "reflexology", "பாத சிகிச்சை"
+            ])
+            is_asking_separate = any(w in inbound_clean for w in [
+                "alone", "separate", "separately", "thaniya", "thaniyaga", "thani", "mattum", "mattuma", "only"
+            ])
+            if is_foot_reflexology and is_asking_separate:
+                is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (text + inbound_clean))
+                if is_tam_script:
+                    text = "பாத சிகிச்சை (Foot Reflexology) தனியாக வழங்கப்படுவதில்லை. இது எங்களின் ₹1000 முழுமையான சிகிச்சை தொகுப்பில் (Complete Healing Package: பாத சிகிச்சை, நீர் சிகிச்சை, முதுகுத்தண்டு தெர்மல் சிகிச்சை மற்றும் அக்குபஞ்சர்) உள்ளடங்கியுள்ளது, அல்லது மருத்துவர் ஆலோசனையுடன் (₹500) பெற்றுக்கொள்ளலாம். நீங்கள் எப்போது வர விரும்புகிறீர்கள்?"
+                elif any(w in inbound_clean for w in ["thaniya", "mattum", "sollunga", "kedaikuma"]):
+                    text = "Foot Reflexology thaniyaga kidaiyathu sir. Idhu namma ₹1000 Complete Healing Package-la (Foot Reflexology, Water Therapy, Thermal Therapy, Acupuncture) include aagi irukku, alladhu Dr. Mehraj consultation (₹500) kooda eduthukalam. Ungalukku eppo slot book pannalam?"
+                else:
+                    text = "Foot reflexology is not offered as a standalone service. It is included in our ₹1000 Complete Healing Package (Foot Reflexology, Water Therapy, Spinal Cord Thermal Therapy & Acupuncture), or available with Dr. Mehraj consultation (₹500). When would you like to visit?"
+
+            # 4. Operating Hours & Schedule Verification:
+            # Monday to Saturday: 10:30 AM to 01:30 PM & 05:30 PM to 08:00 PM. Sunday: Closed.
+            bogus_hours_bb = [
+                r'\b0?9:00\s*AM\s*(?:to|-)\s*0?8:00\s*PM\b',
+                r'\b0?9:00\s*AM\s*(?:to|-)\s*0?9:00\s*PM\b',
+                r'\b9\s*am\s*to\s*8\s*pm\b',
+                r'\bdaily\s+from\s+0?9:00\s*AM\b',
+            ]
+            for pat in bogus_hours_bb:
+                if re.search(pat, text, re.I):
+                    text = re.sub(pat, 'Monday to Saturday: 10:30 AM to 01:30 PM and 05:30 PM to 08:00 PM (Sunday closed)', text, flags=re.I)
+
+            # Prevent Sunday availability hallucinations
+            if "sunday" in text.lower() and any(w in text.lower() for w in ["open", "available", "schedule", "visit", "book"]) and "closed" not in text.lower():
+                text = re.sub(r'(?i)\b(?:open|available)\s+on\s+sundays?\b', 'closed on Sundays', text)
 
         # 3. Operating hours verification
         if is_vetrivel:
@@ -3195,6 +4111,51 @@ end
             text = re.sub(r'\bclinic\b', 'center', text)
             text = re.sub(r'கிளினிக்', 'சென்டர்', text)
 
+            # 4b. Aadhiran Male-Only Therapist Enforcement Guard
+            female_kw_found = any(w in inbound_clean for w in [
+                "female", "lady", "ladies", "girl", "pombala", "pombalai", "ponnu", "women", "woman", "cross gender",
+                "பெண்", "பெண்கள்", "லேடி", "லேடீஸ்"
+            ])
+            therapist_kw_found = any(w in inbound_clean for w in [
+                "therapist", "therapists", "massage", "massager", "staff", "person", "doctor",
+                "service", "services", "treatment", "treatments",
+                "panna", "pannamatangala", "pannuvangala", "seivangala", "seiyamatangala",
+                "irukangala", "iruka", "available", "undaa", "unda", "kedaikuma", "kedakkuma",
+                "male ku", "male kku", "maleku", "boys ku", "boy ku", "gents ku", "gents", "men", "male",
+                "ஆண்", "பண்ண", "இருக்க", "உண்டா", "கிடைக்குமா", "செய்வார்களா"
+            ])
+            is_asking_female_therapist = (
+                (female_kw_found and therapist_kw_found)
+                or any(w in inbound_clean for w in [
+                    "female therapist", "lady therapist", "ladies therapist", "women therapist", "cross gender",
+                    "male ku female", "maleku female", "ஆணுக்கு பெண்", "பெண் தெரபிஸ்ட்", "லேடி தெரபிஸ்ட்"
+                ])
+            )
+            has_hallucinated_female_therapist = any(p in text.lower() for p in [
+                "female therapist", "female therapists", "ladies therapist", "lady therapist", "women therapist",
+                "female staff", "female masseuse"
+            ]) or any(p in text for p in [
+                "பெண் தெரபிஸ்ட்", "பெண் மருத்துவர்", "பெண் சிகிச்சை", "பெண்களுக்கு மட்டும்", "வேற யாருக்கும் வேண்டாம்"
+            ])
+            if is_asking_female_therapist or has_hallucinated_female_therapist:
+                has_bad_female_phrase = (
+                    has_hallucinated_female_therapist
+                    or "வேற யாருக்கும் வேண்டாம்" in text
+                    or "பெண்களுக்கு மட்டும்" in text
+                    or "only for female" in text.lower()
+                    or "female client" in text.lower()
+                    or "female guests" in text.lower()
+                    or "ஆமாம்" in text
+                    or text.strip().lower().startswith("yes")
+                    or not any(w in text.lower() for w in ["male therapist", "ஆண் தெரபிஸ்ட்"])
+                )
+                if has_bad_female_phrase:
+                    is_tamil_script = bool(re.search(r'[\u0B80-\u0BFF]', inbound_clean)) or bool(re.search(r'[\u0B80-\u0BFF]', text))
+                    if is_tamil_script:
+                        text = "எங்கள் மையத்தில் ஆண் தெரபிஸ்ட்கள் மட்டுமே உள்ளனர். பெண் தெரபிஸ்ட்கள் கிடையாது. தங்களுக்கு உடற்பிடிப்பு (Body Relaxation Massage) சிகிச்சை முன்பதிவு செய்ய வேண்டுமா?"
+                    else:
+                        text = "Namma center-la certified male therapists mattum thaan irukanga sir, female therapists kidaiyathu. Ungalukku body relaxation massage slot book panna venuma sir?"
+
         # 5. Location, Physical Address & Google Maps Link Guard
         google_maps_url = (tenant_ctx.get("google_maps_url") or "").strip()
         physical_address = (tenant_ctx.get("physical_address") or "").strip()
@@ -3208,28 +4169,51 @@ end
 
         # A. Ensure physical address is present if customer explicitly asked for location/address
         if physical_address and is_location_query:
-            addr_tokens = [tok.strip().lower() for tok in physical_address.split(',') if len(tok.strip()) > 3]
-            if addr_tokens and not any(tok in text.lower() for tok in addr_tokens):
+            clean_addr_txt = re.sub(r'[^\w\s]', ' ', physical_address.lower())
+            clean_resp_txt = re.sub(r'[^\w\s]', ' ', text.lower())
+            addr_stopwords = {"street", "road", "nagar", "near", "opposite", "floor", "main", "cross", "town", "post", "dist", "district", "tamil", "nadu", "india", "pincode", "close", "state"}
+            key_addr_words = [w for w in clean_addr_txt.split() if len(w) >= 4 and w not in addr_stopwords]
+            
+            has_address = (
+                any(w in clean_resp_txt for w in key_addr_words)
+                or any(tok.strip().lower() in text.lower() for tok in physical_address.split(',') if len(tok.strip()) > 3)
+                or bool(re.search(r'\b(?:located at|center is at|clinic is at|address is|எங்கள் முகவரி|முகவரி|அமைந்துள்ளது)\b', text, re.I))
+            )
+            if not has_address:
                 if tenant_ctx.get("primary_language") == "tamil" or any('\u0b80' <= c <= '\u0bff' for c in text):
-                    text = f"முகவரி: {physical_address}\n{text}"
+                    text = f"எங்கள் முகவரி: {physical_address}\n{text}"
                 else:
-                    text = f"Address: {physical_address}\n{text}"
+                    text = f"Our address is {physical_address}.\n{text}"
 
         # B. Ensure Google Maps link is included if tenant has one
         if google_maps_url and is_location_query:
-            if (
-                google_maps_url not in text
-                and "maps.app.goo.gl" not in text
-                and "google.com/maps" not in text
-                and "goo.gl/maps" not in text
-                and "share.google" not in text
-            ):
+            has_maps_link = (
+                google_maps_url in text
+                or "maps.app.goo.gl" in text
+                or "google.com/maps" in text
+                or "maps.google.com" in text
+                or "goo.gl/maps" in text
+                or "share.google" in text
+                or bool(re.search(r'https?://[^\s]*maps[^\s]*', text, re.I))
+            )
+            if not has_maps_link:
                 if is_aadhiran or tenant_ctx.get("primary_language") == "tanglish":
                     text = f"{text}\nGoogle Map: {google_maps_url}"
                 elif tenant_ctx.get("primary_language") == "tamil" or any('\u0b80' <= c <= '\u0bff' for c in text):
                     text = f"{text}\nகூகுள் மேப்: {google_maps_url}"
                 else:
                     text = f"{text}\nGoogle Maps: {google_maps_url}"
+
+        # C. Deduplicate duplicate map links or redundant address lines in text
+        all_links = re.findall(r'https?://[^\s]+', text)
+        map_links_in_text = [u for u in all_links if any(m in u.lower() for m in ["maps", "goo.gl", "share.google"])]
+        if len(map_links_in_text) > 1:
+            first_m = map_links_in_text[0]
+            for dup_m in map_links_in_text[1:]:
+                text = text.replace(dup_m, "")
+            text = re.sub(r'(?:📍\s*)?Google Maps?:\s*(?:\n|$)', '', text).strip()
+            if first_m not in text:
+                text = f"{text}\nGoogle Maps: {first_m}"
 
         return text.strip()
 
@@ -3742,6 +4726,52 @@ end
         cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,:-')
         return cleaned
 
+    @staticmethod
+    def _extract_top_services_for_greeting(services_text: str, tenant_slug: str) -> str:
+        clean_s = (tenant_slug or "").lower()
+        if "boldlabs" in clean_s:
+            return "24/7 AI WhatsApp Receptionist, 5-second Missed Call Recovery, and automated Google Calendar bookings"
+        if not services_text:
+            return "our specialist consultations and therapies"
+        
+        items = []
+        for line in services_text.splitlines():
+            line = line.strip(" -*#•1234567890.)\t")
+            if not line:
+                continue
+            if any(h in line.lower() for h in ["at-center pricing", "services catalog", "terms", "note:", "overview", "important:"]):
+                continue
+            cleaned = re.sub(r'\([^\)]*?[₹$0-9][^\)]*?\)', '', line)
+            cleaned = re.sub(r':\s*[₹$0-9].*$', '', cleaned)
+            cleaned = re.sub(r'[₹$]\s*[0-9]+.*$', '', cleaned)
+            cleaned = re.sub(r'\bRs\.?\s*[0-9]+.*$', '', cleaned, flags=re.I)
+            cleaned = cleaned.strip(" -:,")
+            
+            if "therapies:" in line.lower():
+                after_th = re.split(r'therapies:\s*', line, flags=re.I)[-1]
+                parts = [p.strip() for p in after_th.split(",") if p.strip()]
+                for p in parts[:3]:
+                    cleaned_p = re.sub(r'[₹$0-9].*', '', p).strip(" -:,")
+                    if 3 <= len(cleaned_p) <= 40:
+                        items.append(cleaned_p)
+                break
+                
+            if 3 <= len(cleaned) <= 50 and not any(w in cleaned.lower() for w in ["pricing", "at-center", "catalog"]):
+                items.append(cleaned)
+            if len(items) >= 3:
+                break
+                
+        if items:
+            top = items[:3]
+            if len(top) == 1:
+                return top[0]
+            elif len(top) == 2:
+                return f"{top[0]} and {top[1]}"
+            else:
+                return f"{top[0]}, {top[1]}, and {top[2]}"
+        return "our consultations and specialized treatments"
+
+
     def _sanitize_tenant_response(
         self,
         text: str,
@@ -3861,13 +4891,12 @@ end
                     )
 
         # ── Consultation Fee Blurting Guard ──
-        # If customer did NOT ask about price/fee/cost, only suppress standalone unsolicited consultation fee blurts (e.g. on general greetings)
-        # NEVER strip prices if the message is explaining an active special offer, promotion, or service package!
-        has_offer_mention = bool(re.search(r'\b(offer|special\s+offer|discount|promo|package|regular\s+price|session)\b', text, re.I))
-        if not is_asking_fee and not has_offer_mention and text:
-            # Only remove standalone sentences specifically blurting "The consultation fee is ₹500."
-            text = re.sub(r'\b(?:The\s+)?(?:consultation\s+)?fee\s+(?:for\s+the\s+session\s+)?is\s+[₹$]?\s*[0-9,]+(?:\s*rupees)?[\.,]?', '', text, flags=re.I)
+        # If customer did NOT ask about price/fee/cost, suppress unsolicited doctor consultation fee mentions
+        if not is_asking_fee and text:
+            # Remove unsolicited doctor/consultation fee blurts like "for ₹200", "(Fee: ₹200)", "fee is ₹200", "fee: ₹200"
+            text = re.sub(r'[\s,\.]*(?:\(|\[)?(?:The\s+)?(?:consultation\s+)?fee(?:\s+is|\s+of)?\s*:?\s*[₹$]?\s*[0-9,]+(?:\s*rupees)?(?:\)|\])?', '', text, flags=re.I)
             text = re.sub(r'(?:,\s*|\.\s*)(?:consultation\s+)?fee\s+is\s+[₹$]?\s*[0-9,]+(?:\s*rupees)?[\.,]?', '', text, flags=re.I)
+            text = re.sub(r'\s+(?:for|at)\s+[₹$]\s*[0-9,]+(?:\s*rupees)?(?=[\.,\s]|$)', '', text, flags=re.I)
             text = re.sub(r'\s+,', ',', text)
             text = re.sub(r'\s+\.', '.', text)
             text = re.sub(r'\s{2,}', ' ', text).strip()
@@ -3899,8 +4928,29 @@ end
                 "is_vetrivel": "vetrivel" in clean_s or "vetrivel" in (tenant_name or "").lower(),
                 "is_boldlabs": "boldlabs" in clean_s or "boldlabs" in (tenant_name or "").lower(),
                 "is_abinayaa": "abinayaa" in clean_s or "abinayaa" in (tenant_name or "").lower(),
+                "is_soilsons": "soil" in clean_s or "soil" in (tenant_name or "").lower(),
+                "is_balance_and_bliss": "balance" in clean_s or "balance" in (tenant_name or "").lower(),
             }
         text = self._verify_and_guard_facts(text, tenant_ctx, inbound_clean=inbound_clean)
+
+        # Strict Greeting Anti-Latch Guard:
+        # If the customer simply greeted ("hi", "hello"), the AI must NEVER blurt out a reschedule question
+        _g_words = {"hi", "hii", "hiii", "hello", "helloo", "hey", "heyy", "vanakkam", "வணக்கம்", "namaste", "namaskar"}
+        _in_c = (inbound_clean or "").strip().lower()
+        _is_g = _in_c in _g_words or (len(_in_c.split()) <= 2 and any(w in _g_words for w in _in_c.split()))
+        if _is_g and text and any(w in text.lower() for w in ["reschedule", "re-schedule"]):
+            logger.warn("greeting_reschedule_latch_intercepted", tenant_slug=clean_slug, text=text)
+            cust_p = f" {customer_name}" if customer_name else ""
+            if clean_slug == "boldlabs":
+                text = f"Hi{cust_p}! Welcome to Boldlabs. We set up 24/7 AI WhatsApp receptionists for clinics that recover missed calls in 5 seconds and automate Google Calendar bookings. Are you looking to automate appointments for your clinic?"
+            else:
+                top_svc = self._extract_top_services_for_greeting(services_text, clean_slug)
+                if "aadhiran" in clean_slug:
+                    text = f"Vanakkam{cust_p}! Welcome to {tenant_name}. Namma center la {top_svc} provide panrom. Ungalukku entha service pathi details thevai paduthu sollunga?"
+                elif "vetrivel" in clean_slug:
+                    text = f"வணக்கம்{cust_p}! {tenant_name}-க்கு உங்களை அன்புடன் வரவேற்கிறோம். எங்கள் மையத்தில் {top_svc} போன்ற சிறப்பு சிகிச்சைகள் வழங்கப்படுகின்றன. உங்களுக்கு எந்த சிகிச்சை விவரங்கள் தேவைப்படுகின்றன என்று கூறுங்கள்."
+                else:
+                    text = f"Hello{cust_p}! Welcome to {tenant_name}. We specialize in {top_svc}. How can I assist you today, or which service would you like details on?"
 
         # Strip all markdown asterisks so bold/italic asterisks never leak into WhatsApp
         if text and "*" in text:
@@ -4491,6 +5541,127 @@ end
         except Exception as e:
             logger.warning("persist_customer_language_failed", phone=phone, language=language, error=str(e))
 
+    async def _unify_instagram_customer_phone(
+        self,
+        tenant_id: str,
+        sender_id: str,
+        phone_input: str,
+        contact_name: Optional[str] = None,
+        contact_id: Optional[str] = None,
+        ig_username: Optional[str] = None,
+    ) -> tuple[str, str]:
+        """
+        Unifies an Instagram customer (ig:<sender_id>) with a real mobile number.
+        Stores canonical phone (91<10digits>) and merges ig:<sender_id> in metadata->'merged_phones'.
+        Returns (canonical_12, clean_10).
+        """
+        raw_digits = re.sub(r'\D', '', str(phone_input or ""))
+        if len(raw_digits) < 10:
+            return "", ""
+        clean_10 = raw_digits[-10:]
+        canonical_12 = f"91{clean_10}"
+        ig_identifier = f"ig:{sender_id}"
+
+        # 1. Update contact metadata with shared phone and canonical phone
+        if contact_id:
+            try:
+                await self.db_pool.execute(
+                    """UPDATE contacts
+                       SET metadata = jsonb_set(
+                           jsonb_set(coalesce(metadata, '{}'::jsonb), '{shared_phone}', to_jsonb($1::text)),
+                           '{canonical_phone}', to_jsonb($2::text)
+                       ),
+                       updated_at = now()
+                       WHERE id = $3::uuid AND tenant_id = $4::uuid""",
+                    clean_10, canonical_12, contact_id, tenant_id
+                )
+            except Exception as e_c:
+                logger.warning("contact_shared_phone_update_failed", error=str(e_c))
+
+        # 2. Check if a customer already exists with this mobile number
+        try:
+            existing_phone_cust = await self.db_pool.fetchrow(
+                """SELECT id, name, metadata FROM customers
+                   WHERE tenant_id = $1::uuid
+                     AND (phone = $2 OR phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)
+                   LIMIT 1""",
+                tenant_id, canonical_12, clean_10, clean_10
+            )
+
+            # Check if there is an existing ig: placeholder customer
+            ig_placeholder_cust = await self.db_pool.fetchrow(
+                """SELECT id, name, metadata FROM customers
+                   WHERE tenant_id = $1::uuid AND phone = $2
+                   LIMIT 1""",
+                tenant_id, ig_identifier
+            )
+
+            display_name = contact_name or (f"@{ig_username.replace('@', '')}" if ig_username else "Customer")
+
+            if existing_phone_cust:
+                target_cust_id = existing_phone_cust["id"]
+                # Append ig_identifier to merged_phones if not already present
+                await self.db_pool.execute(
+                    """UPDATE customers
+                       SET metadata = jsonb_set(
+                           coalesce(metadata, '{}'::jsonb),
+                           '{merged_phones}',
+                           CASE 
+                               WHEN coalesce(metadata->'merged_phones', '[]'::jsonb) ? $1 THEN coalesce(metadata->'merged_phones', '[]'::jsonb)
+                               ELSE coalesce(metadata->'merged_phones', '[]'::jsonb) || to_jsonb($1::text)
+                           END
+                       ),
+                       last_messaged_at = now(),
+                       updated_at = now()
+                       WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+                    ig_identifier, target_cust_id, tenant_id
+                )
+                # If there was a separate ig_placeholder_cust, remove it to avoid duplication
+                if ig_placeholder_cust and str(ig_placeholder_cust["id"]) != str(target_cust_id):
+                    await self.db_pool.execute(
+                        "DELETE FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                        ig_placeholder_cust["id"], tenant_id
+                    )
+                logger.info("instagram_customer_unified_with_existing", tenant_id=tenant_id, phone=canonical_12, sender_id=sender_id)
+            elif ig_placeholder_cust:
+                # Update placeholder to have the real canonical phone
+                await self.db_pool.execute(
+                    """UPDATE customers
+                       SET phone = $1,
+                           source = 'instagram',
+                           metadata = jsonb_set(
+                               coalesce(metadata, '{}'::jsonb),
+                               '{merged_phones}',
+                               CASE 
+                                   WHEN coalesce(metadata->'merged_phones', '[]'::jsonb) ? $2 THEN coalesce(metadata->'merged_phones', '[]'::jsonb)
+                                   ELSE coalesce(metadata->'merged_phones', '[]'::jsonb) || to_jsonb($2::text)
+                               END
+                           ),
+                           name = CASE 
+                               WHEN name IS NULL OR name = '' OR name IN ('Customer', 'Instagram User', 'Valued Customer') THEN $3
+                               ELSE name
+                           END,
+                           last_messaged_at = now(),
+                           updated_at = now()
+                       WHERE id = $4::uuid AND tenant_id = $5::uuid""",
+                    canonical_12, ig_identifier, display_name, ig_placeholder_cust["id"], tenant_id
+                )
+                logger.info("instagram_customer_placeholder_upgraded", tenant_id=tenant_id, phone=canonical_12, sender_id=sender_id)
+            else:
+                # Insert unified customer record
+                await self.db_pool.execute(
+                    """INSERT INTO customers (id, tenant_id, phone, name, source, status, lead_probability, last_messaged_at, created_at, updated_at, metadata)
+                       VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'instagram', 'new', 'warm', now(), now(), now(), jsonb_build_object('merged_phones', jsonb_build_array($4::text)))
+                       ON CONFLICT (tenant_id, phone) DO UPDATE
+                       SET last_messaged_at = now(), updated_at = now()""",
+                    tenant_id, canonical_12, display_name, ig_identifier
+                )
+                logger.info("instagram_customer_inserted_unified", tenant_id=tenant_id, phone=canonical_12, sender_id=sender_id)
+        except Exception as e_cust:
+            logger.warning("unify_instagram_customer_failed", error=str(e_cust), sender_id=sender_id)
+
+        return canonical_12, clean_10
+
     def _split_into_whatsapp_bubbles(self, text: str) -> list[str]:
         """
         Keeps AI replies strictly as 1 single clean, natural WhatsApp message bubble.
@@ -4513,6 +5684,59 @@ end
         # Always return as 1 cohesive, single WhatsApp message bubble
         return [cleaned]
 
+    def _parse_inbound_time(self, text: str) -> Optional[str]:
+        """
+        Parse requested time of day from inbound customer message into 24-hour ISO 'HH:MM'.
+        Supports 12-hour AM/PM ('1:00 PM', '10 am', '1.30 pm'), 24-hour ('13:00', '14:30'),
+        and vernacular expressions ('1 o clock', '1 o'clock', '1oclock', 'at 1', '1 mani', '1 manikku').
+        """
+        if not text:
+            return None
+        t = str(text).lower().strip()
+
+        # 1. Standard 12-hour with minutes: 1:00 pm, 10:30 am, 1.30 pm
+        m = re.search(r'\b(\d{1,2})[:.](\d{2})\s*(am|pm)\b', t)
+        if m:
+            h, mn, mer = int(m.group(1)), int(m.group(2)), m.group(3)
+            if mer == 'pm' and h < 12:
+                h += 12
+            elif mer == 'am' and h == 12:
+                h = 0
+            return f"{h:02d}:{mn:02d}"
+
+        # 2. Simple hour with AM/PM: 1pm, 1 pm, 10am, 10 am
+        m = re.search(r'\b(\d{1,2})\s*(am|pm)\b', t)
+        if m:
+            h, mer = int(m.group(1)), m.group(2)
+            if mer == 'pm' and h < 12:
+                h += 12
+            elif mer == 'am' and h == 12:
+                h = 0
+            return f"{h:02d}:00"
+
+        # 3. o'clock / o clock / mani / manikku / maniki (Tamil / Tanglish): e.g. "1 o clock", "1 o'clock", "1oclock", "1 mani", "1 manikku"
+        m = re.search(r'\b(\d{1,2})(?:[:.](\d{2}))?\s*(?:o[\'\s]?clock|mani|manikku|maniki)\b', t)
+        if not m:
+            m = re.search(r'\b(?:at|around|by)\s*(\d{1,2})(?:[:.](\d{2}))?\b', t)
+            if m and re.search(r'\b(?:at|around|by)\s*\d+\s*(?:call|calls|patient|patients|lead|leads|time|times|day|days|month|months|year|years|min|mins|minute|minutes|hour|hours|case|cases)\b', t):
+                m = None
+
+        if m:
+            h = int(m.group(1))
+            mn = int(m.group(2)) if m.group(2) else 0
+            # In wellness center / clinic operating hours (typically 6 AM to 10 PM),
+            # hours 1 to 7 without explicit AM are afternoon/evening (13:00 to 19:00).
+            if 1 <= h <= 7:
+                h += 12
+            return f"{h:02d}:{mn:02d}"
+
+        # 4. Standard 24-hour format: 13:00, 14:30
+        m = re.search(r'\b([01]?\d|2[0-3]):([0-5]\d)\b', t)
+        if m:
+            return f"{int(m.group(1)):02d}:{int(m.group(2)):02d}"
+
+        return None
+
     async def _generate_and_send_reply(
         self,
         tenant_id: str,
@@ -4523,8 +5747,11 @@ end
         inbound_wa_message_id: Optional[str] = None,
         typing_started_at: Optional[float] = None,
         tenant_ctx: Optional[dict] = None,
+        channel: str = "whatsapp",
+        sender_id: Optional[str] = None,
+        ig_creds: Optional[dict] = None,
     ):
-        """Call Gemini / Groq / OpenCode Cascade → fallback to rule engine → send via WhatsApp."""
+        """Call Gemini / Groq / OpenCode Cascade → fallback to rule engine → send via WhatsApp or Instagram."""
 
         # Double guard: verify conversation has not been toggled to human mode or global AI paused
         conv_check = await self.db_pool.fetchrow(
@@ -4537,8 +5764,18 @@ end
         if conv_check:
             c_st = (conv_check["status"] or "").lower().strip()
             if c_st in ("human", "manual", "off", "human_takeover", "false"):
-                logger.info("skipping_generate_reply_conversation_in_human_mode", conv_id=conv_id, tenant_id=tenant_id, status=c_st)
-                return
+                # If a customer submits a new lead form or ad referral, auto-reactivate bot mode so new leads are never ignored!
+                inb_msg_check = (message_text or "").lower().strip()
+                is_new_lead_submission = any(w in inb_msg_check for w in [
+                    "filled in your form", "filled out your form", "ad referral",
+                    "when would you like to consult", "know more about your business"
+                ])
+                if is_new_lead_submission:
+                    await self.db_pool.execute("UPDATE conversations SET status = 'bot', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                    logger.info("reverting_human_mode_for_new_lead_submission", conv_id=conv_id, tenant_id=tenant_id)
+                else:
+                    logger.info("skipping_generate_reply_conversation_in_human_mode", conv_id=conv_id, tenant_id=tenant_id, status=c_st)
+                    return
             t_set = conv_check["tenant_settings"] or {}
             if isinstance(t_set, str):
                 try: t_set = json.loads(t_set)
@@ -4592,6 +5829,18 @@ end
         is_call_inbound = "incoming whatsapp call" in inbound_lower or "whatsapp call" in inbound_lower
 
         if is_call_inbound:
+            # Check if Voice Calling is enabled for this tenant
+            _t_settings = tenant_ctx.get("settings") or {}
+            if isinstance(_t_settings, str):
+                try: _t_settings = json.loads(_t_settings)
+                except Exception: _t_settings = {}
+            _voice_enabled = bool(_t_settings.get("voice_calling_enabled", False)) if isinstance(_t_settings, dict) else False
+
+            if _voice_enabled:
+                logger.info("voice_calling_active_skipping_call_rejection", tenant_id=tenant_id, contact=contact_phone)
+                # Inbound voice call is handled live by WebRTC Voice Gateway and Gemini Live API
+                return
+
             # 1. Alert Admin on WhatsApp and Web Push (with 10-minute cooldown per customer)
             admin_call_cooldown_key = f"admin_call_alert_cd:{tenant_id}:{contact_phone}"
             admin_already_alerted = False
@@ -4753,7 +6002,8 @@ end
             message_text = "Hello! Can I get more info on this?"
             inbound_lower = message_text.lower()
 
-        # Get AI config, tenant keys (Tier 1), and platform master keys (Tier 2 fallback)
+        # Get AI config, tenant settings, tenant keys (Tier 1), and platform master keys (Tier 2 fallback)
+        settings = tenant_ctx.get("settings") or {}
         ai_cfg = tenant_ctx.get("ai_config") or {}
         assistant_name = ai_cfg.get("assistant_name") or "Assistant"
         custom_instructions = ai_cfg.get("system_prompt") or ""
@@ -4763,7 +6013,11 @@ end
         opencode_key = tenant_ctx.get("opencode_key")
         opencode_base = tenant_ctx.get("opencode_base")
         master_keys = self._get_master_ai_keys()
-        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("groq" if groq_key else ("gemini" if gemini_key else "groq"))
+        primary_provider = (
+            (creds.get("primary_model_provider") if creds else None)
+            or ai_cfg.get("model_provider")
+            or ("gemini" if gemini_key else ("groq" if groq_key else "opencode"))
+        )
         response_style = (ai_cfg.get("response_style") or "short").strip()
         is_single_line = bool(
             response_style and any(
@@ -4910,7 +6164,21 @@ end
             for r in reversed(rows)
         ]
         sanitized_inbound = _sanitize_inbound_text(message_text)
-        fenced_inbound = f"<user_message>\n{sanitized_inbound}\n</user_message>"
+        _early_clean = (sanitized_inbound or "").strip().lower()
+        _greeting_words = {"hi", "hii", "hiii", "hello", "helloo", "hey", "heyy", "vanakkam", "வணக்கம்", "namaste", "namaskar"}
+        _is_early_greeting = bool(
+            (_early_clean in _greeting_words or (len(_early_clean.split()) <= 2 and any(w in _greeting_words for w in _early_clean.split())))
+            and not any(w in _early_clean for w in ["price", "cost", "fee", "book", "slot", "pain", "timing", "where", "location", "address", "doctor", "service", "treatment", "therapy"])
+        )
+        if _is_early_greeting:
+            fenced_inbound = (
+                f"<user_message>\n{sanitized_inbound}\n</user_message>\n"
+                f"[System Instruction: The customer sent a standalone greeting ('{sanitized_inbound}'). "
+                f"Deliver Option 1 (Smart Value Hook): 1) Warm greeting with business name, 2) Highlight 2-3 top signature services, 3) Low-friction guiding question. "
+                f"CRITICAL: Completely ignore previous chat history regarding past bookings or rescheduling. STRICTLY DO NOT ask to reschedule old appointments or demos!]"
+            )
+        else:
+            fenced_inbound = f"<user_message>\n{sanitized_inbound}\n</user_message>"
         if not history or history[-1]["content"] != fenced_inbound:
             history.append({"role": "user", "content": fenced_inbound})
 
@@ -4955,14 +6223,22 @@ end
         )
 
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
-        greeting_flow_rule = (
-            "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS, INTROS, OR RE-PITCHING): This is an ongoing conversation. "
-            "ABSOLUTELY DO NOT start your reply with 'Hi', 'Hello', 'Hey', or 'Hi [Customer Name]'! "
-            "ABSOLUTELY DO NOT re-introduce yourself with 'I am [Name] from [Business]', 'Thanks for reaching out', and NEVER repeat your business pitch or demo explanation if already delivered earlier! "
-            "Real people on WhatsApp never re-introduce themselves repeatedly mid-chat. Dive straight into answering what they just typed and advance the conversation forward."
-            if is_ongoing_conversation else
-            "- OPENING GREETING: Warmly greet the customer in your opening message."
-        )
+        if _is_early_greeting:
+            greeting_flow_rule = (
+                "- GREETING RECEIVED (DELIVER OPTION 1 SMART VALUE HOOK): The customer sent a friendly greeting ('" + _early_clean + "'). "
+                "Deliver Option 1: Warm welcome mentioning our business name + 1-sentence signature service hook highlighting 2-3 core verified services + low-friction guiding question. "
+                "CRITICAL ANTI-LATCH: Treat this greeting as a fresh touchpoint! Completely ignore any past booking discussions or rescheduling requests in the chat history. "
+                "STRICTLY NEVER ask to reschedule old appointments or demos when someone just says Hi!"
+            )
+        elif is_ongoing_conversation:
+            greeting_flow_rule = (
+                "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS, INTROS, OR RE-PITCHING): This is an ongoing conversation. "
+                "ABSOLUTELY DO NOT start your reply with 'Hi', 'Hello', 'Hey', or 'Hi [Customer Name]'! "
+                "ABSOLUTELY DO NOT re-introduce yourself with 'I am [Name] from [Business]', 'Thanks for reaching out', and NEVER repeat your business pitch or demo explanation if already delivered earlier! "
+                "Real people on WhatsApp never re-introduce themselves repeatedly mid-chat. Dive straight into answering what they just typed and advance the conversation forward."
+            )
+        else:
+            greeting_flow_rule = "- OPENING GREETING: Warmly greet the customer in your opening message."
 
         humanized_format_block = (
             "### GLOBAL CONVERSATION RULES (MANDATORY FOR ALL REPLIES ACROSS ALL TENANTS):\n"
@@ -5014,12 +6290,49 @@ end
         tags = (", ".join(contact_row["tags"])) if contact_row and contact_row.get("tags") else "None"
         notes = contact_row["notes"] if contact_row and contact_row.get("notes") else ""
 
-        # Extract email from contact metadata if available
+        # Extract email and phone from contact metadata if available
         meta_dict = contact_row.get("metadata") if contact_row else {}
         if isinstance(meta_dict, str):
             try: meta_dict = json.loads(meta_dict)
             except: meta_dict = {}
         customer_email = meta_dict.get("email") if isinstance(meta_dict, dict) else None
+
+        # Resolve Instagram customer mobile phone if known or shared
+        is_ig_channel = channel == "instagram" or str(contact_phone).startswith("ig:")
+        shared_ph_val = None
+        if isinstance(meta_dict, dict):
+            shared_ph_val = meta_dict.get("shared_phone") or meta_dict.get("canonical_phone")
+
+        inbound_ph_match = re.search(r'(?:\+?91[\s-]?)?([6-9]\d{4}[\s-]?\d{5})\b', message_text or "")
+        phone_in_inbound = None
+        if inbound_ph_match:
+            d_raw = re.sub(r'\D', '', inbound_ph_match.group(0))
+            if len(d_raw) >= 10:
+                phone_in_inbound = d_raw[-10:]
+
+        if not phone_in_inbound and not shared_ph_val and rows:
+            for r in rows:
+                if r.get("direction") == "inbound" and r.get("body"):
+                    h_m = re.search(r'(?:\+?91[\s-]?)?([6-9]\d{4}[\s-]?\d{5})\b', r["body"])
+                    if h_m:
+                        d_raw = re.sub(r'\D', '', h_m.group(0))
+                        if len(d_raw) >= 10:
+                            phone_in_inbound = d_raw[-10:]
+                            break
+
+        effective_cust_phone_10 = phone_in_inbound or (re.sub(r'\D', '', str(shared_ph_val))[-10:] if shared_ph_val and len(re.sub(r'\D', '', str(shared_ph_val))) >= 10 else None)
+        has_known_phone = bool(effective_cust_phone_10) if is_ig_channel else True
+
+        if is_ig_channel and phone_in_inbound:
+            asyncio.create_task(
+                self._unify_instagram_customer_phone(
+                    tenant_id=tenant_id,
+                    sender_id=sender_id or str(contact_phone).replace("ig:", "").strip(),
+                    phone_input=phone_in_inbound,
+                    contact_name=db_name or wa_name or None,
+                    contact_id=str(contact_row["id"]) if contact_row else None,
+                )
+            )
 
         # Fetch complete customer memory record (name, health_concern, doctor, status, age, location, etc.)
         customer_age = None
@@ -5135,6 +6448,9 @@ end
         is_boldlabs = tenant_ctx.get("is_boldlabs", False)
         is_abinayaa = tenant_ctx.get("is_abinayaa", False)
         is_muthra = tenant_ctx.get("is_muthra", False)
+        is_a3_ayush = tenant_ctx.get("is_a3_ayush", False)
+        is_soilsons = tenant_ctx.get("is_soilsons", False)
+        is_balance_and_bliss = tenant_ctx.get("is_balance_and_bliss", False)
         facility_term = tenant_ctx.get("facility_term", "clinic")
         tenant_timezone_str = tenant_ctx.get("timezone", "Asia/Kolkata")
         tenant_currency_str = tenant_ctx.get("currency", "INR")
@@ -5154,6 +6470,7 @@ end
         # Extract official business/admin contact info
         admin_phone = tenant_ctx.get("admin_phone") or (creds.get("admin_whatsapp_number") if creds else "") or ""
         admin_name = tenant_ctx.get("admin_name") or (tenant_name or "our team").strip()
+        founder_name = (tenant_ctx.get("founder_name") or ("Bhuvanesh Karnan" if is_boldlabs else "") or admin_name).strip()
 
         now = datetime.datetime.now(tenant_tz)
         time_context = (
@@ -5869,6 +7186,9 @@ end
                     "udambu vali", "body pain", "tiredness", "sorgam", "asathi",
                     "pediatric", "child", "baby", "paediatric", "neuro", "nerve", "stroke", "paralysis",
                     "nose", "throat", "ortho", "bone", "fracture", "sprain",
+                    "addiction", "de-addiction", "deaddiction", "de addiction", "psychiatry", "psychiatric",
+                    "rehab", "rehabilitation", "alcohol", "drinking", "kudipazhakkam", "kudi pazhakkam",
+                    "mental health", "depression", "counselling", "psychotherapy", "admission", "inpatient",
                     "symptom", "symptoms", "health issue", "health problem", "discomfort"
                 ])
             )
@@ -5901,30 +7221,59 @@ end
             and not _has_vision_desc
         )
 
+        _inbound_female_kw = any(w in inbound_clean for w in [
+            "female", "lady", "ladies", "girl", "pombala", "pombalai", "ponnu", "women", "woman", "cross gender",
+            "பெண்", "பெண்கள்", "லேடி", "லேடீஸ்"
+        ])
+        _inbound_therapist_kw = any(w in inbound_clean for w in [
+            "therapist", "therapists", "massage", "massager", "staff", "person", "doctor",
+            "service", "services", "treatment", "treatments",
+            "panna", "pannamatangala", "pannuvangala", "seivangala", "seiyamatangala",
+            "irukangala", "iruka", "available", "undaa", "unda", "kedaikuma", "kedakkuma",
+            "male ku", "male kku", "maleku", "boys ku", "boy ku", "gents ku", "gents", "men", "male",
+            "ஆண்", "பண்ண", "இருக்க", "உண்டா", "கிடைக்குமா", "செய்வார்களா"
+        ])
+        is_female_therapist_query = (
+            (_inbound_female_kw and _inbound_therapist_kw)
+            or any(w in inbound_clean for w in [
+                "female therapist", "lady therapist", "ladies therapist", "women therapist", "cross gender",
+                "male ku female", "maleku female", "ஆணுக்கு பெண்", "பெண் தெரபிஸ்ட்", "லேடி தெரபிஸ்ட்"
+            ])
+        )
+
         is_slot_request_pending = bool(
-            last_assistant_msg and any(q in last_assistant_msg for q in [
+            last_assistant_msg and any(q in last_assistant_msg.lower() for q in [
                 "what day and time", "what time works best", "what convenient time", "what time suits",
                 "what time would you", "which time", "prefer morning or evening", "prefer morning",
                 "prefer evening", "which slot", "what date and time", "time works best for you",
                 "time would you prefer", "when would you like", "day and time suits", "what time can we",
                 "what time works for you", "what time is good", "free for a quick call", "free for a call",
                 "when are you free", "what time works", "what day works", "what day and convenient time",
-                "works best for you to see this", "works best for you"
+                "works best for you to see this", "works best for you",
+                # Tanglish & Tamil phrases for slot request
+                "entha time", "endha time", "ethana mani", "eppo convenient", "time convenient",
+                "time slot venumnu", "slot venumnu", "date and time", "slot confirm pannalaam",
+                "slot fix pannikalam", "slot book pannikalam", "entha timing", "endha timing",
+                "எந்த நேரம்", "எப்போது வசதி", "எத்தனை மணிக்கு"
             ])
         )
 
         is_address_request_pending = bool(
-            last_assistant_msg and any(q in last_assistant_msg for q in [
+            last_assistant_msg and any(q in last_assistant_msg.lower() for q in [
                 "home address", "your address", "share your address", "complete address",
                 "collection address", "house address", "flat", "door no", "landmark",
                 "share your complete", "send your address"
             ])
         )
 
+        parsed_inbound_time = self._parse_inbound_time(inbound_clean)
+
         has_time_or_slot_indicator = bool(
-            re.search(
+            parsed_inbound_time
+            or re.search(
                 r'\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|'
-                r'morning|afternoon|evening|night|noon|am|pm|o\'clock|oclock|'
+                r'morning|afternoon|evening|night|noon|am|pm|o\'clock|oclock|o\s+clock|mani|manikku|maniki|'
+                r'inniku|iniku|innaku|naalaiku|nalaiku|naalaiki|indru|இன்று|நாளை|'
                 r'\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b',
                 inbound_clean,
                 re.I
@@ -5990,6 +7339,14 @@ end
                 "does that work for you",
                 "does that time work for you",
                 "let me know if you would like me to book",
+                # Additional / Reschedule branches
+                "additional separate appointment",
+                "book an additional",
+                "book this additional",
+                "additional session",
+                "additional appointment",
+                "reschedule this appointment",
+                "reschedule or",
                 # Tanglish slot confirmation phrases
                 "book pannalama",
                 "book pannidalama",
@@ -6002,7 +7359,17 @@ end
                 "slot book pannidalam",
                 "slot book pannalama",
                 "slot confirm pannalama",
+                "slot confirm pannitu",
+                "slot confirm pannikalam",
+                "slot confirm",
+                "slot available ah irukku",
+                "slot available ah iruku",
+                "slot available",
+                "available ah irukku",
+                "confirm pannitu",
+                "slot fix pannikalam",
                 "intha slot",
+                "intha slot book",
                 "intha session book",
                 "lock pannalama",
                 "fix pannalama",
@@ -6017,13 +7384,14 @@ end
 
         # Check if customer is responding affirmatively to confirm the booking proposal
         is_user_confirming_slot = bool(
-            is_assistant_asking_to_book and (
+            (is_assistant_asking_to_book or any(w in inbound_clean for w in ["additional", "additionally", "separate", "both", "keep both"])) and (
                 re.search(
-                    r'\b(?:yes|yeah|yep|sure|ok|okay|please|go ahead|do it|ha|haa|aama|aam|seri|confirm|proceed|fine|perfect|done|correct|plz|book it|confirm it|yes please|sure please|yes proceed|works|works for me|good for me|suits me|lock it|pannunga|pannidunga|podunga|ஆம்|சரி|புக் பண்ணுங்க|உறுதி)\b',
+                    r'\b(?:ss|s|ya|yah|yup|k|kk|yes|yeah|yep|sure|ok|okay|please|go ahead|do it|ha|haa|aama|aam|seri|confirm|proceed|fine|perfect|done|correct|plz|book it|confirm it|yes please|sure please|yes proceed|works|works for me|good for me|suits me|lock it|pannunga|pannidunga|podunga|podalam|pannalam|additional|additionally|separate|both|keep both|another|new|yes additional|yes additionally|ஆம்|சரி|புக் பண்ணுங்க|உறுதி)\b',
                     inbound_clean,
                     re.I
                 )
                 or has_explicit_booking_command
+                or any(w in inbound_clean for w in ["additional", "additionally", "separate", "both", "keep both"])
             )
             and not any(w in inbound_clean for w in ["no", "dont", "don't", "cancel", "not now", "wait", "change", "different", "wrong", "another time", "வேண்டாம்", "இல்லை"])
         )
@@ -6101,16 +7469,18 @@ end
             "plan", "plans", "subscription", "pricing plan", "how mch", "how mcuh"
         ]))
         services_names_only = self._strip_pricing_from_services_text(services_text)
+        top_services_hook = self._extract_top_services_for_greeting(services_text, clean_slug)
+
 
         if clean_slug == "boldlabs":
-            target_service = "Clinic WhatsApp AI Demo"
-            resolved_pkg_fee = 0.0
+            target_service = "Clinic WhatsApp Automation & CRM Plan"
+            resolved_pkg_fee = 2499.0
         elif "abinaya" in clean_slug:
             target_service = resolved_pkg_name
         elif "aadhiran" in clean_slug:
             target_service = (resolved_pkg_name if resolved_pkg_name != "Consultation" else None) or customer_health_concern or "Full Body Relaxation Massage (60 mins)"
         elif "mindbody" in clean_slug:
-            target_service = "Consultation"
+            target_service = resolved_pkg_name or customer_health_concern or "Consultation"
         else:
             target_service = resolved_pkg_name or customer_health_concern or "Appointment"
 
@@ -6118,7 +7488,7 @@ end
             pricing_prompt_hint = "₹2499/month flat with zero setup fee and unlimited messages"
             discovery_question_hint = "what type of clinic or practice they run, and in which city"
             qualification_question_hint = "their current daily enquiry volume or how missed calls affect them"
-            walkthrough_label = "a quick 10-minute live walkthrough / demo"
+            walkthrough_label = "activating your clinic WhatsApp automation plan"
             conf_host = admin_name if (admin_name and admin_name != "our team") else "Bhuvanesh"
         elif "abinaya" in clean_slug:
             if resolved_pkg_fee > 0:
@@ -6138,11 +7508,14 @@ end
             walkthrough_label = "their relaxation massage session"
             conf_host = admin_name or "our wellness specialist"
         elif "mindbody" in clean_slug:
-            pricing_prompt_hint = "the consultation fee in digits (Junior Doctor ₹300, Senior Doctor ₹500, Abhyangam ₹1850)"
+            if resolved_pkg_fee > 0:
+                pricing_prompt_hint = f"the {target_service} fee of ₹{resolved_pkg_fee:g}"
+            else:
+                pricing_prompt_hint = "the consultation or therapy fee in digits (Junior Doctor Consultation ₹300, Senior Doctor Consultation with Dr. Sameer ₹500, Foot Reflexology ₹1000, Abhyangam ₹1850)"
             discovery_question_hint = "what specific physical discomfort, pain, or health condition they are seeking treatment for"
             qualification_question_hint = "how long they have experienced this condition and if they have had prior treatment"
             walkthrough_label = "their in-person consultation or therapy visit"
-            conf_host = admin_name or "our doctor"
+            conf_host = "Dr. Sameer or our therapy team"
         elif "smaato" in clean_slug:
             pricing_prompt_hint = "the estimated repair cost or price range in digits from the service catalog"
             discovery_question_hint = "what phone model they have and what specific issue they are facing (e.g. screen, battery, camera)"
@@ -6210,17 +7583,21 @@ end
 
         # Check if an exact time of day is requested in current message
         has_specific_time_of_day = bool(
-            re.search(
-                r'\b(?:\d{1,2}:[0-5]\d\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)|(?:at|by|around)\s*(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:am|pm|o\'clock))\b',
-                inbound_clean,
-                re.I
+            parsed_inbound_time
+            or (
+                re.search(
+                    r'\b(?:\d{1,2}:[0-5]\d\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)|(?:at|by|around)\s*(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:am|pm|o\'clock|oclock|o\s+clock)|\d{1,2}\s*(?:o\'clock|oclock|o\s+clock|mani|manikku|maniki))\b',
+                    inbound_clean,
+                    re.I
+                )
+                and not re.search(r'\b(?:at|by|around)\s*\d+\s*(?:calls|patients|leads|people|times|days|months|years|mins|minutes|hours|cases)\b', inbound_clean, re.I)
             )
-            and not re.search(r'\b(?:at|by|around)\s*\d+\s*(?:calls|patients|leads|people|times|days|months|years|mins|minutes|hours|cases)\b', inbound_clean, re.I)
         )
 
         has_explicit_date = bool(
             re.search(
                 r'\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|'
+                r'inniku|iniku|innaku|naalaiku|nalaiku|naalaiki|indru|இன்று|நாளை|'
                 r'\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)'
                 r'|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b',
                 inbound_clean,
@@ -6232,7 +7609,7 @@ end
             (has_specific_time_of_day or (is_slot_request_pending and has_time_period))
             and not (is_symptom_or_treatment_query and not has_specific_time_of_day)
             and not (is_doctor_query and not has_specific_time_of_day)
-            and not any(w in inbound_clean for w in ["?", "price", "cost", "fee", "rate", "where", "location", "address", "timing", "hours", "open", "close"])
+            and not any(w in inbound_clean for w in ["price", "cost", "fee", "rate", "where", "location", "address"])
         )
 
         is_day_only_selection = bool(
@@ -6240,7 +7617,7 @@ end
             and not has_time_period
             and not has_specific_time_of_day
             and not (is_symptom_or_treatment_query or is_doctor_query)
-            and not any(w in inbound_clean for w in ["?", "price", "cost", "fee", "rate", "where", "location", "address", "timing", "hours", "open", "close"])
+            and not any(w in inbound_clean for w in ["price", "cost", "fee", "rate", "where", "location", "address"])
         )
 
         # Resolve candidate slot date (checking current message and recent history)
@@ -6263,6 +7640,79 @@ end
                 return False
             return any(re.search(rf'\b{re.escape(p)}\b', t) for p in TOMORROW_PHRASES)
 
+        # Check if customer explicitly inquired about doctor consultation specifically
+        is_explicit_doctor_inquiry = bool(
+            any(w in inbound_clean for w in ["doctor", "dr.", "dr ", "consult", "consultation", "டாக்டர்", "மருத்துவர்", "ஆலோசனை"])
+            or any(w in (customer_health_concern or "").lower() for w in ["doctor", "consultation"])
+            or "consult" in (target_service or "").lower()
+        )
+
+        # Check if customer is explicitly asking for the doctor's name
+        is_asking_doctor_name = bool(
+            re.search(r'\b(?:doctor|dr|dr\.)\s*(?:name|yaar|who|yaaru|enna|peru|hesaru|details)\b', inbound_clean, re.I)
+            or re.search(r'\b(?:name\s+of\s+(?:the\s+)?doctor|who\s+is\s+(?:the\s+)?doctor|which\s+doctor)\b', inbound_clean, re.I)
+            or re.search(r'\b(?:டாக்டர்\s*பெயர்|மருத்துவர்\s*யார்)\b', inbound_clean, re.I)
+            or any(phrase in inbound_clean for phrase in ["doctor name", "doctor's name", "dr name", "who is doctor", "who is the doctor", "which doctor", "doctor yaar", "doctor yaaru", "doctor per", "doctor hesaru"])
+        )
+
+        # Check if customer explicitly inquired about a therapy or wellness treatment
+        is_explicit_therapy_inquiry = bool(
+            any(w in inbound_clean for w in [
+                "therapy", "therapies", "treatment", "treatments", "panchakarma", "varma",
+                "chiropractic", "cupping", "steam", "kizhi", "othadam", "gausa", "massage", "bath",
+                "சிகிச்சை", "பஞ்சகர்மா", "வர்மா"
+            ])
+            or any(w in (customer_health_concern or "").lower() for w in ["therapy", "treatment", "panchakarma", "varma", "massage"])
+            or "therapy" in (target_service or "").lower()
+        )
+
+        # Resolve active doctor (if clinic has doctors configured)
+        active_doctor_obj = None
+        if doctors:
+            if len(doctors) == 1:
+                active_doctor_obj = doctors[0]
+            else:
+                for doc in doctors:
+                    d_clean = re.sub(r'(?i)\bdr\.?\s*', '', doc.get("name", "")).strip().lower()
+                    if d_clean and (d_clean in inbound_clean or d_clean in (customer_health_concern or "").lower() or (history and any(d_clean in (h.get("content") or "").lower() for h in history[-4:]))):
+                        active_doctor_obj = doc
+                        break
+            if not active_doctor_obj and is_explicit_doctor_inquiry:
+                active_doctor_obj = doctors[0]
+
+        doc_available_days = [d.capitalize() for d in (active_doctor_obj.get("available_days") or [])] if active_doctor_obj else []
+        doc_days_lower = [d.lower() for d in doc_available_days]
+        tenant_st = settings if 'settings' in locals() and settings else (tenant_ctx.get("settings") or {})
+        closed_days = tenant_st.get("closed_days") or []
+        if not closed_days and "sunday holiday" in (op_hours_display or "").lower():
+            closed_days = ["Sunday"]
+        clinic_closed_days_lower = [d.lower() for d in closed_days]
+
+        # Determine operating/consultation closing hour today
+        today_closing_hour = 20 # default 8 PM
+        if closing_time_raw:
+            try:
+                today_closing_hour = int(str(closing_time_raw).split(":")[0])
+            except Exception:
+                pass
+        # Only cap today_closing_hour by doctor schedule if user explicitly asked for doctor consultation!
+        if active_doctor_obj and is_explicit_doctor_inquiry:
+            doc_sched = active_doctor_obj.get("schedule", "")
+            m_end = re.search(r'to\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)', doc_sched, re.I)
+            if m_end:
+                h = int(m_end.group(1))
+                if m_end.group(3).lower() == "pm" and h < 12:
+                    h += 12
+                today_closing_hour = min(today_closing_hour, h)
+
+        is_today_still_open = (now + datetime.timedelta(minutes=30)).hour < today_closing_hour
+        is_today_clinic_open = bool(now.strftime("%A").lower() not in clinic_closed_days_lower)
+        is_today_doctor_available = bool(not doc_days_lower or now.strftime("%A").lower() in doc_days_lower)
+
+        user_explicitly_said_today = any(re.search(rf'\b{re.escape(w)}\b', inbound_clean, re.I) for w in [
+            "today", "tonight", "this morning", "this afternoon", "this evening", "iniku", "inikku", "inniki", "inniku", "innaku", "innakku", "indru", "இன்று"
+        ])
+
         day_after_date_str = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
 
         target_slot_date_iso = today_date_str
@@ -6270,6 +7720,8 @@ end
             target_slot_date_iso = day_after_date_str
         elif _contains_tomorrow(inbound_clean) or ((is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history and any(_contains_tomorrow(h.get("content") or "") for h in history[-4:])):
             target_slot_date_iso = tomorrow_date_str
+        elif user_explicitly_said_today:
+            target_slot_date_iso = today_date_str
         else:
             days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
             for idx, day in enumerate(days):
@@ -6282,31 +7734,33 @@ end
                     break
 
         # Resolve candidate slot time (checking current message, and recent history ONLY if user is confirming or selecting a slot)
-        target_slot_time_iso = "10:00"
-        m_t_cand = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', inbound_clean, re.I)
-        if not m_t_cand and (is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history:
-            for h in reversed(history[-4:]):
-                c_content = (h.get("content") or "").strip()
-                # Skip assistant messages that were just stating general operating hours
-                if any(w in c_content.lower() for w in ["operating hours", "open from", "opens at", "closing time", "open daily", "24 hours", "daily"]):
-                    continue
-                # If assistant message, only extract if it was an explicit slot confirmation proposal
-                if h.get("role") in ("assistant", "model") and not any(w in c_content.lower() for w in ["available", "book this slot", "confirm this", "ready to be locked in"]):
-                    continue
-                m_t_cand = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', c_content, re.I)
-                if m_t_cand:
-                    break
-        if m_t_cand:
-            raw_t = m_t_cand.group(1).strip().upper()
-            try:
-                if "AM" in raw_t or "PM" in raw_t:
-                    pt = datetime.datetime.strptime(raw_t.replace(" ", ""), "%I:%M%p" if ":" in raw_t else "%I%p")
-                    target_slot_time_iso = pt.strftime("%H:%M")
-                elif ":" in raw_t:
-                    parts = raw_t.split(":")
-                    target_slot_time_iso = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
-            except Exception:
-                pass
+        target_slot_time_iso = parsed_inbound_time or "10:00"
+        m_t_cand = None
+        if not parsed_inbound_time:
+            m_t_cand = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', inbound_clean, re.I)
+            if not m_t_cand and (is_user_confirming_slot or (is_slot_request_pending and has_time_or_slot_indicator)) and history:
+                for h in reversed(history[-4:]):
+                    c_content = (h.get("content") or "").strip()
+                    # Skip assistant messages that were just stating general operating hours
+                    if any(w in c_content.lower() for w in ["operating hours", "open from", "opens at", "closing time", "open daily", "24 hours", "daily"]):
+                        continue
+                    # If assistant message, only extract if it was an explicit slot confirmation proposal
+                    if h.get("role") in ("assistant", "model") and not any(w in c_content.lower() for w in ["available", "book this slot", "confirm this", "ready to be locked in"]):
+                        continue
+                    m_t_cand = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', c_content, re.I)
+                    if m_t_cand:
+                        break
+            if m_t_cand:
+                raw_t = m_t_cand.group(1).strip().upper()
+                try:
+                    if "AM" in raw_t or "PM" in raw_t:
+                        pt = datetime.datetime.strptime(raw_t.replace(" ", ""), "%I:%M%p" if ":" in raw_t else "%I%p")
+                        target_slot_time_iso = pt.strftime("%H:%M")
+                    elif ":" in raw_t:
+                        parts = raw_t.split(":")
+                        target_slot_time_iso = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+                except Exception:
+                    pass
         else:
             # Time period resolution (evening, night, afternoon, morning) if no clock digits were stated
             combined_time_context = f"{inbound_clean} {' '.join((h.get('content') or '').lower() for h in (history[-3:] if history else []))}"
@@ -6317,21 +7771,94 @@ end
             elif any(w in combined_time_context for w in ["afternoon", "noon", "mathiyam", "madhyam", "மதியம்"]):
                 target_slot_time_iso = "14:00"
             elif any(w in combined_time_context for w in ["morning", "kaalai", "kalai", "காலை"]):
-                target_slot_time_iso = "10:00"
+                target_slot_time_iso = "11:00" if (active_doctor_obj and "11" in active_doctor_obj.get("schedule", "")) else "10:00"
             elif is_home_visit:
                 target_slot_time_iso = "08:00"
             else:
-                target_slot_time_iso = "10:00"
+                if target_slot_date_iso == today_date_str and is_today_still_open:
+                    next_hr = min(today_closing_hour - 1, max(now.hour + 1, 10))
+                    target_slot_time_iso = f"{next_hr:02d}:00"
+                else:
+                    target_slot_time_iso = "10:00"
 
-        # If requested for today but that time has already passed (or is within 30 mins): rollover to tomorrow
+        # Rollover check:
+        # ONLY rollover if user did NOT explicitly say "today", AND (today is closed/past, or doctor specifically requested and off today)
+        should_rollover = False
         if target_slot_date_iso == today_date_str:
-            try:
-                t_parts = target_slot_time_iso.split(":")
-                req_dt = now.replace(hour=int(t_parts[0]), minute=int(t_parts[1]), second=0, microsecond=0)
-                if req_dt <= now + datetime.timedelta(minutes=30):
-                    target_slot_date_iso = tomorrow_date_str
-            except Exception:
-                pass
+            if not user_explicitly_said_today:
+                if not is_today_still_open or not is_today_clinic_open:
+                    should_rollover = True
+                elif is_explicit_doctor_inquiry and not is_today_doctor_available:
+                    should_rollover = True
+                elif m_t_cand:
+                    try:
+                        t_parts = target_slot_time_iso.split(":")
+                        req_dt = now.replace(hour=int(t_parts[0]), minute=int(t_parts[1]), second=0, microsecond=0)
+                        if req_dt <= now + datetime.timedelta(minutes=30):
+                            should_rollover = True
+                    except Exception:
+                        pass
+
+        if should_rollover:
+            next_date = now.date() + datetime.timedelta(days=1)
+            for _ in range(7):
+                day_name = next_date.strftime("%A").lower()
+                if is_explicit_doctor_inquiry and doc_days_lower and day_name not in doc_days_lower:
+                    next_date += datetime.timedelta(days=1)
+                    continue
+                if clinic_closed_days_lower and day_name in clinic_closed_days_lower:
+                    next_date += datetime.timedelta(days=1)
+                    continue
+                if "sunday" in day_name and "sunday holiday" in (op_hours_display or "").lower():
+                    next_date += datetime.timedelta(days=1)
+                    continue
+                break
+            target_slot_date_iso = next_date.strftime("%Y-%m-%d")
+
+        # Distinct Day Checking: Clinic Closed Day vs Doctor Off Day
+        target_date_obj = datetime.date.fromisoformat(target_slot_date_iso)
+        target_weekday_name = target_date_obj.strftime("%A")
+        is_clinic_closed = bool(
+            (clinic_closed_days_lower and target_weekday_name.lower() in clinic_closed_days_lower) or
+            (target_weekday_name.lower() == "sunday" and "sunday holiday" in (op_hours_display or "").lower())
+        )
+        is_doctor_off_day = bool(
+            doc_days_lower and target_weekday_name.lower() not in doc_days_lower
+        )
+        is_requested_day_off = bool(
+            is_clinic_closed or (is_explicit_doctor_inquiry and is_doctor_off_day)
+        )
+
+        # Calculate next valid DOCTOR consultation day
+        next_doc_date = target_date_obj + datetime.timedelta(days=1)
+        for _ in range(7):
+            d_name = next_doc_date.strftime("%A").lower()
+            if doc_days_lower and d_name not in doc_days_lower:
+                next_doc_date += datetime.timedelta(days=1)
+                continue
+            if clinic_closed_days_lower and d_name in clinic_closed_days_lower:
+                next_doc_date += datetime.timedelta(days=1)
+                continue
+            break
+        next_doc_day_name = next_doc_date.strftime("%A")
+        next_doc_date_fmt = next_doc_date.strftime("%A, %d %b")
+
+        # Calculate next valid CLINIC open day
+        next_clinic_date = target_date_obj + datetime.timedelta(days=1)
+        for _ in range(7):
+            d_name = next_clinic_date.strftime("%A").lower()
+            if clinic_closed_days_lower and d_name in clinic_closed_days_lower:
+                next_clinic_date += datetime.timedelta(days=1)
+                continue
+            if "sunday" in d_name and "sunday holiday" in (op_hours_display or "").lower():
+                next_clinic_date += datetime.timedelta(days=1)
+                continue
+            break
+        next_clinic_day_name = next_clinic_date.strftime("%A")
+        next_clinic_date_fmt = next_clinic_date.strftime("%A, %d %b")
+
+        next_working_day_name = next_doc_day_name if is_explicit_doctor_inquiry else next_clinic_day_name
+        next_working_date_fmt = next_doc_date_fmt if is_explicit_doctor_inquiry else next_clinic_date_fmt
 
         try:
             pt_disp = datetime.datetime.strptime(target_slot_time_iso, "%H:%M")
@@ -6347,7 +7874,7 @@ end
             target_day_display = "day after tomorrow"
         else:
             try:
-                target_day_display = datetime.date.fromisoformat(target_slot_date_iso).strftime("%A, %d %b")
+                target_day_display = target_date_obj.strftime("%A, %d %b")
             except Exception:
                 target_day_display = target_slot_date_iso
 
@@ -6356,7 +7883,7 @@ end
         # A booking is ONLY finalized if:
         # 1. User is affirmatively confirming a proposed concrete slot ("Yes", "Sure", "Ok", "Book it") in response to assistant's concrete slot proposal, OR provided an explicit clock time, AND
         # 2. For home visit: complete address is known.
-        # If assistant merely asked a general question ("Would you like to schedule a session?"), "Yes" expresses general interest, NOT slot lock!
+        # 3. Target date is NOT an off-day!
         assistant_proposed_concrete_slot = bool(
             is_assistant_asking_to_book and (
                 re.search(r'\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm))\b', last_assistant_msg, re.I)
@@ -6365,17 +7892,32 @@ end
                     "today morning", "today afternoon", "today evening", "day after tomorrow", "evening consultation",
                     "morning consultation", "afternoon consultation", "ready to be locked in", "open for a demo at", "scheduled your demo for",
                     "intha slot", "intha time", "intha timing", "nalaiku", "naalaikku", "inniku", "marunal", "நாளை", "இன்று", "மசாஜ்",
-                    "book pannidalaama", "confirm pannalama", "available ah irukku", "available irukku"
+                    "book pannidalaama", "confirm pannalama", "available ah irukku", "available ah iruku", "available irukku",
+                    "slot confirm pannitu", "slot confirm pannikalam", "slot confirm", "slot available ah irukku", "slot available", "available ah irukku",
+                    "additional session", "additional separate appointment", "book an additional", "book this additional"
                 ])
             )
         )
         is_user_confirming_concrete_slot = bool(
-            is_user_confirming_slot
-            and (has_specific_time_of_day or assistant_proposed_concrete_slot or any(w in inbound_clean for w in ["book it", "confirm it", "lock it", "proceed with this slot", "pannidunga", "book pannunga", "pannunga"]))
+            (
+                is_user_confirming_slot
+                and (has_specific_time_of_day or assistant_proposed_concrete_slot or any(w in inbound_clean for w in ["additional", "additionally", "separate", "both", "keep both", "book it", "confirm it", "lock it", "proceed with this slot", "pannidunga", "book pannunga", "pannunga"]))
+            )
+            or (
+                has_specific_time_of_day
+                and (
+                    is_slot_request_pending
+                    or is_assistant_asking_to_book
+                    or assistant_proposed_concrete_slot
+                    or has_explicit_booking_command
+                )
+            )
         )
         should_finalize_booking = bool(
             is_user_confirming_concrete_slot
             and (not is_home_visit or effective_address)
+            and not is_requested_day_off
+            and (not is_ig_channel or has_known_phone)
         )
 
         # Check intent types for conversational wrap-up, testing, and deferred consideration
@@ -6402,6 +7944,48 @@ end
                 "ille", "all good", "all set", "thats all", "that's all", "nothing else", "clear"
             ])
             and len(inbound_clean.split()) <= 4
+        )
+
+        # Check if customer sent a standalone greeting ("Hi", "Hii", "Hello", "Hey", "Vanakkam", etc.)
+        greeting_words = {"hi", "hii", "hiii", "hello", "helloo", "hey", "heyy", "vanakkam", "வணக்கம்", "namaste", "namaskar"}
+        is_standalone_greeting = bool(
+            (inbound_clean.lower() in greeting_words or (len(inbound_clean.split()) <= 2 and any(w in greeting_words for w in inbound_clean.lower().split())))
+            and not any(w in inbound_clean.lower() for w in ["price", "cost", "fee", "book", "slot", "pain", "timing", "where", "location", "address", "doctor", "service", "treatment", "therapy"])
+        )
+
+        # Check if customer sent a short acknowledgment ("Ok", "Okay", "Sure", "Fine", "Noted", "Cool")
+        ack_words = {"ok", "okay", "okie", "k", "kk", "ss", "s", "ya", "yah", "yup", "sure", "fine", "noted", "cool", "alright", "all right", "got it", "சரி", "sari", "apdiya"}
+        is_short_acknowledgment = bool(
+            (inbound_clean.lower() in ack_words or (len(inbound_clean.split()) <= 2 and any(w in ack_words for w in inbound_clean.lower().split())))
+            and not has_specific_time_of_day
+            and not has_explicit_booking_command
+        )
+
+        # Check if customer is asking what services/treatments are offered without asking price
+        is_services_overview_query = bool(
+            any(w in inbound_clean for w in [
+                "services", "service list", "all services", "full service list", "what services",
+                "treatments", "treatment list", "all treatments", "what treatments",
+                "therapies", "therapy list", "all therapies", "packages", "package list",
+                "what do you do", "what do you provide", "what do you offer", "what you provide",
+                "enna treatment", "enna sikiச்சai", "enna service", "services list",
+                "list of services", "list of treatments",
+                "center details", "clinic details", "hospital details", "facility details",
+                "admission details", "treatment details", "program details", "about your hospital",
+                "about your clinic", "about your center"
+            ])
+            and not is_asking_fee
+            and not any(w in inbound_clean for w in ["price", "cost", "fee", "rate", "evlo", "evalo", "charges"])
+        )
+
+        # General booking inquiry without choosing specific service/time
+        is_general_booking_query = bool(
+            any(w in inbound_clean for w in [
+                "book an appointment", "book appointment", "schedule an appointment", "schedule appointment",
+                "want to book", "can i book", "how can i book", "how to book", "book a slot", "book slot",
+                "appointment booking", "need appointment", "need an appointment", "consultation booking"
+            ])
+            or (any(w in inbound_clean for w in ["book", "appointment", "slot"]) and any(w in inbound_clean for w in ["can i", "want to", "how to", "how can"]))
         )
 
         if is_missed_call_query:
@@ -6471,8 +8055,19 @@ end
             funnel_stage = "CONTACT_NUMBER_REQUEST"
             stage_directive = (
                 f"The customer is asking for our direct contact / phone number. "
-                + (f"Directly provide our official contact number: '{admin_phone}'. Mention they can reach or call {admin_name or 'our team'} directly at {admin_phone}. " if admin_phone else f"State that {admin_name or 'our team'} will call them directly on WhatsApp at their scheduled time, or ask if they want a call right away. ") +
+                + (f"Provide our official contact number in 1 short sentence: 'The official contact number for {tenant_name} is {admin_phone}.' Mention they can reach {admin_name or 'our team'} directly at {admin_phone}. Do NOT repeat the number or sentence twice. " if admin_phone else f"State that {admin_name or 'our team'} will call them directly on WhatsApp at their scheduled time, or ask if they want a call right away. ") +
                 f"CRITICAL: The customer's phone number is {contact_phone}. NEVER GIVE {contact_phone} TO THE CUSTOMER AS OUR NUMBER!"
+            )
+        elif is_female_therapist_query and (is_aadhiran or "aadhiran" in clean_slug):
+            funnel_stage = "AADHIRAN_FEMALE_THERAPIST_POLICY"
+            stage_directive = (
+                f"The customer is asking about female therapists, cross-gender massage, or if female therapists do massage/therapy for males: '{message_text}'.\n"
+                f"1. GROUND TRUTH (CRITICAL): At Aadhiran Center, ONLY certified MALE THERAPISTS are available. There are ABSOLUTELY NO FEMALE THERAPISTS (ZERO female staff/therapists).\n"
+                f"2. MANDATORY RESPONSE: Strictly, politely, and clearly inform the customer that only male therapists are available at our center, and we DO NOT have female therapists.\n"
+                f"   - In Tanglish: 'Namma center-la certified male therapists mattum thaan irukanga sir, female therapists kidaiyathu. Ungalukku relaxed-ah body relaxation massage slot book panna venuma sir?'\n"
+                f"   - In Tamil: 'எங்கள் மையத்தில் ஆண் தெரபிஸ்ட்கள் மட்டுமே உள்ளனர். பெண் தெரபிஸ்ட்கள் கிடையாது. தங்களுக்கு உடற்பிடிப்பு (Body Relaxation Massage) சிகிச்சை முன்பதிவு செய்ய வேண்டுமா?'\n"
+                f"3. STRICT PROHIBITION: NEVER claim, suggest, or imply that female therapists exist for female clients or anyone else! NEVER say 'female therapist vera yarukkum vendam' or 'only male therapist for male clients'. FEMALE THERAPISTS DO NOT EXIST AT OUR CENTER.\n"
+                f"4. STRICT LANGUAGE: Output ONLY in {style_profile['label']}. Never English! Keep it to 1-2 polite sentences."
             )
         elif is_photo_request:
             funnel_stage = "PHOTO_MEDIA_REQUEST"
@@ -6521,10 +8116,10 @@ end
             l_next_open = matched_leave_info["next_open_display"]
             if is_boldlabs:
                 stage_directive = (
-                    f"The customer is asking to schedule a demo for {l_date_disp}.\n"
-                    f"CRITICAL: We are not scheduling demos on {l_date_disp} ({l_reason}).\n"
-                    f"1. Inform them warmly that we are not conducting demos on {l_date_disp}.\n"
-                    f"2. Suggest scheduling their online demo for our next open day: {l_next_open}.\n"
+                    f"The customer is asking about scheduling or onboarding for {l_date_disp}.\n"
+                    f"CRITICAL: Our onboarding team is offline on {l_date_disp} ({l_reason}).\n"
+                    f"1. Inform them warmly that our onboarding team is observing {l_reason} on {l_date_disp}.\n"
+                    f"2. Suggest activating their clinic plan on our next business day: {l_next_open}.\n"
                     f"3. NEVER mention a doctor, clinic closure, or in-person visit!"
                 )
             else:
@@ -6534,12 +8129,49 @@ end
                     f"1. Inform them warmly that we are closed on {l_date_disp} because \"{l_reason}\".\n"
                     f"2. Suggest booking on our next open business day: {l_next_open}."
                 )
-        elif has_upcoming:
-            funnel_stage = "ACTIVE_APPOINTMENT"
-            stage_directive = (
-                "The customer already has an active upcoming appointment. "
-                "Warmly reference it. If they ask for slots or another appointment, clarify if they want to reschedule the existing one or book an additional separate one."
-            )
+        elif is_standalone_greeting:
+            funnel_stage = "WARM_GREETING_RESPONSE"
+            cust_name_part = f" {confirmed_name or customer_name_display}" if (confirmed_name or customer_name_display) else ""
+            if clean_slug == "boldlabs":
+                stage_directive = (
+                    f"The customer sent a friendly greeting: '{message_text}'. Deliver Option 1 (Smart Value Hook):\n"
+                    f"1. Sentence 1 (Warm Greeting & Brand): 'Hi{cust_name_part}! Welcome to Boldlabs.'\n"
+                    f"2. Sentence 2 (Service Hook): 'We set up 24/7 AI WhatsApp receptionists for clinics that recover missed calls in 5 seconds and automate Google Calendar bookings.'\n"
+                    f"3. Sentence 3 (Guiding Question): 'Are you looking to automate appointments for your clinic?'\n"
+                    f"CRITICAL RULES:\n"
+                    f"- STRICT ANTI-LATCH: Do NOT ask to reschedule old appointments or demos! Do NOT ask for dates or times to reschedule! The word 'reschedule' is STRICTLY FORBIDDEN! Zero past booking baggage.\n"
+                    f"- Exactly 2-3 crisp, natural sentences (under 45 words)."
+                )
+            elif is_aadhiran or style_profile.get("dialect") == "tanglish":
+                stage_directive = (
+                    f"The customer sent a friendly greeting: '{message_text}'. Deliver Option 1 (Smart Value Hook in Tanglish):\n"
+                    f"1. Sentence 1 (Greeting & Brand): Warm welcome with business name (e.g. 'Vanakkam{cust_name_part}! Welcome to {tenant_name}.').\n"
+                    f"2. Sentence 2 (Service Hook): Highlight our core services in natural spoken Tanglish: 'Namma center la {top_services_hook} provide panrom.'\n"
+                    f"3. Sentence 3 (Guiding Question): 'Ungalukku entha service pathi details thevai paduthu sollunga?'\n"
+                    f"CRITICAL RULES:\n"
+                    f"- STRICT ANTI-LATCH: Do NOT ask to reschedule old appointments or demos! Do NOT ask for dates or times to reschedule! The word 'reschedule' is STRICTLY FORBIDDEN!\n"
+                    f"- Keep to 2-3 short natural conversational sentences."
+                )
+            elif is_vetrivel or style_profile.get("dialect") == "tamil_script":
+                stage_directive = (
+                    f"The customer sent a greeting in Tamil: '{message_text}'. Deliver Option 1 (Smart Value Hook in Tamil Script):\n"
+                    f"1. Sentence 1 (Greeting & Brand): 'வணக்கம்{cust_name_part}! {tenant_name}-க்கு உங்களை அன்புடன் வரவேற்கிறோம்.'\n"
+                    f"2. Sentence 2 (Service Hook): 'எங்கள் மையத்தில் {top_services_hook} போன்ற சிறப்பு சிகிச்சைகள் வழங்கப்படுகின்றன.'\n"
+                    f"3. Sentence 3 (Guiding Question): 'உங்களுக்கு எந்த சிகிச்சை அல்லது விவரங்கள் தேவைப்படுகின்றன என்று கூறுங்கள்.'\n"
+                    f"CRITICAL RULES:\n"
+                    f"- STRICT ANTI-LATCH: Do NOT ask to reschedule old appointments or demos! Do NOT ask for dates or times to reschedule! The word 'reschedule' is STRICTLY FORBIDDEN!\n"
+                    f"- Keep to 2-3 polite, clear sentences."
+                )
+            else:
+                stage_directive = (
+                    f"The customer sent a friendly greeting: '{message_text}'. Deliver Option 1 (Smart Value Hook):\n"
+                    f"1. Sentence 1 (Greeting & Brand): Warmly greet them with business name (e.g. 'Hello{cust_name_part}! Welcome to {tenant_name}.').\n"
+                    f"2. Sentence 2 (Service Hook): Highlight our verified core services: 'We specialize in {top_services_hook}.'\n"
+                    f"3. Sentence 3 (Guiding Question): Ask a natural next-step question: 'How can I assist you today, or which service would you like details on?'\n"
+                    f"CRITICAL RULES:\n"
+                    f"- STRICT ANTI-LATCH: Do NOT ask to reschedule old appointments or demos! Do NOT ask for dates or times to reschedule! The word 'reschedule' is STRICTLY FORBIDDEN! Treat this as a fresh greeting.\n"
+                    f"- Keep to 2-3 crisp, natural sentences (under 45 words)."
+                )
         elif is_testing_message:
             funnel_stage = "TESTING_CHIT_CHAT"
             stage_directive = (
@@ -6560,6 +8192,41 @@ end
                 "The customer stated they want to think about it, will get back later, or politely declined for now ('will think', 'yosithu solren', 'not today', 'illa vena'). "
                 "Graciously and respectfully acknowledge in 1 short warm sentence: let them know that is completely fine, take their time, and they can message anytime when convenient. "
                 "CRITICAL: Respect their space completely. Do NOT push, do NOT repeat booking questions, and do NOT ask for appointment timings!"
+            )
+        elif has_upcoming:
+            funnel_stage = "ACTIVE_APPOINTMENT"
+            stage_directive = (
+                "The customer already has an active upcoming appointment. "
+                "Warmly reference it. If they ask for slots or another appointment, clarify if they want to reschedule the existing one or book an additional separate one."
+            )
+        elif is_short_acknowledgment and not (is_user_confirming_slot and should_finalize_booking):
+            funnel_stage = "ACKNOWLEDGMENT_NEXT_STEP"
+            if is_aadhiran or "aadhiran" in clean_slug:
+                stage_directive = (
+                    f"The customer sent a short acknowledgment: '{message_text}'.\n"
+                    f"1. DO NOT repeat your previous explanation, service list, or pricing pitch!\n"
+                    f"2. In 100% natural spoken Tanglish, smoothly ask which time or day works best for their session:\n"
+                    f"   'Great sir! Ungalukku entha day matrum time convenient-ah irukkum nu sonninga na slot confirm pannidalam!'\n"
+                    f"   (If customer messaged in Tamil script, reply in Tamil script: 'அருமை! உங்களுக்கு எந்த நாள் மற்றும் நேரம் வசதியாக இருக்கும்?').\n"
+                    f"3. 1 short natural sentence only. ZERO ENGLISH."
+                )
+            else:
+                stage_directive = (
+                    f"The customer sent a short acknowledgment: '{message_text}'.\n"
+                    f"1. DO NOT repeat your previous explanation, service list, doctor schedule, or pricing pitch!\n"
+                    f"2. Smoothly progress the conversation to the next step:\n"
+                    f"   - If services, doctor timings, or visit were being discussed: Ask which day works best for them to visit (e.g. 'Great! Which day works best for you to visit?').\n"
+                    f"   - Or ask what time works best for them.\n"
+                    f"3. Keep it to 1 short, warm, natural sentence. Pure casual human texting without repeating previous text."
+                )
+        elif is_services_overview_query:
+            funnel_stage = "SERVICES_OVERVIEW"
+            stage_directive = (
+                f"The customer is asking what services or treatments this business offers: '{message_text}'.\n"
+                f"1. DIRECT ANSWER IN SENTENCE 1: Briefly describe our core therapies and services ({services_names_only or 'our verified services'}) in warm, natural conversational language.\n"
+                f"2. STRICT PROHIBITION ON UNASKED PRICING: The customer did NOT ask about prices or fees! STRICTLY DO NOT quote prices, rates, or fees in your reply!\n"
+                f"3. NEXT STEP: Ask which specific health concern, symptom, or treatment they would like to know more about.\n"
+                f"4. Keep it to 1-2 short natural sentences. Casual, warm human flow."
             )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
@@ -6699,12 +8366,31 @@ end
                     f"3. STRICTLY FORBIDDEN: Do NOT state opening/closing limits like 6 AM or 6 PM, and NEVER propose arbitrary 6 AM slots!"
                 )
             else:
-                stage_directive = (
-                    f"The customer is asking about business / clinic operating hours or timings: '{message_text}'.\n"
-                    f"1. Directly state our official operating hours: '{op_hours_display} daily'.\n"
-                    f"2. Then naturally ask what day and convenient time works best for them within these hours.\n"
-                    f"CRITICAL: Always state '{op_hours_display} daily'. Never invent or assume other hours from calendar slots."
-                )
+                tenant_st = settings if 'settings' in locals() and settings else (tenant_ctx.get("settings") or {})
+                c_closed = tenant_st.get("closed_days") or []
+                if not c_closed and "sunday holiday" in (op_hours_display or "").lower():
+                    c_closed = ["Sunday"]
+                asked_closed_day = None
+                for cd in c_closed:
+                    if cd.lower() in inbound_clean:
+                        asked_closed_day = cd
+                        break
+                if asked_closed_day:
+                    stage_directive = (
+                        f"The customer is asking if our {facility_term} is open on {asked_closed_day}: '{message_text}'.\n"
+                        f"1. DIRECT ANSWER IN SENTENCE 1: Clearly clarify that our {facility_term} is CLOSED on {asked_closed_day} (Weekly Holiday).\n"
+                        f"2. State our regular operating hours: '{op_hours_display}'.\n"
+                        f"3. Ask which open day (such as Monday to Saturday) works best for their visit.\n"
+                        f"4. STRICTLY FORBIDDEN: NEVER claim {asked_closed_day} is open!"
+                    )
+                else:
+                    closed_note = f" (Closed on {', '.join(c_closed)})" if c_closed else ""
+                    stage_directive = (
+                        f"The customer is asking about business / clinic operating hours or timings: '{message_text}'.\n"
+                        f"1. Directly state our official operating hours: '{op_hours_display}{closed_note}'.\n"
+                        f"2. Then naturally ask what day and convenient time works best for them within these hours.\n"
+                        f"CRITICAL: Always state verified operating hours accurately. Never claim closed days are open."
+                    )
         elif is_voice_note:
             funnel_stage = "VOICE_NOTE_INBOUND"
             stage_directive = (
@@ -6712,9 +8398,20 @@ end
                 f"Reply DIRECTLY to their question or request using only this business's verified details in 1 to 2 short lines. "
                 f"Do NOT say 'Got your voice note' or acknowledge the audio format."
             )
+        elif is_ig_channel and not has_known_phone and (is_user_confirming_concrete_slot or has_explicit_booking_command or is_slot_request_pending or (has_specific_time_of_day and any(w in inbound_clean for w in ["book", "appointment", "slot", "schedule", "demo", "lock"]))):
+            funnel_stage = "INSTAGRAM_REQUEST_PHONE"
+            stage_directive = (
+                f"The customer wants to schedule or book an appointment on Instagram DM: '{message_text}'.\n"
+                f"Target slot: {target_day_display} at {target_time_display}.\n"
+                f"1. In Sentence 1, warmly acknowledge their requested date and time (e.g. 'I would be happy to reserve {target_day_display} at {target_time_display} for you!').\n"
+                f"2. In Sentence 2, ask for their WhatsApp mobile number: 'Could you please share your WhatsApp mobile number so we can confirm your booking and send your appointment details to your WhatsApp?'\n"
+                f"3. STRICTLY FORBIDDEN: DO NOT finalize the booking and DO NOT append any [ACTION:CREATE_BOOKING] tag until they share their mobile number!\n"
+                f"4. Keep your reply to 1-2 short friendly sentences."
+            )
         elif should_finalize_booking:
             # ── STAGE 5: SLOT CONFIRMATION & BOOKING FINALIZED ──
             funnel_stage = "STAGE_5_SLOT_CONFIRMATION"
+            phone_attr_tag = f', "phone": "{effective_cust_phone_10}"' if effective_cust_phone_10 else ''
             if is_home_visit:
                 service_with_home = target_service if "home" in target_service.lower() else f"{target_service} - Home Collection"
                 stage_directive = (
@@ -6725,7 +8422,7 @@ end
                     + (f"2. Package Fee: ₹{resolved_pkg_fee:g}.\n" if (resolved_pkg_fee > 0 and is_asking_fee) else "")
                     + "3. Remind 8-12 hours overnight fasting.\n"
                     + f"4. MANDATORY ACTION TAG: You MUST append the booking action tag on its own line at the very end:\n"
-                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{service_with_home}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"location\": \"{effective_address}\"}}]\n"
+                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{service_with_home}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"location\": \"{effective_address}\"{phone_attr_tag}}}]\n"
                     f"5. Keep response under 2 short sentences + action tag."
                 )
             else:
@@ -6741,13 +8438,13 @@ end
                     + fee_mention
                     + fasting_inst
                     + f"3. MANDATORY ACTION TAG: You MUST append the booking action tag on its own line at the very end:\n"
-                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]\n"
+                    f"[ACTION:CREATE_BOOKING: {{\"service\": \"{target_service}\", \"price\": {resolved_pkg_fee:g}, \"date\": \"{target_slot_date_iso}\", \"time\": \"{target_slot_time_iso}\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"{phone_attr_tag}}}]\n"
                     f"4. Keep response under 2 short sentences + action tag."
                 )
         elif is_doctor_query and not (has_specific_time_of_day and has_explicit_booking_command):
             # ── DOCTOR INQUIRY ──
             funnel_stage = "DOCTOR_INQUIRY"
-            tenant_doctors_list = (tenant_st_row.get("doctors") or tenant_st_row.get("taxonomy", {}).get("doctor_presets") or []) if tenant_st_row and isinstance(tenant_st_row, dict) else []
+            tenant_doctors_list = (tenant_ctx.get("doctors") or tenant_st_row.get("doctors") or tenant_st_row.get("taxonomy", {}).get("doctor_presets") or []) if tenant_st_row and isinstance(tenant_st_row, dict) else (tenant_ctx.get("doctors") or [])
             
             # Format docs with qualification, specialty, and schedule if available
             if tenant_doctors_list and isinstance(tenant_doctors_list[0], dict):
@@ -6760,14 +8457,18 @@ end
             else:
                 docs_formatted = ""
 
+            is_real_doctor = False
             if customer_doctor:
-                doc_mention = f"Our consulting doctor assigned for your consultation is {customer_doctor}."
+                cd_clean = re.sub(r'(?i)\bdr\.?\s*', '', customer_doctor).strip().lower()
+                is_real_doctor = cd_clean in known_doctor_names or "sameer" in cd_clean or any(cd_clean == re.sub(r'(?i)\bdr\.?\s*', '', str(d.get("name") if isinstance(d, dict) else d)).strip().lower() for d in tenant_doctors_list)
+
+            if customer_doctor and is_real_doctor:
+                doc_mention = f"Our consulting specialist doctor is {customer_doctor}."
             elif docs_formatted:
-                doc_mention = f"At {tenant_name or f'our {facility_term}'}, our consulting specialist doctors are: {docs_formatted}."
+                doc_mention = f"At {tenant_name or f'our {facility_term}'}, our consulting specialist doctor is {docs_formatted}."
             else:
                 doc_mention = (
-                    f"At {tenant_name or f'our {facility_term}'}, we have experienced consulting specialist doctors across our verified departments "
-                    f"({services_names_only or 'General Medicine, Ortho, Pediatrics, Neuro, and Surgery'})."
+                    f"At {tenant_name or f'our {facility_term}'}, our consulting doctors and certified therapy specialists are available daily."
                 )
 
             # Check if customer asked about a specific doctor by name (Exact, Alias, or Fuzzy)
@@ -7040,20 +8741,41 @@ end
                             )
                         )
             else:
-                stage_directive = (
-                    f"The customer is asking about doctor details or consultation timings: '{message_text}'.\n"
-                    f"1. DIRECT ANSWER IN SENTENCE 1: {doc_mention}\n"
-                    + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: Directly state the consultation hours of our specialist doctors in digits from ### 2. DOCTORS AND SCHEDULE! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
-                    + (f"   - Consultation fee: state verified fee in digits if customer asked about fee/cost.\n" if is_asking_fee else "")
-                    + (
-                        f"2. NEXT STEP: Warmly ask what specific symptoms they are experiencing or which specialty doctor they wish to consult.\n"
-                        f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
-                        f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
-                        f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
-                        f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
-                        f"5. Do NOT propose arbitrary booking slots until they request a time."
+                is_asking_doctor_names = any(kw in inbound_clean for kw in [
+                    "dr name", "dr names", "doctor name", "doctor names", "doctors name", "doctors names",
+                    "who are the doctors", "which doctors", "name of doctor", "names of doctors",
+                    "doctor list", "doctors list", "doctor roster", "specialist name", "specialist names",
+                    "who is the doctor", "who is the psychiatrist", "who is the physician"
+                ]) or bool(re.search(r'\b(?:dr|doctor|specialist)s?\s+names?\b', inbound_clean)) or (inbound_clean.strip() in ("names", "dr names", "doctor names", "doctors", "dr", "doctor"))
+
+                if is_asking_doctor_names and docs_formatted:
+                    stage_directive = (
+                        f"The customer specifically asked for the names of our doctors ('{message_text}').\n"
+                        f"1. DIRECT VERIFIED ANSWER IN SENTENCE 1: Clearly list our consulting doctors and specialists by name and role ({docs_formatted}) from ### 4. DOCTORS, SPECIALISTS & STAFF ROSTER!\n"
+                        f"   - NEVER claim you don't know the names, and NEVER use vague phrases like 'our consulting doctors and certified therapy specialists' when specific names are available.\n"
+                        + (f"   - Consultation fee: state OP consultation fee in digits if customer asked about fee/cost.\n" if is_asking_fee else "")
+                        + (
+                            f"2. NEXT STEP: Warmly ask what specific symptoms they are experiencing or which specialist they would like to consult.\n"
+                            f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                            f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                            f"   - Keep reply concise (25 to 45 words max). No bullets, no hyphens, no asterisks."
+                        )
                     )
-                )
+                else:
+                    stage_directive = (
+                        f"The customer is asking about doctor details or consultation timings: '{message_text}'.\n"
+                        f"1. DIRECT ANSWER IN SENTENCE 1: {doc_mention}\n"
+                        + (f"   - MANDATORY TIMING FOLLOW-UP DIRECTIVE: Directly state the consultation hours of our specialist doctors in digits from ### 2. DOCTORS AND SCHEDULE! NEVER state generic 24/7 clinic operating hours!\n" if is_doctor_timing_followup else "")
+                        + (f"   - Consultation fee: state verified fee in digits if customer asked about fee/cost.\n" if is_asking_fee else "")
+                        + (
+                            f"2. NEXT STEP: Warmly ask what specific symptoms they are experiencing or which specialty doctor they wish to consult.\n"
+                            f"3. RESPECTFUL TAMIL / TANGLISH COURTESY:\n"
+                            f"   - ALWAYS address the patient respectfully as 'Ungalukku' (NEVER 'Unakku' or 'Nee')!\n"
+                            f"   - 'vendum' / 'venuma' = want/need. 'vendam' = DO NOT WANT / NO. NEVER say 'consult panna vendam?' (which means do NOT consult). Ask: 'enta doctor-ai paarka virumbureenga?' or 'enta specialist-ai consult panna venum?'.\n"
+                            f"4. STRICT PROHIBITION: NEVER use the customer's own name ({confirmed_name or customer_name_display}) as the doctor name! Never fabricate or invent an unlisted doctor's name.\n"
+                            f"5. Do NOT propose arbitrary booking slots until they request a time."
+                        )
+                    )
         elif is_symptom_or_treatment_query and not (has_specific_time_of_day and has_explicit_booking_command):
             # ── CLINICAL SYMPTOM & TREATMENT INQUIRY ──
             funnel_stage = "SYMPTOM_TREATMENT_INQUIRY"
@@ -7063,24 +8785,98 @@ end
             ]))
             stage_directive = (
                 f"The customer is asking about a symptom, pain, health condition, or medical treatment: '{message_text}'.\n"
-                f"1. DIRECT CLINICAL ANSWER IN SENTENCE 1: Warmly and empathetically acknowledge what they described (e.g. neck pain / kaluthu vali, back pain, fever, joint pain, etc.). "
-                f"Explain clearly how our consulting doctor / specialist helps this condition (e.g. for neck/joint pain: our Ortho / General Medicine doctor conducts a comprehensive physical examination to assess cervical strain, posture, or muscle spasm, and provides targeted medical treatment, pain management, and physio/posture advice). "
-                f"Draw directly from this {facility_term}'s verified services and doctor specialties ({services_names_only or target_service}).\n"
+                f"1. DIRECT CLINICAL ANSWER IN SENTENCE 1: Warmly and empathetically acknowledge what they described (e.g. neck pain / kaluthu vali, back pain, joint pain, etc.). "
+                f"Explain clearly how our treatments / consulting doctor helps this condition (e.g. targeted therapies like Spine massage, Varma therapy, physiotherapy or doctor consultation provide effective relief and recovery). "
+                f"Draw directly from this {facility_term}'s verified services ({services_names_only or target_service}).\n"
                 + (f"2. TRANSPARENT FEE: Clearly state the OP consultation fee in digits (e.g. {pricing_prompt_hint}).\n" if (pricing_prompt_hint and is_asking_fee) else "")
-                + f"3. NEXT STEP: Ask if they would like to consult our doctor or what day/time works best for them to visit our {facility_term} in {full_location or f'our {facility_term}'}.\n"
-                f"4. BREVITY & LANGUAGE: Keep your reply to 2-3 crisp, natural, professional sentences. Match their language (Tamil / Tanglish / English) seamlessly.\n"
-                f"5. STRICTLY FORBIDDEN: Do NOT propose arbitrary slots (like 6:00 AM) and do NOT finalize any booking until they request a time."
+                + f"3. NEXT STEP: Ask what day works best for them to visit our {facility_term}.\n"
+                f"4. BREVITY & NATURAL TONE: Keep your reply to 1-2 crisp, natural sentences. Pure casual, warm human texting. Avoid stiff corporate scripts.\n"
+                f"5. STRICTLY FORBIDDEN: Do NOT propose arbitrary slots (like 6:00 AM) and do NOT finalize any booking until they request a time.\n"
+                + ("6. STRICT PROHIBITION ON UNASKED PRICING: The customer did NOT ask about prices or fees! Do NOT mention prices, costs, or fees in your response!\n" if not is_asking_fee else "")
             )
         elif is_day_only_selection:
             # ── DATE SPECIFIED AWAITING TIME OF DAY ──
             funnel_stage = "DATE_SPECIFIED_AWAITING_TIME"
             timing_options = "morning, afternoon, or evening" if not is_24_7 else "morning, afternoon, evening, or night (we are open 24/7)"
-            stage_directive = (
-                f"The customer stated a day/date for their visit ({target_day_display}): '{message_text}'.\n"
-                f"1. Warmly confirm that {target_day_display} is open for consultation.\n"
-                f"2. Ask them what time works best: 'Would {timing_options} work best for your visit, or what time do you prefer?'\n"
-                f"3. STRICTLY FORBIDDEN: Do NOT propose arbitrary specific clock times (like 6:00 AM) and do NOT finalize any booking until they specify a preferred time."
-            )
+            doc_mention_str = (f"{active_doctor_obj.get('name')}" if (active_doctor_obj and is_asking_doctor_name) else "Chief Doctor") if active_doctor_obj else f"Our {facility_term}"
+            sched_days_str = ", ".join(doc_available_days) if doc_available_days else "working days"
+            sched_time_str = f" ({active_doctor_obj.get('schedule', '')})" if (active_doctor_obj and active_doctor_obj.get('schedule')) else ""
+
+            if is_clinic_closed:
+                # Case A: Entire facility / clinic is closed on this day (e.g. Sunday weekly holiday)
+                stage_directive = (
+                    f"The customer asked about or stated a day/date ({target_day_display} / {target_weekday_name}): '{message_text}'.\n"
+                    f"HOWEVER, {target_weekday_name} is our WEEKLY HOLIDAY / CLOSED DAY for our {facility_term}!\n"
+                    f"1. Warmly clarify that our {facility_term} is closed on {target_weekday_name}.\n"
+                    f"2. Clearly state our regular operating hours ({op_hours_display or 'Monday to Saturday, 10:00 AM to 8:00 PM'}).\n"
+                    f"3. Propose the next open day ({next_clinic_day_name}, {next_clinic_date_fmt}): 'Would {next_clinic_day_name} work for your visit, or which day do you prefer?'\n"
+                    f"4. STRICTLY FORBIDDEN: Do NOT confirm or book on an off-day ({target_weekday_name}) and do NOT say {target_day_display} is open!"
+                )
+            elif is_doctor_off_day and active_doctor_obj:
+                # Case B: Clinic and therapy treatments are OPEN, but Chief Doctor consultation is off on this day
+                doc_lbl = f"Chief Doctor {active_doctor_obj.get('name')}" if is_asking_doctor_name else "Chief Doctor"
+                if is_explicit_doctor_inquiry:
+                    stage_directive = (
+                        f"The customer asked specifically about doctor consultation for {target_day_display} ({target_weekday_name}): '{message_text}'.\n"
+                        f"1. Warmly clarify that {doc_lbl} conducts consultations ONLY on {sched_days_str}{sched_time_str}, and is not available on {target_weekday_name}.\n"
+                        f"2. Mention that our {facility_term} is open {target_day_display} ({op_hours_display or '10:00 AM to 8:00 PM'}) for all regular therapies and treatments.\n"
+                        f"3. Propose {next_doc_day_name} ({next_doc_date_fmt}) for doctor consultation: 'Would {next_doc_day_name} work for your doctor consultation, or would you like to visit {target_day_display} for treatments?'\n"
+                        f"4. STRICTLY FORBIDDEN: Do NOT claim {target_weekday_name} is a holiday or that the clinic is closed! The clinic is open."
+                    )
+                else:
+                    stage_directive = (
+                        f"The customer asked about appointment availability for {target_day_display} ({target_weekday_name}): '{message_text}'.\n"
+                        f"FACTS: Our {facility_term} and all therapy treatments are fully OPEN {target_day_display} ({target_weekday_name}) from {op_hours_display or '10:00 AM to 8:00 PM'}. "
+                        f"{doc_lbl} is available for consultation on {sched_days_str}{sched_time_str}.\n"
+                        f"1. Warmly confirm that our {facility_term} and therapy treatments are OPEN {target_day_display} from {op_hours_display or '10:00 AM to 8:00 PM'}.\n"
+                        f"2. Explain clearly that Chief Doctor consultation is on {sched_days_str}{sched_time_str}.\n"
+                        f"3. Ask what they prefer: 'Would you like to schedule a therapy treatment for {target_day_display}, or book a doctor consultation for {next_doc_day_name} ({next_doc_date_fmt})?'\n"
+                        f"4. STRICTLY FORBIDDEN: NEVER claim {target_day_display} ({target_weekday_name}) is a holiday or closed! The clinic and therapies are open."
+                    )
+            else:
+                # Case C: Both clinic and doctor (if any) are open and available on this day
+                doc_fee_hint = f" (Fee: ₹{active_doctor_obj.get('fee')})" if (active_doctor_obj and active_doctor_obj.get('fee')) else ""
+                if active_doctor_obj and doc_available_days and not is_explicit_doctor_inquiry and not is_explicit_therapy_inquiry:
+                    doc_consult_str = f"Chief Doctor {active_doctor_obj.get('name')}" if is_asking_doctor_name else "Chief Doctor"
+                    if is_a3_ayush:
+                        stage_directive = (
+                            f"The customer stated a day/date for their visit ({target_day_display} / {target_weekday_name}): '{message_text}'.\n"
+                            f"On {target_weekday_name}, BOTH options are available at our {facility_term}:\n"
+                            f"1. Therapy Appointments: Regular therapies run from {op_hours_display or '10:00 AM to 8:00 PM'}.\n"
+                            f"2. Doctor Consultation: {doc_consult_str} consultation is available ({active_doctor_obj.get('schedule', '') or '11:00 AM to 6:00 PM'}{doc_fee_hint}). (DOCTOR NAME PRIVACY: State the Chief Doctor's specific name only if the customer asks for the doctor's name!).\n"
+                            f"DIRECTIVE FOR YOUR REPLY (A3 AYUSH PROTOCOL):\n"
+                            f"- In Sentence 1: Confirm that both regular therapies ({op_hours_display or '10:00 AM to 8:00 PM'}) and {doc_consult_str} consultation ({active_doctor_obj.get('schedule', '') or '11:00 AM to 6:00 PM'}) are available on {target_day_display}.\n"
+                            f"- In Sentence 2: Ask which option they prefer and what convenient time works best for them so we can lock their slot before bookings close.\n"
+                            f"- STRICT PROHIBITION ON SPECIFIC TIMES: NEVER propose or suggest specific arbitrary times (such as '5:00 PM' or '6:30 PM'). Leave the time choice completely open to the customer!\n"
+                            f"- STRICTLY FORBIDDEN: Do NOT finalize any booking until they confirm a time."
+                        )
+                    else:
+                        stage_directive = (
+                            f"The customer stated a day/date for their visit ({target_day_display} / {target_weekday_name}): '{message_text}'.\n"
+                            f"On {target_weekday_name}, BOTH options are available at our {facility_term}:\n"
+                            f"1. Therapy Appointments: Regular therapies run from {op_hours_display or '10:00 AM to 8:00 PM'}.\n"
+                            f"2. Doctor Consultation: {doc_consult_str} consultation is available ({active_doctor_obj.get('schedule', '') or '11:00 AM to 6:00 PM'}{doc_fee_hint}). (DOCTOR NAME PRIVACY: State the Chief Doctor's specific name only if the customer asks for the doctor's name!).\n"
+                            f"DIRECTIVE: State that both therapy appointments and doctor consultation are available on {target_day_display}. Ask whether they are looking for a therapy appointment or doctor consultation, and what time of day would suit them best ({timing_options}).\n"
+                            f"STRICTLY FORBIDDEN: Do NOT propose arbitrary clock times and do NOT finalize any booking until they choose."
+                        )
+                else:
+                    doc_name_str = f" with {active_doctor_obj.get('name')}" if (active_doctor_obj and is_asking_doctor_name) else ""
+                    doc_timing_hint = f" ({active_doctor_obj.get('schedule', '')})" if (active_doctor_obj and active_doctor_obj.get('schedule')) else ""
+                    if is_aadhiran or "aadhiran" in clean_slug:
+                        stage_directive = (
+                            f"The customer stated a day/date for their visit ({target_day_display}): '{message_text}'.\n"
+                            f"1. In 100% natural Tanglish, confirm that {target_day_display} center is open for relaxation massage and wellness treatments.\n"
+                            f"2. Ask what time they prefer: 'Kandippa sir, {target_day_display} open-ah irukku. Ungalukku entha time convenient-ah irukkum? (Morning, afternoon or evening)?'\n"
+                            f"   (If customer messaged in Tamil script, reply in Tamil script).\n"
+                            f"3. ZERO ENGLISH: Output 100% in {style_profile['label']}."
+                        )
+                    else:
+                        stage_directive = (
+                            f"The customer stated a day/date for their visit ({target_day_display}): '{message_text}'.\n"
+                            f"1. Warmly confirm that {target_day_display} is open for appointments and consultation{doc_name_str}{doc_timing_hint}.\n"
+                            f"2. Ask them what time works best: 'Would {timing_options} work best for your visit, or what time do you prefer?'\n"
+                            f"3. STRICTLY FORBIDDEN: Do NOT propose arbitrary specific clock times (like 6:00 AM) and do NOT finalize any booking until they specify a preferred time."
+                        )
         elif has_explicit_slot_selection or (is_home_visit and has_specific_time_of_day):
             # ── STAGE 4B: PRE-BOOKING SLOT VERIFICATION & CONFIRMATION REQUEST ──
             funnel_stage = "STAGE_4B_SLOT_VERIFICATION_PROPOSAL"
@@ -7104,52 +8900,185 @@ end
                     + "4. Remind 8-12 hours overnight fasting.\n"
                     + "5. STRICTLY FORBIDDEN: Do NOT finalize booking and do NOT append any [ACTION:CREATE_BOOKING] tag yet! Wait for their confirmation."
                 )
-            else:
+            elif is_clinic_closed:
+                # Entire clinic is closed on this day (e.g. Sunday)
+                stage_directive = (
+                    f"STAGE 4B: REQUESTED DAY IS A CLOSED DAY / WEEKLY HOLIDAY.\n"
+                    f"The customer requested a slot on {target_day_display} ({target_weekday_name}) at {target_time_display}: '{message_text}'.\n"
+                    f"HOWEVER, our {facility_term} is CLOSED on {target_weekday_name} (Weekly Holiday)!\n"
+                    f"1. Warmly clarify that our {facility_term} is closed on {target_weekday_name}.\n"
+                    f"2. Clearly state our regular operating hours ({op_hours_display or 'Monday to Saturday, 10:00 AM to 8:00 PM'}).\n"
+                    f"3. Propose the next available open day at the same time: 'Would {next_clinic_day_name} ({next_clinic_date_fmt}) at {target_time_display} work for you?'\n"
+                    f"4. STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT confirm an appointment on {target_weekday_name}!"
+                )
+            elif is_doctor_off_day and active_doctor_obj and is_explicit_doctor_inquiry:
+                # Explicit doctor consultation requested on day doctor is off
+                doc_mention_str = f"{active_doctor_obj.get('name', 'The doctor')}"
+                sched_days_str = ", ".join(doc_available_days) if doc_available_days else "working days"
+                sched_time_str = f" ({active_doctor_obj.get('schedule', '')})" if active_doctor_obj.get('schedule') else ""
+                stage_directive = (
+                    f"STAGE 4B: DOCTOR CONSULTATION OFF-DAY.\n"
+                    f"The customer requested doctor consultation on {target_day_display} ({target_weekday_name}) at {target_time_display}: '{message_text}'.\n"
+                    f"HOWEVER, {doc_mention_str} is only available for consultation on {sched_days_str}{sched_time_str}!\n"
+                    f"1. Warmly clarify that {doc_mention_str} is not consulting on {target_weekday_name}.\n"
+                    f"2. Propose the next consultation day: 'Would {next_doc_day_name} ({next_doc_date_fmt}) at {target_time_display} work for your consultation?'\n"
+                    f"3. Mention that our {facility_term} is open {target_day_display} ({op_hours_display or '10:00 AM to 8:00 PM'}) if they wish to book therapy treatments instead.\n"
+                    f"4. STRICTLY FORBIDDEN: Do NOT confirm a doctor consultation on {target_weekday_name}!"
+                )
+            elif is_doctor_off_day and active_doctor_obj:
+                # Slot requested on day doctor is off, but inquiry was general or for therapy treatments
                 fasting_inst = "Remind 8-12 hours fasting.\n" if ("abinaya" in clean_slug or "checkup" in target_service.lower()) else ""
                 fee_mention = f"Fee: ₹{resolved_pkg_fee:g}\n" if (resolved_pkg_fee > 0 and is_asking_fee) else ""
                 stage_directive = (
-                    f"STAGE 4B: PRE-BOOKING SLOT VERIFICATION & CONFIRMATION REQUEST.\n"
-                    f"The customer proposed or asked about a time: '{message_text}'.\n"
-                    f"1. You MUST explicitly state the slot date and time ({target_day_display} at {target_time_display}) and confirm it is available with {conf_host}.\n"
+                    f"STAGE 4B: THERAPY SLOT VERIFICATION & CONFIRMATION REQUEST.\n"
+                    f"The customer requested a slot on {target_day_display} ({target_weekday_name}) at {target_time_display}: '{message_text}'.\n"
+                    f"FACTS: Our {facility_term} and all therapy treatments are OPEN {target_day_display} at {target_time_display}. (Chief Doctor consultation is on {', '.join(doc_available_days)}).\n"
+                    f"1. State that {target_day_display} at {target_time_display} is available for therapy treatments at our {facility_term}.\n"
                     + fee_mention
                     + fasting_inst
-                    + f"2. EXPLICIT CONFIRMATION QUESTION: Ask them directly if they want this slot booked: 'Would you like me to go ahead and book this slot for you?'\n"
-                    f"3. STRICTLY FORBIDDEN: Do NOT finalize the booking yet and do NOT append any [ACTION:CREATE_BOOKING] tag! Only ask for their confirmation.\n"
-                    f"4. Keep response under 2 short sentences."
+                    + f"2. If they need Chief Doctor consultation specifically, note doctor is available on {', '.join(doc_available_days)}. Ask if they would like to confirm this therapy slot for {target_day_display} at {target_time_display}.\n"
+                    f"3. STRICTLY FORBIDDEN: Do NOT claim {target_day_display} is closed! Ask for their confirmation."
                 )
-        elif is_user_confirming_slot and not should_finalize_booking:
+            else:
+                fasting_inst = "Remind 8-12 hours fasting.\n" if ("abinaya" in clean_slug or "checkup" in target_service.lower()) else ""
+                fee_mention = f"Fee: ₹{resolved_pkg_fee:g}\n" if (resolved_pkg_fee > 0 and is_asking_fee) else ""
+                if is_aadhiran or "aadhiran" in clean_slug:
+                    stage_directive = (
+                        f"STAGE 4B: AADHIRAN PRE-BOOKING SLOT VERIFICATION & CONFIRMATION REQUEST.\n"
+                        f"The customer proposed or asked about a time: '{message_text}'.\n"
+                        f"1. In 100% natural Tanglish, state that {target_day_display} at {target_time_display} is available for their session!\n"
+                        f"   Example: 'Kandippa sir, {target_day_display} at {target_time_display} slot available ah irukku. Ungalukku intha slot book pannidalaama?'\n"
+                        f"   (If customer messaged in Tamil script, reply in Tamil script: 'நிச்சயமாக, {target_day_display} {target_time_display} மணிக்கு முன்பதிவு செய்யலாமா?').\n"
+                        f"2. EXPLICIT CONFIRMATION QUESTION: Ask if you should confirm/book this slot.\n"
+                        f"3. STRICT PROHIBITION: Do NOT finalize booking and do NOT append [ACTION:CREATE_BOOKING] tag yet! Wait for their confirmation.\n"
+                        f"4. ZERO ENGLISH: Output 100% in {style_profile['label']}."
+                    )
+                else:
+                    stage_directive = (
+                        f"STAGE 4B: PRE-BOOKING SLOT VERIFICATION & CONFIRMATION REQUEST.\n"
+                        f"The customer proposed or asked about a time: '{message_text}'.\n"
+                        f"1. You MUST explicitly state the slot date and time ({target_day_display} at {target_time_display}) and confirm it is available with {conf_host}.\n"
+                        + fee_mention
+                        + fasting_inst
+                        + f"2. EXPLICIT CONFIRMATION QUESTION: Ask them directly if they want this slot booked: 'Would you like me to go ahead and book this slot for you?'\n"
+                        f"3. STRICTLY FORBIDDEN: Do NOT finalize the booking yet and do NOT append any [ACTION:CREATE_BOOKING] tag! Only ask for their confirmation.\n"
+                        f"4. Keep response under 2 short sentences."
+                    )
+        elif is_user_confirming_slot and not should_finalize_booking and not is_short_acknowledgment:
             # User said "Yes", "Sure", or "Ok" to a general question, but has not picked a specific slot/service yet
             funnel_stage = "BOOKING_INTEREST_NEEDS_SLOT"
-            stage_directive = (
-                f"The customer expressed interest in scheduling ('{message_text}'), but has not specified a concrete appointment date, time, or service yet.\n"
-                f"1. Warmly acknowledge their interest in Sentence 1.\n"
-                f"2. Ask which specific treatment, service, or doctor they would like to book for, and what day and convenient time works best for them.\n"
-                f"3. STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append any [ACTION:CREATE_BOOKING] tag until an exact date and time are provided!\n"
-                f"4. Keep response under 2 short sentences."
-            )
+            if active_doctor_obj and doc_available_days and len(doc_available_days) < 7 and not is_explicit_doctor_inquiry and not is_explicit_therapy_inquiry:
+                doc_fee_hint = f" (Fee: ₹{active_doctor_obj.get('fee')})" if (active_doctor_obj and active_doctor_obj.get('fee') and is_asking_fee) else ""
+                doc_consult_desc = f"Chief Doctor {active_doctor_obj.get('name', 'Doctor')}" if is_asking_doctor_name else "Chief Doctor"
+                if is_a3_ayush:
+                    stage_directive = (
+                        f"BOOKING INTEREST: APPOINTMENT TYPE DISTINCTION & A3 AYUSH URGENCY.\n"
+                        f"The customer expressed interest in scheduling an appointment: '{message_text}'.\n"
+                        f"DIRECTIVE FOR YOUR REPLY (A3 AYUSH PROTOCOL):\n"
+                        f"- In Sentence 1: Warmly acknowledge and build natural urgency by stating that our clinic caps at 40 to 50 appointments daily and today's schedule is mostly full with only the last few slots remaining. Mention BOTH options clearly: 1) Regular therapy appointments: Open Monday to Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}. 2) Chief Doctor consultation: Available on {', '.join(doc_available_days)} from 11:00 AM to 6:00 PM{doc_fee_hint}.\n"
+                        f"- In Sentence 2: Ask whether they would like to schedule a therapy appointment or doctor consultation, and what day and convenient time works best for them so we can lock their slot right now before bookings close.\n"
+                        f"- STRICT PROHIBITION ON SUGGESTING SPECIFIC TIMES: NEVER propose or suggest specific arbitrary times (such as '5:00 PM' or '6:30 PM'). Leave the time choice completely open to the customer!\n"
+                        f"- DOCTOR NAME PRIVACY: State the Chief Doctor's specific name only if the customer asks for the doctor's name!\n"
+                        f"- STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append [ACTION:CREATE_BOOKING] until service, date, and time are chosen!\n"
+                        f"- BREVITY: Keep reply concise (under 50 words)."
+                    )
+                else:
+                    stage_directive = (
+                        f"BOOKING INTEREST: APPOINTMENT TYPE DISTINCTION (THERAPY VS DOCTOR CONSULTATION).\n"
+                        f"The customer expressed interest in scheduling an appointment: '{message_text}'.\n"
+                        f"Our {facility_term} provides two distinct types of appointments:\n"
+                        f"1. Therapy Appointments: Regular therapies (Panchakarma, Varma, Cupping, Kizhi, etc.) run Monday through Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}.\n"
+                        f"2. Doctor Consultation: {doc_consult_desc} consultation is available on {', '.join(doc_available_days)} ({active_doctor_obj.get('schedule', '') or '11:00 AM to 6:00 PM'}{doc_fee_hint}). (DOCTOR NAME PRIVACY: State the Chief Doctor's specific name only if the customer asks for the doctor's name!).\n"
+                        f"DIRECTIVE FOR YOUR REPLY:\n"
+                        f"- Clearly explain both options to the customer: regular therapy appointments (Monday to Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}) and Chief Doctor consultation ({', '.join(doc_available_days)} from 11:00 AM to 6:00 PM).\n"
+                        f"- Ask whether they would like to schedule a therapy appointment or book a doctor consultation, and which day and time works best for them.\n"
+                        f"- STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append [ACTION:CREATE_BOOKING] until service, date, and time are chosen!"
+                    )
+            else:
+                stage_directive = (
+                    f"The customer expressed interest in scheduling ('{message_text}'), but has not specified a concrete appointment date, time, or service yet.\n"
+                    f"1. Warmly acknowledge their interest in Sentence 1.\n"
+                    f"2. Ask which specific treatment, service, or doctor they would like to book for, and what day and convenient time works best for them.\n"
+                    f"3. STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append any [ACTION:CREATE_BOOKING] tag until an exact date and time are provided!\n"
+                    f"4. Keep response under 2 short sentences."
+                )
         elif (
             any(w in inbound_clean for w in [
                 "demo", "show me", "call me", "book", "appointment", "schedule",
-                "get started", "proceed", "yes", "sure", "ok book", "interested",
+                "get started", "proceed", "ok book", "interested",
                 "booking", "slot", "slots", "வர விரும்புகிறேன்", "புக் பண்ண", "அப்பாயிண்ட்மென்ட்",
                 "புக்", "பதிவு", "நேரம்", "varalam"
             ])
             and not is_consideration_deferred
             and not is_testing_message
             and not is_gratitude_wrapup
+            and not is_short_acknowledgment
+            and not is_standalone_greeting
             and not already_asked_timing
         ):
             # ── SCHEDULING PREFERENCE (CUSTOMER READY / INTERESTED TO BOOK) ──
             funnel_stage = "SCHEDULING_PREFERENCE"
-            stage_directive = (
-                f"SCHEDULING PREFERENCE:\n"
-                f"The customer expressed interest in scheduling, booking, or taking the next step for {walkthrough_label}.\n"
-                f"1. DIRECT CONFIRMATION IN SENTENCE 1: Warmly accept and confirm readiness to schedule for {walkthrough_label} in Sentence 1.\n"
-                f"2. TIMING PREFERENCE: Ask what day and convenient time works best for them (e.g. 'What day and time works best for you?').\n"
-                f"3. TRANSPARENCY: If pricing or packages were asked, state {pricing_prompt_hint or 'the verified pricing'} clearly.\n"
-                f"4. Do NOT force arbitrary slots and do NOT claim today is fully booked.\n"
-                f"5. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max)."
-            )
+            if active_doctor_obj and doc_available_days and len(doc_available_days) < 7 and not is_explicit_doctor_inquiry and not is_explicit_therapy_inquiry:
+                doc_fee_hint = f" (Fee: ₹{active_doctor_obj.get('fee')})" if (active_doctor_obj and active_doctor_obj.get('fee') and is_asking_fee) else ""
+                doc_consult_desc = f"Chief Doctor {active_doctor_obj.get('name', 'Doctor')}" if is_asking_doctor_name else "Chief Doctor"
+                if is_a3_ayush:
+                    stage_directive = (
+                        f"SCHEDULING PREFERENCE: APPOINTMENT TYPE DISTINCTION & A3 AYUSH URGENCY.\n"
+                        f"The customer expressed interest in booking or scheduling an appointment: '{message_text}'.\n"
+                        f"DIRECTIVE FOR YOUR REPLY (A3 AYUSH PROTOCOL):\n"
+                        f"- In Sentence 1: Warmly acknowledge and build natural urgency by stating that our clinic caps at 40 to 50 appointments daily and today's schedule is mostly full with only the last few slots remaining. Mention BOTH options clearly: 1) Regular therapy appointments: Open Monday to Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}. 2) Chief Doctor consultation: Available on {', '.join(doc_available_days)} from 11:00 AM to 6:00 PM{doc_fee_hint}.\n"
+                        f"- In Sentence 2: Ask whether they would like to schedule a therapy appointment or book a doctor consultation, and which day and convenient time works best for them so we can lock their slot right now before bookings close.\n"
+                        f"- STRICT PROHIBITION ON SUGGESTING SPECIFIC TIMES: NEVER propose or suggest specific arbitrary times (such as '5:00 PM' or '6:30 PM'). Leave the time choice completely open to the customer!\n"
+                        f"- DOCTOR NAME PRIVACY: State the Chief Doctor's specific name only if the customer asks for the doctor's name!\n"
+                        f"- STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append [ACTION:CREATE_BOOKING] until service, date, and time are chosen!\n"
+                        f"- BREVITY: Keep reply concise (under 50 words)."
+                    )
+                else:
+                    stage_directive = (
+                        f"SCHEDULING PREFERENCE: APPOINTMENT TYPE DISTINCTION (THERAPY VS DOCTOR CONSULTATION).\n"
+                        f"The customer expressed interest in booking or scheduling an appointment: '{message_text}'.\n"
+                        f"Our {facility_term} provides two distinct types of appointments:\n"
+                        f"1. Therapy Appointments: Regular therapies (Panchakarma, Varma, Cupping, Kizhi, etc.) run Monday through Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}.\n"
+                        f"2. Doctor Consultation: {doc_consult_desc} consultation is available on {', '.join(doc_available_days)} ({active_doctor_obj.get('schedule', '') or '11:00 AM to 6:00 PM'}{doc_fee_hint}). (DOCTOR NAME PRIVACY: State the Chief Doctor's specific name only if the customer asks for the doctor's name!).\n"
+                        f"DIRECTIVE FOR YOUR REPLY:\n"
+                        f"- In Sentence 1, warmly acknowledge their request and clearly mention BOTH options: regular therapy appointments (Monday to Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}) and Chief Doctor consultation ({', '.join(doc_available_days)} from 11:00 AM to 6:00 PM).\n"
+                        f"- In Sentence 2, ask whether they would like to schedule a therapy appointment or book a doctor consultation, and which day and time works best for them.\n"
+                        f"- STRICTLY FORBIDDEN: Do NOT finalize any booking and do NOT append [ACTION:CREATE_BOOKING] until service, date, and time are chosen!\n"
+                        f"- BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max)."
+                    )
+            elif is_boldlabs:
+                is_feature_or_value_inquiry = any(q in inbound_clean for q in [
+                    "how does", "how do", "how it", "help", "work", "explain", "features", "included",
+                    "what can", "what is", "why", "dental", "doctor", "hospital", "patient", "manage"
+                ])
+                if is_feature_or_value_inquiry:
+                    stage_directive = (
+                        "CLINIC VALUE & FEATURE EXPLANATION (BOLDLABS):\n"
+                        "The customer asked how our platform helps their clinic or manages appointments and missed calls.\n"
+                        "1. STRICT BREVITY MANDATE: Your reply MUST be strictly 1-2 short sentences (25-40 words max). ZERO long paragraphs!\n"
+                        "2. DIRECT ANSWER (SENTENCE 1): Explain directly: 2-way Google Calendar sync prevents double-booking, and 5-second Missed Call Recovery instantly messages patients on WhatsApp to capture bookings.\n"
+                        "3. COMMERCIAL TERMS & SOFT CLOSE (SENTENCE 2): State flat ₹2,499/month (zero setup fee, live in 24 hours) and ask if they would like to get their clinic started.\n"
+                        "4. NEVER push for a 10-minute demo or Google Meet unless explicitly asked!"
+                    )
+                else:
+                    stage_directive = (
+                        "NEXT STEP / ACTIVATING CLINIC AUTOMATION PLAN:\n"
+                        "The customer expressed interest in moving forward, getting started, or activating WhatsApp automation for their clinic.\n"
+                        "1. CLEAR DIRECT CONFIRMATION IN SENTENCE 1: Warmly confirm that our team will set up their entire system remotely within 24 hours for ₹2,499/month with zero setup fee.\n"
+                        "2. CONSULTATIVE CLOSING IN SENTENCE 2: Ask for their clinic name and city so we can initiate their setup (e.g. 'To get your clinic setup started, what is your clinic name and which city are you located in?').\n"
+                        "3. DO NOT PUSH FOR A DEMO OR GOOGLE MEET: Close directly on WhatsApp unless they specifically ask for a screen-share.\n"
+                        "4. BREVITY: Keep your reply strictly to 1-2 crisp, natural sentences (under 40 words)."
+                    )
+            else:
+                stage_directive = (
+                    f"SCHEDULING PREFERENCE:\n"
+                    f"The customer expressed interest in scheduling, booking, or taking the next step for {walkthrough_label}.\n"
+                    f"1. DIRECT CONFIRMATION IN SENTENCE 1: Warmly accept and confirm readiness to schedule for {walkthrough_label} in Sentence 1.\n"
+                    f"2. TIMING PREFERENCE: Ask what day and convenient time works best for them (e.g. 'What day and time works best for you?').\n"
+                    f"3. TRANSPARENCY: If pricing or packages were asked, state {pricing_prompt_hint or 'the verified pricing'} clearly.\n"
+                    f"4. Do NOT force arbitrary slots and do NOT claim today is fully booked.\n"
+                    f"5. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max)."
+                )
         elif is_no_more_questions:
             funnel_stage = "NO_MORE_QUESTIONS_FINALIZE_SLOT"
             cust_name_part = f" {confirmed_name or customer_name_display}" if (confirmed_name or customer_name_display) else ""
@@ -7162,15 +9091,31 @@ end
         elif user_turn_count <= 1:
             # ── WELCOME & DIRECT ASSISTANCE (NEW CONVERSATION / FIRST MESSAGE) ──
             funnel_stage = "WELCOME_AND_DIRECT_ASSISTANCE"
-            stage_directive = (
-                "WELCOME & DIRECT ASSISTANCE (FIRST TOUCHPOINT):\n"
-                "The customer reached out to this business on WhatsApp.\n"
-                "1. DIRECT ANSWER FIRST: If the customer asked a question (pricing, services, hours, doctor, treatment, duration, location), your FIRST sentence MUST directly and accurately answer what they asked using verified business details.\n"
-                "2. GREETING: If they only sent a greeting ('Hi', 'Hello', 'Vanakkam'), warmly greet them and ask how we can assist them today.\n"
-                f"3. NATURAL FOLLOW-UP: In Sentence 2, ask a natural qualifying or guiding question (e.g. regarding {discovery_question_hint} or their preferred service/timing).\n"
-                "4. FULL TRANSPARENCY: Zero prohibitions on quoting prices, packages, or booking. If asked, provide verified details transparently.\n"
-                "5. BREVITY: Keep your reply to 1-2 short natural sentences (25-45 words max). Pure conversational texting flow."
-            )
+            cust_name_part = f" {confirmed_name or customer_name_display}" if (confirmed_name or customer_name_display) else ""
+            if is_boldlabs:
+                stage_directive = (
+                    "WELCOME & CONSULTATIVE FIRST TOUCHPOINT (BOLDLABS CLINIC AUTOMATION):\n"
+                    "The customer reached out to Boldlabs on WhatsApp from an ad or direct inquiry.\n"
+                    "1. IF CASUAL GREETING ONLY ('Hi', 'Hello', etc.): Deliver Option 1 (Smart Value Hook):\n"
+                    f"   - Sentence 1: 'Hi{cust_name_part}! Welcome to Boldlabs.'\n"
+                    "   - Sentence 2: 'We set up 24/7 AI WhatsApp receptionists for clinics that recover missed calls in 5 seconds and automate Google Calendar bookings.'\n"
+                    "   - Sentence 3: 'Are you looking to automate appointments for your clinic?'\n"
+                    "2. IF QUESTION ASKED (pricing, features, setup time): Directly answer what they asked in Sentence 1 (₹2,499/mo, live in 24 hours, zero setup fee) and ask for their clinic name and city.\n"
+                    "3. ZERO FORCED DEMOS: Never push for a 10-minute demo or Google Meet unless explicitly asked!\n"
+                    "4. BREVITY: Keep reply strictly to 2-3 crisp natural sentences (under 45 words)."
+                )
+            else:
+                stage_directive = (
+                    "WELCOME & DIRECT ASSISTANCE (FIRST TOUCHPOINT):\n"
+                    "The customer reached out to this business on WhatsApp.\n"
+                    "1. DIRECT ANSWER FIRST: If the customer asked a question (pricing, services, hours, doctor, treatment, duration, location), your FIRST sentence MUST directly and accurately answer what they asked using verified business details.\n"
+                    f"2. GREETING WITH SERVICE HOOK (OPTION 1): If they ONLY sent a greeting ('Hi', 'Hello', 'Vanakkam'), warmly greet and introduce our signature services:\n"
+                    f"   - Sentence 1 (Greeting & Brand): 'Hello{cust_name_part}! Welcome to {tenant_name}.' (In Tanglish: 'Vanakkam{cust_name_part}! Welcome to {tenant_name}.' / In Tamil: 'வணக்கம்{cust_name_part}! {tenant_name}-க்கு உங்களை அன்புடன் வரவேற்கிறோம்.').\n"
+                    f"   - Sentence 2 (Service Hook): 'We specialize in {top_services_hook}.' (In Tanglish: 'Namma center la {top_services_hook} provide panrom.').\n"
+                    f"   - Sentence 3 (Guiding Question): 'How can I assist you today, or which service would you like details on?' (In Tanglish: 'Ungalukku entha service pathi details thevai paduthu sollunga?').\n"
+                    "3. FULL TRANSPARENCY: Zero prohibitions on quoting prices, packages, or booking. If asked, provide verified details transparently.\n"
+                    "4. BREVITY: Keep your reply to 2-3 short natural sentences (30-50 words max). Pure conversational texting flow."
+                )
         else:
             # ── CONVERSATIONAL PROGRESSION (ONGOING DIALOGUE) ──
             funnel_stage = "CONVERSATIONAL_PROGRESSION"
@@ -7259,23 +9204,35 @@ end
                 "  Set \"payment_mode\": \"pay_at_clinic\" in the action tag.\n"
             )
 
+        ig_booking_directive = ""
+        if is_ig_channel:
+            ig_booking_directive = (
+                "\n### INSTAGRAM DM BOOKING MANDATE (CRITICAL - MOBILE NUMBER REQUIRED):\n"
+                "You are communicating with the customer via Instagram Direct Message (DM).\n"
+                "Before finalizing any appointment booking, you MUST ask the customer for their WhatsApp mobile number:\n"
+                "\"Could you please share your WhatsApp mobile number so we can send your booking confirmation and appointment details?\"\n"
+                "STRICTLY FORBIDDEN: DO NOT emit [ACTION:CREATE_BOOKING] until the customer has provided their mobile number (or unless they already shared it earlier in the conversation).\n"
+                "Once they provide their mobile number, include it in the action tag: \"phone\": \"<10-digit mobile number>\".\n"
+            )
+
         action_tag_directives = (
             "### ACTION TAG PROTOCOLS (Executed by system when appointments or contact details are confirmed):\n"
-            f"- BOOKING CONFIRMATION: Once customer confirms Date, Time, Name, and Email, append at end:\n"
-            f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"price\": <numeric amount e.g. 2499 or 0>, \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\", \"payment_mode\": \"online\" | \"pay_at_clinic\"}}]\n"
+            f"- BOOKING CONFIRMATION: Once customer confirms Date, Time, Name, and Email{' and Mobile Number' if is_ig_channel else ''}, append at end:\n"
+            f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"price\": <numeric amount e.g. 2499 or 0>, \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"phone\": \"<Customer 10-digit Mobile Number>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\", \"payment_mode\": \"online\" | \"pay_at_clinic\"}}]\n"
             f"- HOME SAMPLE COLLECTION & HOME VISIT MANDATE:\n"
             f"  If the customer is booking a Home Sample Collection or Home Service, you MUST obtain their complete street address (Door/Flat No., Building, Street/Nagar, Area, Landmark, Pincode) BEFORE emitting [ACTION:CREATE_BOOKING].\n"
             f"  If address has not been provided yet, ask for their complete home address first and DO NOT emit [ACTION:CREATE_BOOKING] until they share it!\n"
             f"  When address is provided, include it in the notes: \"notes\": \"Home Address: <Full Address>\".\n"
             f"- RESCHEDULE CONFIRMATION: When customer reschedules to a new Date & Time, append at end:\n"
-            f"  [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}}]\n"
+            f"  [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"phone\": \"<Customer 10-digit Mobile Number>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}}]\n"
             "- CANCELLATION: When explicitly asking to cancel, append: [ACTION:CANCEL_BOOKING]\n"
             "- HUMAN TAKEOVER / ESCALATION: Output [ACTION:HUMAN_TAKEOVER] ONLY when customer explicitly demands human staff over AI (e.g. 'stop bot', 'connect to human agent'). NEVER output for routine consultations, therapy bookings, or doctor inquiries.\n"
             "- CUSTOMER DETAIL & INTENT EXTRACTION:\n"
             "  When customer shares contact info, health concern, doctor, age, or location, append:\n"
-            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age or null>, \"location\": \"<City or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
+            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Name or null>\", \"phone\": \"<Phone or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age or null>, \"location\": \"<City or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
             "  Scoring: 'hot' (booking/payment/call requested), 'warm' (asking pricing/services/questions), 'cold' (disengaged/declining).\n"
-            f"{pay_directive}"
+            f"{pay_directive}\n"
+            f"{ig_booking_directive}"
         )
 
         # full_location is extracted early above from tenant_st_row
@@ -7294,7 +9251,7 @@ end
             "### ⚠ ABSOLUTE ZERO-HALLUCINATION MANDATE (READ BEFORE EVERYTHING ELSE):\n"
             "You are a factual business WhatsApp assistant. Your ONLY job is to answer accurately from the verified business knowledge base in this prompt.\n"
             "KNOWLEDGE-ONLY RULE: Every single fact in your reply — services, prices, operating hours, addresses, doctor names, policies — MUST come DIRECTLY and EXCLUSIVELY from the knowledge base provided below in this prompt. Period.\n"
-            "WHEN IN DOUBT → SAY 'I DON'T HAVE THAT DETAIL': If the customer asks about something not explicitly stated in this knowledge base, say warmly: 'I don't have that detail with me right now. Let me have our team get back to you shortly.' NEVER invent or guess.\n"
+            "WHEN IN DOUBT → SAY 'I DON'T HAVE THAT DETAIL': If the customer asks about a specific fact, policy, or detail that is genuinely not mentioned anywhere in this knowledge base or prompt (e.g. unlisted external brand, unknown staff member, unconfigured procedure), say warmly: 'I don't have that detail with me right now. Let me have our team get back to you shortly.' Before saying this, ensure you thoroughly check the Business Identity, Founder, Staff, and Services sections in this prompt. NEVER invent or guess. CRITICAL EXCEPTION FOR BRANCH INQUIRIES: If the customer asks whether we have branches in another city or area (e.g. 'do you have branches in Indiranagar / Chennai / near me?'), DO NOT say 'I don't have that detail' — this business operates strictly from its single verified address and has NO other branches anywhere. State clearly and politely that we do not have branches there and operate exclusively from our verified location.\n"
             "ZERO INVENTION POLICY: Never invent, assume, or extrapolate any service, price, treatment, doctor name, location, timing, or policy that is not explicitly written in this prompt. A wrong or invented answer can directly harm the business and the customer.\n\n"
             "### STRICT TENANT IDENTITY & FACTUAL DATA ISOLATION:\n"
             f"- Organization / Business Name: \"{tenant_name or 'this business'}\"\n"
@@ -7325,22 +9282,24 @@ end
             "   ONLY THEN apply the single-branch mandate and clarify you operate exclusively at your verified address.\n"
             "E) PRICING / OFFER INQUIRY — Customer asks about price, cost, rate, offer, discount, package, or promotion.\n"
             "   Always include exact prices AND any active special offers from the knowledge base.\n"
-            "F) BOOKING / APPOINTMENT — Customer wants to book, reschedule, or cancel.\n"
-            "   Follow the booking flow.\n"
+            "F) BOOKING / APPOINTMENT — Customer wants to book, schedule, reschedule, or cancel.\n"
+            "   Answer: Follow the natural booking flow. Present available appointment options warmly without quoting prices or fees unless specifically asked. Guide them to select a convenient date and time.\n"
             "G) GENERAL CHAT — Customer sends casual greeting, feedback, or unrelated question.\n"
             "   Respond warmly and briefly.\n"
+            "H) FOUNDER / LEADERSHIP / OWNERSHIP INQUIRY — Customer asks who founded, started, owns, or leads the business, or asks for the founder's name (e.g. 'who is the founder', 'founder name?', 'who started this company?').\n"
+            "   Answer: Immediately and directly state the verified founder / leadership name from the Business Identity ground truth (e.g. for Boldlabs: Bhuvanesh Karnan). NEVER say you don't have that detail when the founder/leadership name is in the prompt!\n"
             "\n"
-            "CRITICAL RULE: Match your reply to the IDENTIFIED intent type (A through G). "
-            "NEVER apply rule set D (branch mandate) to intent types A, B, C, E, F, or G. "
+            "CRITICAL RULE: Match your reply to the IDENTIFIED intent type (A through H). "
+            "NEVER apply rule set D (branch mandate) to intent types A, B, C, E, F, G, or H. "
             "If the intent is ambiguous, default to answering the question warmly and helpfully without restricting information."
         )
 
 
         admin_phone_clean = (admin_phone or "").strip()
         admin_contact_instruction = (
-            f"If the customer asks for a phone number, contact number, or how to call/speak directly with someone:\n"
-            f"  - Provide our official contact number: '{admin_phone_clean}'.\n"
-            f"  - Example: 'You can reach {admin_name or 'our team'} directly at {admin_phone_clean}.'\n"
+            f"If the customer asks for a phone number or contact number:\n"
+            f"  - State: 'You can reach {admin_name or 'our team'} directly at {admin_phone_clean}.'\n"
+            f"  - Keep it to 1 single clear sentence. Never repeat the contact number or sentence twice.\n"
             if admin_phone_clean else
             f"If the customer asks for a contact number:\n"
             f"  - State that {admin_name or 'our team'} will call them directly on this WhatsApp number at their scheduled time, or ask if they'd like an immediate callback.\n"
@@ -7349,15 +9308,18 @@ end
         contact_integrity_block = (
             "### STRICT IDENTITY, NAMES & CONTACT NUMBER INTEGRITY (ZERO HALLUCINATION DIRECTIVE):\n"
             f"1. YOU ARE TALKING TO: Customer '{confirmed_name or customer_name_display or 'the customer'}' (Their phone: {contact_phone}).\n"
-            f"2. TEAM / BUSINESS OWNER: '{admin_name or tenant_name or 'our team'}'" + (f" (Direct Contact Phone: {admin_phone_clean})" if admin_phone_clean else "") + ".\n"
-            "3. ABSOLUTELY FORBIDDEN - NEVER GIVE THE CUSTOMER'S OWN PHONE NUMBER TO THEM:\n"
+            f"2. YOUR OWN IDENTITY (ASSISTANT): You are '{assistant_name or 'the assistant'}' representing {tenant_name or 'this business'}.\n"
+            f"3. TEAM / FOUNDER / BUSINESS OWNER: '{founder_name or admin_name or tenant_name or 'our team'}'" + (f" (Direct Contact Phone: {admin_phone_clean})" if admin_phone_clean else "") + ".\n"
+            "4. ABSOLUTELY FORBIDDEN - NEVER CONFUSE CUSTOMER AND STAFF NAMES:\n"
+            f"   - The customer's name is '{confirmed_name or customer_name_display}'. NEVER greet or address the customer as '{assistant_name}', '{admin_name}', or '{founder_name}'!\n"
+            f"   - '{assistant_name}' is YOUR name (the assistant), NOT the customer's name! NEVER say 'Hello {assistant_name}' or 'Welcome {assistant_name}'!\n"
+            f"   - '{admin_name or founder_name}' is the owner / founder, NOT the customer!\n"
+            f"   - Address the customer as '{confirmed_name or customer_name_display}' or use respectful terms like 'Doctor', 'Sir', 'Ma'am'.\n"
+            "5. ABSOLUTELY FORBIDDEN - NEVER GIVE THE CUSTOMER'S OWN PHONE NUMBER TO THEM:\n"
             f"   - The number '{contact_phone}' belongs to the CUSTOMER, NOT the business or team!\n"
             f"   - NEVER reply saying 'You can reach {admin_name or 'us'} at {contact_phone}'! That is the customer's own phone number!\n"
             + admin_contact_instruction +
-            f"4. ABSOLUTELY FORBIDDEN - NEVER CONFUSE CUSTOMER AND STAFF NAMES:\n"
-            f"   - The customer's name is '{confirmed_name or customer_name_display}'. NEVER call the customer '{admin_name}' or 'Bhuvan'!\n"
-            f"   - '{admin_name}' is the staff member / owner, NOT the customer!\n"
-            "5. WHEN CUSTOMER ASKS 'WHY DIDN'T YOU CALL?' OR 'WHY MISSED TODAY?':\n"
+            "6. WHEN CUSTOMER ASKS 'WHY DIDN'T YOU CALL?' OR 'WHY MISSED TODAY?':\n"
             f"   - Sincerely apologize on behalf of {admin_name or 'the team'} for missing the connection or the delay.\n"
             "   - Offer an immediate callback right now if they are free, or ask if they prefer a convenient time tomorrow without making conflicting claims.\n"
             f"   - Reassure them: ask if they are free right now for an immediate callback, or give {admin_phone_clean or 'our direct number'} so they can connect right away."
@@ -7365,28 +9327,75 @@ end
 
         reinforcement_parts = [
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:",
-            "- WARM, HOSPITABLE & FRIENDLY TONE (BANISH BLUNT 'NO'): Always sound like a caring, authentic clinic coordinator on WhatsApp. NEVER be rude, cold, or give blunt 'No' rejections. Frame restrictions warmly around patient comfort, privacy, and personalized care.",
+            "- CASUAL HUMAN WHATSAPP FLOW (NO CORPORATE ROBOTIC TEMPLATES): Always talk naturally and casually like a friendly clinic coordinator texting on WhatsApp. Use easy Indian English, natural Tanglish, or Tamil matching the customer. STRICTLY NEVER use robotic corporate templates like 'Would you like to schedule an appointment for a visit to our center?', 'Please let us know how we may assist you further', or 'Feel free to reach out'. Keep it casual, friendly, and practical (e.g. 'What time works best for you?', 'Shall I book a slot for tomorrow?', 'Which day would you like to visit?').",
+            "- PRICING STRICTLY ON REQUEST (NEVER SEND PRICES UNPROMPTED): NEVER mention prices, fees, consultation charges, or rates unless the customer specifically asked for them (e.g., 'price', 'fee', 'cost', 'charges', 'offer', 'rate'). When describing services, therapies, treatments, or doctor visits, explain what is offered warmly WITHOUT attaching rupee amounts unless explicitly requested.",
             "- SMART CONTEXTUAL RESPONSE STYLE (NO RIGID SCRIPTS):",
             "  * CASUAL MESSAGES ('Hi', 'Ok', 'Thanks', hours, address): Reply in 1-2 warm helpful sentences. Do NOT force a sales pitch.",
             "  * DIRECT QUESTIONS (price, services, hours, features): Answer directly and completely first. NEVER dodge with a qualification question.",
             "- 2-STEP BOOKING VERIFICATION PROTOCOL:",
-            "  * CASUAL/TENTATIVE TIME MENTIONS ('tomorrow 4 pm', 'is 5 pm open?', 'can I come at 4?'): State that the slot is open within operating hours and ASK FOR CONFIRMATION (e.g. 'Tomorrow at 4:00 PM is available with [Host]! Would you like me to go ahead and book this slot for you?'). Strictly DO NOT append any [ACTION:CREATE_BOOKING] tag yet!",
+            "  * CASUAL/TENTATIVE TIME MENTIONS ('tomorrow 4 pm', 'is 5 pm open?', 'can I come at 4?'): State that the slot is open within operating hours and ASK FOR CONFIRMATION (e.g. 'Tomorrow at 4:00 PM is available! Shall I go ahead and book this slot for you?'). Strictly DO NOT append any [ACTION:CREATE_BOOKING] tag yet!",
             "  * EXPLICIT CONFIRMATION OR COMMAND ('Yes', 'Sure', 'Book it', 'Please book tomorrow 4 pm'): IMMEDIATELY confirm the booking in your text sentence AND append [ACTION:CREATE_BOOKING: ...].",
             "  * NEVER end two consecutive messages with the same closing sentence, CTA, or website link.",
             f"- OPERATING HOURS INTEGRITY: If asked about clinic / business timings or hours, directly state '{op_hours_display} daily'. Never guess from calendar slot lists.",
             "- ANSWER FIRST, QUALIFY SECOND: Directly answer what the customer asked in Sentence 1 using verified business data. In Sentence 2, guide them forward or ask a natural next-step question. If the customer proposes or asks about an appointment time, propose availability and ask for confirmation. When explicit confirmation is given, finalize and lock the booking.",
-            "- NATURAL BREVITY: Keep your reply concise (1 to 2 short natural sentences, 25 to 45 words max). Pure conversational WhatsApp texting flow.",
-            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis.",
+            "- NATURAL BREVITY & EXCEPTION FOR FEATURE/PACKAGE LISTS: For routine chat, keep your reply concise (1 to 2 short natural sentences). EXCEPTION: When the customer specifically asks for a complete list of features, inclusions, or package details (e.g. 'Give me complete list what are included', 'What are the features?', 'What do I get?'), you MUST provide a complete, clear, and comprehensive breakdown of the core features and inclusions so they fully understand the value, followed by a warm closing question to get started.",
+            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis. (For listing features or inclusions, use clean numbers 1), 2), 3) or comma-separated items).",
             "- PRICES & TIMES IN DIGITS: ALWAYS write prices in standard digits with currency (e.g. ₹1299 or Rs. 1299). ALWAYS write times with digits (e.g. 10:00 AM or 6:30 PM).",
             "- ONE QUESTION AT A TIME: Never stack multiple questions. Ask at most ONE diagnostic or booking question per reply.",
-            "- NO REPEATED GREETINGS OR RE-INTRODUCTIONS: NEVER say 'Hi', 'Hello', 'I am [Name]', or 'How can I help you?'. Pick up directly from the prior conversation thread." if is_ongoing_conversation else "- GREETING: Greet warmly in sentence 1.",
+            f"- WARM GREETING WITH SERVICE HOOK (OPTION 1): The customer greeted you ('Hi', 'Hello', etc.). You MUST warmly welcome them mentioning our business name '{tenant_name}', briefly highlight our signature services ({top_services_hook}), and ask how you can assist or which service they need details on. STRICTLY NEVER send a generic greeting without our business name and core services! STRICTLY NEVER ask to reschedule old appointments when someone just says Hi!" if is_standalone_greeting else ("- NO REPEATED GREETINGS: Do not restart every ongoing answer with 'Hi' or company intros. Answer the customer's current question directly and naturally." if is_ongoing_conversation else "- GREETING: Greet warmly and naturally in sentence 1."),
             f"- LANGUAGE & IDENTITY: Strictly match customer's language ({style_profile['label']}). Ground answers exclusively in this tenant's details above.",
             "- AI HONESTY: If the customer asks 'Are you AI?' or 'Are you a bot?', directly, warmly, and honestly confirm: 'Yes, I am the AI assistant for this business on WhatsApp!' and ask how you can assist them today. Never deny being AI, never pretend to be a human, and never dodge.",
             "- NO REPEATED BOOKING CONFIRMATIONS: If an appointment slot was already agreed earlier in the chat, do NOT append 'your slot is booked' or re-propose times on unrelated inquiries; simply answer their question directly.",
             "- BRANCH & LOCATION INTEGRITY (INTENT-AWARE): Only apply this rule when the customer is EXPLICITLY asking about branches, other locations, or whether we operate in another area. If the customer merely mentions a city as personal context (e.g. 'I am from Chennai', 'any service in my area?') or asks about staff/therapists ('do you have professional staff?', 'know any massage therapist?'), DO NOT trigger the branch mandate. Instead, answer their actual question directly (e.g. confirm you have qualified professional therapists at the center). Never misread a staff/service question as a branch inquiry.",
         ]
+        if active_doctor_obj and doc_available_days and len(doc_available_days) < 7 and not is_explicit_doctor_inquiry and not is_explicit_therapy_inquiry and not is_short_acknowledgment and not is_standalone_greeting:
+            doc_consult_label = f"Chief Doctor {active_doctor_obj.get('name')}" if is_asking_doctor_name else "Chief Doctor"
+            doc_fee_hint = f" (Fee: ₹{active_doctor_obj.get('fee')})" if (is_asking_fee and active_doctor_obj.get("fee")) else ""
+            doc_sched_str = active_doctor_obj.get("schedule") or "11:00 AM to 6:00 PM"
+            doc_days_str = ", ".join(doc_available_days)
+            if is_a3_ayush:
+                reinforcement_parts.append(
+                    f"- APPOINTMENT BOOKING DISTINCTION & A3 AYUSH URGENCY:\n"
+                    f"  * When a customer asks to book an appointment generally without specifying a service:\n"
+                    f"    In Sentence 1: Build natural urgency by mentioning that our clinic caps at 40 to 50 appointments daily and today's schedule is mostly full with only the last few slots remaining. State BOTH options clearly: 1) Regular therapy appointments: Open Monday to Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}. 2) Doctor consultation: {doc_consult_label} consultation is available on {doc_days_str} from {doc_sched_str}{doc_fee_hint}.\n"
+                    f"    (DOCTOR NAME PRIVACY: State the Chief Doctor's specific personal name only if the customer asks for the doctor's name! Otherwise simply refer to 'Doctor consultation' or 'Chief Doctor consultation').\n"
+                    f"    In Sentence 2: Ask which option and what day and convenient time works best for them so we can lock their slot before bookings close.\n"
+                    f"    STRICT PROHIBITION ON SPECIFIC TIMES: NEVER suggest specific clock times (like 5:00 PM or 6:30 PM). Let the customer choose!\n"
+                    f"  * If customer asks about booking for a specific day when the doctor consults without specifying a service (e.g. 'Can I book for Monday?'): State that both doctor consultation and therapy appointments are available on that day, and ask which one they prefer and what time works best.\n"
+                    f"  * If customer asks about booking for an open day when the doctor is NOT consulting without specifying a service (e.g. 'Can I book for Saturday?'): State that therapy appointments are available on that day, while doctor consultation is available on {doc_days_str}, and ask what they would like to schedule.\n"
+                    f"  * When a customer explicitly chooses doctor consultation (e.g. 'I want doctor consultation on Monday'): Do NOT re-ask which service they want! Directly confirm doctor consultation on that day ({doc_sched_str}{doc_fee_hint}) and ask what specific time works best for them.\n"
+                    f"  * When a customer explicitly chooses therapy appointments: Directly confirm therapy appointments and ask what specific day and time works best for them."
+                )
+            else:
+                reinforcement_parts.append(
+                    f"- APPOINTMENT BOOKING DISTINCTION (THERAPY VS DOCTOR CONSULTATION):\n"
+                    f"  * TRIGGER CONDITION: Apply this ONLY when customer is specifically asking to book an appointment generally without specifying a service (e.g. 'Can I book an appointment?', 'How to book?'). DO NOT trigger this on acknowledgments ('Ok', 'Sure'), greetings ('Hi', 'Hello'), or questions about location or general services.\n"
+                    f"  * When a customer asks to book an appointment generally without specifying a service:\n"
+                    f"    Clearly state BOTH options simply in Sentence 1:\n"
+                    f"    1) Regular therapy appointments: Open Monday to Saturday from {op_hours_display or '10:00 AM to 8:00 PM'}.\n"
+                    f"    2) Doctor consultation: {doc_consult_label} consultation is available on {doc_days_str} from {doc_sched_str}{doc_fee_hint}.\n"
+                    f"    (DOCTOR TRANSPARENCY: Freely share the doctor's name and specialty if provided in the verified profile, so the customer knows who they are consulting with!).\n"
+                    f"    In Sentence 2, ask whether they would like to schedule a therapy appointment or consult the doctor, and which day works best for them.\n"
+                    f"  * If customer asks about booking for a specific day when the doctor consults without specifying a service (e.g. 'Can I book for Monday?'): State that both doctor consultation and therapy appointments are available on that day, and ask which one they prefer.\n"
+                    f"  * If customer asks about booking for an open day when the doctor is NOT consulting without specifying a service (e.g. 'Can I book for Saturday?'): State that therapy appointments are available on that day, while doctor consultation is available on {doc_days_str}, and ask what they would like to schedule.\n"
+                    f"  * When a customer explicitly chooses doctor consultation (e.g. 'I want doctor consultation on Monday'): Do NOT re-ask which service they want! Directly confirm doctor consultation on that day ({doc_sched_str}{doc_fee_hint}) and ask what specific time works best for them.\n"
+                    f"  * When a customer explicitly chooses therapy appointments: Directly confirm therapy appointments and ask what specific day and time works best for them."
+                )
+        if is_a3_ayush:
+            reinforcement_parts.append(
+                "- CRITICAL A3 AYUSH BOOKING URGENCY & DOCTOR TRANSPARENCY DIRECTIVE:\n"
+                "  1. BOOKING URGENCY & CAPACITY: When the customer asks to book, schedule, asks for available slots, or discusses visiting the clinic: Build natural urgency by mentioning that our clinic caps at 40 to 50 appointments daily and today's schedule is mostly full with only the last few slots remaining. Ask what time works best for them right now so we can lock their slot before bookings close.\n"
+                "  2. STRICT PROHIBITION ON SUGGESTING SPECIFIC TIMES: NEVER propose or suggest specific clock times (such as '5:00 PM' or '6:30 PM'). Always let the customer tell you what time works for them!\n"
+                "  3. CHIEF DOCTOR NAME: The Chief Doctor is Dr. Rakesh Babu C.E. When discussing consultation, share his name warmly and helpfully so patients know they are booking with Chief Doctor Dr. Rakesh Babu C.E.\n"
+            )
         if is_aadhiran:
             reinforcement_parts.append(
+                "- CRITICAL AADHIRAN CENTER THERAPIST GENDER RULE (MALE THERAPISTS ONLY):\n"
+                "  At Aadhiran Center, ONLY MALE THERAPISTS ARE AVAILABLE. There are ABSOLUTELY NO FEMALE THERAPISTS!\n"
+                "  If the customer asks 'female therapist irukangala?', 'male ku female pannamatangala/pannuvangala?', or any variant about female staff/therapists:\n"
+                "  You MUST reply clearly that in our center, only male therapists are available, and there are NO female therapists.\n"
+                "  (In Tanglish: 'Namma center-la certified male therapists mattum thaan irukanga sir, female therapists kidaiyathu.' / In Tamil: 'எங்கள் மையத்தில் ஆண் தெரபிஸ்ட்கள் மட்டுமே உள்ளனர், பெண் தெரபிஸ்ட்கள் கிடையாது.')\n"
+                "  NEVER EVER claim, imply, or hallucinate that female therapists exist!\n"
                 "- CRITICAL AADHIRAN CENTER MANDATORY LANGUAGE MANDATE (ZERO ENGLISH REPLIES ALLOWED):\n"
                 "  You are the WhatsApp assistant for Aadhiran Center. You MUST reply ONLY in Tanglish or Tamil (Tamil script).\n"
                 "  STRICT RULE: NEVER reply in English! If the customer sent a message in English or an English voice message, you MUST reply in natural conversational spoken WhatsApp Tanglish. If the customer sent a message in Tamil, you MUST reply in Tamil using Tamil script. Zero English sentences allowed under any circumstance!"
@@ -7399,6 +9408,16 @@ end
                 "  ABSOLUTE PROHIBITION ON ENGLISH: Never write in English! Zero English sentences allowed under any circumstance (unless the patient explicitly requested English).\n"
                 "  RESPECTFUL FORM: ALWAYS address the patient respectfully as 'உங்களுக்கு' (NEVER use 'உனக்கு' or 'நீ', and NEVER 'உங்களுக்குங்கள்').\n"
                 "  DOCTOR FEES: Dr. Sakthivel General OP ₹150, Specialists ₹200 (MD General Medicine Dr. Tamilmani, Ortho Dr. Nethaji, Surgeon Dr. Anbarasan, Skin Dr. Raju, Child Dr. Thamizharasan, Gyn Dr. Nithiya Priyadharshini, AYUSH, Siddha, Physiotherapy), Neurosurgeon Dr. Pallavan ₹300, Cardio ₹300. Open 24 மணி நேரமும் (24/7)."
+            )
+        if is_boldlabs:
+            reinforcement_parts.append(
+                "- CRITICAL BOLDLABS SALES CLOSING & BREVITY DIRECTIVE:\n"
+                "  1. STRICT 1-2 SHORT LINES ONLY (WHATSAPP BREVITY): Every reply MUST be strictly 1-2 short natural sentences (20-40 words max). ZERO long paragraphs! ZERO giant numbered lists!\n"
+                "  2. CONSULTATIVE CLOSER ON WHATSAPP: You are Rakshaya, Solutions Consultant at Boldlabs. Your mission is to explain clinic automation clearly and convert ad leads into activated clients directly on WhatsApp at flat ₹2,499/month (₹0 setup fee, unlimited messages, live in 24 hours).\n"
+                "  3. CONCISE VALUE EXPLANATION: When asked what is included or how it works, give a crisp 1-sentence summary of the core solution (24/7 AI receptionist, 5-sec missed call recovery, Google Calendar auto-booking) at flat ₹2,499/month, and ask what type of clinic they run or for their clinic name and city.\n"
+                "  4. ZERO FORCED DEMO PUSH: STRICTLY NEVER proactively ask or push prospects to schedule a demo or Google Meet! Doctors want immediate answers and activation on WhatsApp.\n"
+                "  5. 100% REMOTE & DIGITAL: Boldlabs setup is 100% cloud-based and activated remotely within 24 hours across India.\n"
+                "  6. IDENTITY & RESPECTFUL ADDRESS: Address the lead respectfully as 'Doctor' or by their name. NEVER address the customer as 'Rakshaya', 'Bhuvanesh', or 'Boldlabs'!"
             )
         if is_voice_note:
             v_note_rule = "- VOICE NOTE INBOUND: Reply DIRECTLY to what the customer asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any variant acknowledging the voice format. Just answer their question naturally."
@@ -7431,6 +9450,7 @@ end
         )
 
         # Check if the tenant is using a Unified Master Knowledge Base
+        # Check if the tenant is using a Unified Master Knowledge Base or Platform Engine
         is_unified_kb = bool(
             custom_instructions and (
                 "### 1. BUSINESS IDENTITY" in custom_instructions or
@@ -7438,7 +9458,24 @@ end
                 "# BUSINESS IDENTITY" in custom_instructions or
                 "### 2. VERIFIED SERVICES" in custom_instructions or
                 "### VERIFIED SERVICES & PRICING" in custom_instructions or
-                len(custom_instructions.strip()) >= 1500
+                "OPERATING HOURS" in custom_instructions.upper() or
+                len(custom_instructions.strip()) >= 300 or
+                PlatformEngine is not None
+            )
+        )
+
+        has_custom_hours = bool(
+            custom_instructions and any(
+                h in custom_instructions.upper() for h in [
+                    "OPERATING HOURS", "WORKING HOURS", "CLINIC TIMINGS", "OPENING HOURS"
+                ]
+            )
+        )
+        has_custom_address = bool(
+            custom_instructions and any(
+                a in custom_instructions.upper() for a in [
+                    "PHYSICAL ADDRESS", "BUSINESS IDENTITY", "LOCATION & GOOGLE MAPS", "MAPS.APP.GOO.GL"
+                ]
             )
         )
 
@@ -7450,41 +9487,15 @@ end
             prompt_blocks = [
                 time_context,
                 tenant_isolation_boundary,
+            ]
+            if GLOBAL_PLATFORM_CORE_DIRECTIVE:
+                prompt_blocks.append(GLOBAL_PLATFORM_CORE_DIRECTIVE.strip())
+            else:
+                prompt_blocks.append(f"### GLOBAL PLATFORM DEFAULT RULES & CLOSING FRAMEWORK (STRICT MANDATORY COMPLIANCE):\n{GLOBAL_DEFAULT_STRICT_RULES}")
+            prompt_blocks.extend([
                 ssot_block,
                 f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
-                # Official Operating Hours Ground Truth
-                (
-                    (
-                        f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS - 24/7 OPEN):\n"
-                        f"- Daily Operating Hours: {op_hours_display}\n"
-                        f"- 24/7 MANDATE: This business/clinic is strictly OPEN 24 HOURS A DAY, 7 DAYS A WEEK (24/7, all days and nights, always open for consultations, OP visits, and emergencies).\n"
-                        f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, opening time, closing time, or when we are open, ALWAYS state: 'We are open 24 hours daily (24/7, day and night)'. NEVER say we close at night or state limited closing hours like 09:00 PM or 11:59 PM!"
-                    )
-                    if is_24_7 else
-                    (
-                        f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS):\n"
-                        f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
-                        f"- Opening Time: {fmt_open} (Morning / காலை)\n"
-                        f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
-                        f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
-                    )
-                ),
-                # Official Business Location Ground Truth
-                (
-                    f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH (MANDATORY {facility_term.upper()} ADDRESS):\n"
-                    f"- Verified Business / {facility_term.title()} Physical Address: {physical_address or full_location}\n"
-                    + (f"- Official Verified Google Maps Link: {google_maps_url}\n" if google_maps_url else "")
-                    + f"- MANDATORY LOCATION & SINGLE-BRANCH MANDATE:\n"
-                    f"  1. When the customer asks about business location, {facility_term} address, landmark, directions, or where we are located, ALWAYS provide our verified physical address: '{physical_address or full_location}'.\n"
-                    + (f"  2. MANDATORY GOOGLE MAPS LINK: You MUST include BOTH the physical address ('{physical_address or full_location}') AND the Google Maps link ('{google_maps_url}') in your reply! Never omit the map link.\n" if google_maps_url else "")
-                    + f"  3. Unless multiple branches are explicitly listed in this prompt, this business operates EXCLUSIVELY from this single verified location. We have NO branches in other areas or cities (such as Anna Nagar, Adyar, Mannady, Nungambakkam, Velachery, Parrys, Tambaram, etc.).\n"
-                    f"     INTENT NOTE: Only apply this mandate when the customer EXPLICITLY asks whether you have a branch in another city/area, or asks 'do you operate in X area?' — if the customer merely mentions their city/area as personal context (e.g. 'I live in Dharmapuri'), or asks about staff/therapists/qualifications, answer their ACTUAL question — do NOT fire this branch mandate.\n"
-                    f"  4. IMMUNITY FROM CHAT HISTORY & MEDIA: Never claim or confirm any other branch, even if the customer asks 'how about Anna Nagar?' or sends a document/flyer showing other areas, or if past messages mistakenly mentioned another branch. Firmly and politely clarify that we operate ONLY at '{physical_address or full_location}'.\n"
-                    f"  5. NEVER confuse the customer's personal living area or workplace with the {facility_term} location!"
-                    if full_location else
-                    f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH:\n- No {facility_term} address configured yet. NEVER invent, fabricate, or hallucinate any location or address!"
-                ),
-            ]
+            ])
             if leave_closure_block:
                 prompt_blocks.append(leave_closure_block)
             prompt_blocks.extend([
@@ -7500,8 +9511,6 @@ end
                 # ── REAL-TIME DYNAMIC CONTEXT: LIVE GOOGLE CALENDAR OCCUPIED SLOTS ──
                 busy_slots_block,
             ])
-            if leave_closure_block:
-                prompt_blocks.append(leave_closure_block)
             if upcoming_booking_block:
                 prompt_blocks.append(upcoming_booking_block)
 
@@ -7513,6 +9522,11 @@ end
 
             # Conversational formatting and tone reinforcement
             prompt_blocks.append(reinforcement_rule)
+
+            if strict_rules.strip():
+                prompt_blocks.append(
+                    f"### STRICT BUSINESS RULES (MANDATORY COMPLIANCE):\n{strict_rules.strip()}"
+                )
 
             # Essential Tool Action Tags (how the AI triggers backend actions when confirmed):
             if "[ACTION:CREATE_BOOKING" not in custom_instructions:
@@ -7637,8 +9651,6 @@ end
 
             # ── SECTION 3: CALENDAR & SCHEDULING ──
             prompt_blocks.append(busy_slots_block)
-            if leave_closure_block:
-                prompt_blocks.append(leave_closure_block)
             if upcoming_booking_block:
                 prompt_blocks.append(upcoming_booking_block)
 
@@ -7687,7 +9699,7 @@ end
             gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
             max_tokens=2048,
             temperature=0.15,  # Low temperature = factual, grounded, low hallucination risk
-            timeout_seconds=5.5,  # Raised to 5.5s to prevent false timeouts on larger prompt contexts
+            timeout_seconds=4.0,  # Fast 4.0s timeout with immediate failover to secondary provider
             tenant_id=tenant_id,
             single_line=False,
         )
@@ -7727,7 +9739,12 @@ end
             "do i have an appointment", "do i have a booking", "check my appointment",
             "check my booking", "my appointment time", "my appointment date",
             "when is my demo", "appointment status", "booking status", "when is my meeting",
-            "when is appointment", "what time is appointment"
+            "when is appointment", "what time is appointment", "did you book my appointment",
+            "did you book my booking", "did you book", "is my appointment booked",
+            "is my booking booked", "is my appointment confirmed", "is my booking confirmed",
+            "appointment details", "booking details", "appointment timing", "booking timing",
+            "en booking eppo", "en appointment eppo", "booking eppo", "appointment eppo",
+            "slot eppo", "when is my slot", "what time is my slot"
         ])
 
         # Inbound Human Takeover & Callback Request Intent
@@ -7918,29 +9935,64 @@ end
             # 4. Intercept [ACTION:CREATE_BOOKING: ...] or [ACTION:CONFIRM_APPOINTMENT|...] tags
             m_booking = re.search(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT|CONFIRM_APPOINTMENT)(?:[:|]\s*(.+?))?\]', response_text, re.DOTALL | re.I)
             if m_booking:
-                if not should_finalize_booking:
+                raw_payload = (m_booking.group(1) or "").strip()
+                parsed_b = None
+                try:
+                    if raw_payload.startswith("{"):
+                        parsed_b = parse_action_payload(raw_payload)
+                    elif "|" in raw_payload:
+                        parts = [p.strip() for p in raw_payload.split("|")]
+                        b_d = parts[0] if re.match(r'^\d{4}-\d{2}-\d{2}$', parts[0]) else (parts[1] if len(parts) > 1 and re.match(r'^\d{4}-\d{2}-\d{2}$', parts[1]) else today_date_str)
+                        b_t = parts[1] if len(parts) > 1 and ":" in parts[1] else (parts[2] if len(parts) > 2 and ":" in parts[2] else "10:00")
+                        parsed_b = {
+                            "service": target_service,
+                            "price": resolved_pkg_fee,
+                            "date": b_d,
+                            "time": b_t,
+                            "name": confirmed_name or customer_name_display or "Customer",
+                        }
+                    elif raw_payload:
+                        parsed_b = parse_action_payload(raw_payload)
+                except Exception as e:
+                    logger.warning("booking_action_parse_failed", error=str(e))
+
+                # Instagram phone guard:
+                if is_ig_channel:
+                    parsed_ph = (parsed_b.get("phone") if isinstance(parsed_b, dict) else None) or effective_cust_phone_10
+                    if not parsed_ph:
+                        logger.info("suppressed_instagram_booking_action_missing_phone", tenant_id=tenant_id, conv_id=conv_id)
+                        parsed_b = None
+                        booking_action = None
+                        if any(w in (response_text or "").lower() for w in ["confirmed", "booked", "scheduled"]):
+                            response_text = "I would be happy to confirm your appointment! Could you please share your WhatsApp mobile number so we can finalize the booking and send your confirmation?"
+                    else:
+                        clean_d = re.sub(r'\D', '', str(parsed_ph))
+                        if len(clean_d) >= 10:
+                            parsed_b["phone"] = clean_d[-10:]
+                            asyncio.create_task(
+                                self._unify_instagram_customer_phone(
+                                    tenant_id=tenant_id,
+                                    sender_id=sender_id or str(contact_phone).replace("ig:", "").strip(),
+                                    phone_input=clean_d[-10:],
+                                    contact_name=customer_name,
+                                    contact_id=str(contact_row["id"]) if contact_row else None,
+                                )
+                            )
+
+                resp_text_claims_booked = bool(re.search(
+                    r'\b(?:booked|scheduled|confirmed|see you then|confirm pannitom|confirm panniyachu|slot confirm|book pannitom|முன்பதிவு உறுதி)\b',
+                    (response_text or "").lower()
+                ) or "confirm" in (response_text or "").lower())
+                is_user_agreeing = bool(is_user_confirming_slot or should_finalize_booking or resp_text_claims_booked)
+                has_valid_slot = bool(parsed_b and parsed_b.get("date") and parsed_b.get("time"))
+
+                if not is_user_agreeing and not has_valid_slot and not should_finalize_booking:
                     logger.info("suppressed_unconfirmed_booking_action", tenant_id=tenant_id, customer_msg=message_text)
                     booking_action = None
+                elif not parsed_b:
+                    booking_action = None
                 else:
-                    raw_payload = (m_booking.group(1) or "").strip()
-                    try:
-                        if raw_payload.startswith("{"):
-                            booking_action = parse_action_payload(raw_payload)
-                        elif "|" in raw_payload:
-                            parts = [p.strip() for p in raw_payload.split("|")]
-                            b_d = parts[0] if re.match(r'^\d{4}-\d{2}-\d{2}$', parts[0]) else (parts[1] if len(parts) > 1 and re.match(r'^\d{4}-\d{2}-\d{2}$', parts[1]) else today_date_str)
-                            b_t = parts[1] if len(parts) > 1 and ":" in parts[1] else (parts[2] if len(parts) > 2 and ":" in parts[2] else "10:00")
-                            booking_action = {
-                                "service": target_service,
-                                "price": resolved_pkg_fee,
-                                "date": b_d,
-                                "time": b_t,
-                                "name": confirmed_name or customer_name_display or "Customer",
-                            }
-                        elif raw_payload:
-                            booking_action = parse_action_payload(raw_payload)
-                    except Exception as e:
-                        logger.warning("booking_action_parse_failed", error=str(e))
+                    booking_action = parsed_b
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT|CONFIRM_APPOINTMENT)(?:[:|].*?)?\]', '', response_text, flags=re.DOTALL | re.I).strip()
                 # Repair dangling prepositions if model put date/time inside action tag instead of message text
@@ -8025,8 +10077,8 @@ end
                         services_text=services_text,
                     )
                     if clean_slug == "boldlabs":
-                        svc_name = "Clinic WhatsApp AI Demo"
-                        recov_fee = 0.0
+                        svc_name = "Clinic WhatsApp Automation Plan"
+                        recov_fee = 2499.0
                     elif "abinaya" in clean_slug:
                         base_svc = recov_svc or target_service or "Health Checkup"
                         svc_name = f"{base_svc} - Home Collection" if is_home_visit and "home" not in base_svc.lower() else base_svc
@@ -8041,27 +10093,38 @@ end
                     # 4. Location resolution
                     recov_loc = effective_address or customer_location or extract_address(response_text) or ""
 
-                    booking_action = {
-                        "service": svc_name,
-                        "price": recov_fee,
-                        "date": target_b_date,
-                        "time": target_b_time,
-                        "name": confirmed_name or customer_name_display or "Customer",
-                        "location": recov_loc,
-                        "notes": f"Home Sample Collection at {recov_loc}" if is_home_visit and recov_loc else "Booked via WhatsApp AI Assistant"
-                    }
-                    logger.info("reconstructed_booking_action_success", booking_action=booking_action)
+                    if is_ig_channel and not effective_cust_phone_10:
+                        booking_action = None
+                        logger.info("suppressed_reconstructed_booking_on_ig_missing_phone", tenant_id=tenant_id)
+                    else:
+                        booking_action = {
+                            "service": svc_name,
+                            "price": recov_fee,
+                            "date": target_b_date,
+                            "time": target_b_time,
+                            "name": confirmed_name or customer_name_display or "Customer",
+                            "phone": effective_cust_phone_10 or "",
+                            "location": recov_loc,
+                            "notes": f"Home Sample Collection at {recov_loc}" if is_home_visit and recov_loc else "Booked via WhatsApp AI Assistant"
+                        }
+                        logger.info("reconstructed_booking_action_success", booking_action=booking_action)
 
             # 3b. Duplicate Booking Prevention Safety Net:
             # If customer already has an active upcoming booking and did NOT explicitly request an additional session:
             if booking_action and upcoming_active_bookings:
                 notes_lower = (booking_action.get("notes") or "").lower()
+                last_asst_lower = (last_assistant_msg or "").lower()
                 is_explicit_additional = (
                     booking_action.get("is_additional")
                     or "additional" in notes_lower
                     or "second" in notes_lower
-                    or any(w in inbound_lower for w in ["additional", "another booking", "another appointment", "second booking", "second appointment", "one more session", "extra session", "for someone else"])
+                    or any(w in inbound_lower for w in ["additional", "additionally", "another booking", "another appointment", "second booking", "second appointment", "one more session", "extra session", "for someone else", "separate", "both", "keep both"])
+                    or ("additional" in last_asst_lower and any(w in inbound_lower for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "go ahead", "please", "confirm", "proceed", "book it", "additionally", "additional"]))
+                    or ("reschedule or" in last_asst_lower and any(w in inbound_lower for w in ["additional", "additionally", "separate", "both"]))
+                    or ("separate appointment" in last_asst_lower and any(w in inbound_lower for w in ["yes", "sure", "ok", "additional", "additionally"]))
                 )
+                if is_explicit_additional:
+                    booking_action["is_additional"] = True
                 if not is_explicit_additional:
                     logger.info(
                         "suppressed_duplicate_create_booking_for_existing_upcoming",
@@ -8132,6 +10195,116 @@ end
                                     break
                     except Exception as b_chk_err:
                         logger.warning("booking_leave_check_error", error=str(b_chk_err))
+
+            # 3d. Doctor & Clinic Off-Day Safety Net:
+            # If customer or LLM tried to book an appointment on a day when the doctor or facility is not operating:
+            if booking_action:
+                b_date_str = str(booking_action.get("date") or "").strip()[:10]
+                if b_date_str:
+                    try:
+                        b_dt = datetime.date.fromisoformat(b_date_str)
+                        b_day_name = b_dt.strftime("%A")
+
+                        # Determine if this booking is for a doctor consultation or if tenant has doctors
+                        b_svc = str(booking_action.get("service") or "").lower()
+                        is_doctor_booking = bool(
+                            any(w in b_svc for w in ["doctor", "consult", "consultation", "dr."])
+                            or any(re.sub(r'(?i)\bdr\.?\s*', '', d.get("name", "")).strip().lower() in b_svc for d in doctors if re.sub(r'(?i)\bdr\.?\s*', '', d.get("name", "")).strip())
+                        )
+
+                        off_day_conflict = False
+                        conflict_reason = ""
+                        target_doc = None
+
+                        # 1. Doctor available days check
+                        if is_doctor_booking and doctors:
+                            for d in doctors:
+                                clean_dn = re.sub(r'(?i)\bdr\.?\s*', '', d.get("name", "")).strip().lower()
+                                if clean_dn and (clean_dn in b_svc or clean_dn in (customer_health_concern or "").lower()):
+                                    target_doc = d
+                                    break
+
+                            if target_doc:
+                                d_avail = target_doc.get("available_days") or []
+                                if d_avail and len(d_avail) < 7:
+                                    if b_day_name.lower() not in [d.lower() for d in d_avail]:
+                                        off_day_conflict = True
+                                        conflict_reason = f"{target_doc.get('name', 'The doctor')} is only available for consultation on {', '.join(d_avail)}"
+                            else:
+                                # Doctor not explicitly specified: check if ANY doctor is on duty today
+                                docs_on_day = [
+                                    d for d in doctors
+                                    if not (d.get("available_days") and len(d.get("available_days")) < 7)
+                                    or b_day_name.lower() in [day.lower() for day in d.get("available_days", [])]
+                                ]
+                                if docs_on_day:
+                                    target_doc = docs_on_day[0]
+                                else:
+                                    off_day_conflict = True
+                                    conflict_reason = f"Doctors are not available for consultation on {b_day_name}"
+
+                        # 2. Clinic closed days check
+                        t_st_sec = settings if 'settings' in locals() and settings else (tenant_ctx.get("settings") or {})
+                        c_closed = t_st_sec.get("closed_days") or []
+                        if not c_closed and "sunday holiday" in (op_hours_display or "").lower():
+                            c_closed = ["Sunday"]
+                        if not off_day_conflict and c_closed:
+                            if b_day_name.lower() in [cd.lower() for cd in c_closed]:
+                                off_day_conflict = True
+                                conflict_reason = f"Our {facility_term} is closed on {b_day_name}"
+
+                        if off_day_conflict:
+                            logger.warning(
+                                "booking_blocked_due_to_off_day",
+                                tenant_id=tenant_id,
+                                date=b_date_str,
+                                day=b_day_name,
+                                reason=conflict_reason,
+                            )
+                            booking_action = None
+                            b_date_disp = b_dt.strftime("%A, %d %b")
+
+                            # Find next valid working day
+                            next_w_date = b_dt + datetime.timedelta(days=1)
+                            for _ in range(7):
+                                n_dname = next_w_date.strftime("%A").lower()
+                                if is_doctor_booking and doctors:
+                                    if target_doc and target_doc.get("available_days") and len(target_doc.get("available_days")) < 7:
+                                        if n_dname not in [d.lower() for d in target_doc.get("available_days")]:
+                                            next_w_date += datetime.timedelta(days=1)
+                                            continue
+                                    else:
+                                        any_on_d = any(
+                                            not (d.get("available_days") and len(d.get("available_days")) < 7)
+                                            or n_dname in [day.lower() for day in d.get("available_days", [])]
+                                            for d in doctors
+                                        )
+                                        if not any_on_d:
+                                            next_w_date += datetime.timedelta(days=1)
+                                            continue
+                                if c_closed and n_dname in [cd.lower() for cd in c_closed]:
+                                    next_w_date += datetime.timedelta(days=1)
+                                    continue
+                                break
+                            next_w_disp = next_w_date.strftime("%A, %d %b")
+
+                            is_tamil_context = (
+                                (detected_lang in ("tamil", "tanglish")) if ('detected_lang' in locals() and detected_lang) else False
+                                or (((customer_preferred_language or "").lower() in ("tamil", "tanglish", "tamil_script")) if ('customer_preferred_language' in locals() and customer_preferred_language) else False)
+                                or (((tenant_ctx.get("primary_language") or "").lower() in ("tamil", "ta")) if tenant_ctx else False)
+                            )
+                            if is_tamil_context:
+                                response_text = (
+                                    f"மன்னிக்கவும்! {b_day_name} அன்று ஆலோசனை நேரம் இல்லை ({conflict_reason}). "
+                                    f"உங்களுக்கு {next_w_disp} நேரம் முன்பதிவு செய்யலாமா?"
+                                )
+                            else:
+                                response_text = (
+                                    f"Please note that appointments are not available on {b_date_disp} ({conflict_reason}). "
+                                    f"Would you like to schedule your visit for {next_w_disp} instead?"
+                                )
+                    except Exception as off_err:
+                        logger.warning("booking_off_day_check_error", error=str(off_err))
 
             # 4. Inbound Appointment Inquiry Protection
             if inbound_appointment_inquiry:
@@ -8424,9 +10597,11 @@ end
                     has_tanglish_marker = bool(words_clean.intersection(tanglish_markers))
                     if not has_tanglish_marker and len(words_clean) >= 4:
                         logger.warning("aadhiran_english_response_intercepted_translating", conv_id=conv_id, english_snippet=response_text[:80])
+                        action_tags_fw1 = re.findall(r'\[ACTION:[^\]]+\]', response_text)
+                        clean_text_fw1 = re.sub(r'\[ACTION:[^\]]+\]', '', response_text).strip()
                         conv_prompt = (
                             f"Convert this English response for Aadhiran Center into 100% natural, polite, conversational spoken WhatsApp Tanglish as texted in Tamil Nadu:\n"
-                            f"\"{response_text}\"\n\n"
+                            f"\"{clean_text_fw1}\"\n\n"
                             f"RULES:\n"
                             f"- Output ONLY the Tanglish translation. No preamble.\n"
                             f"- Write natural spoken WhatsApp Tanglish (e.g. 'Daily morning 6:00 AM to night 10:00 PM open-ah irukkum sir', 'offer price ₹700 sir (regular ₹999)').\n"
@@ -8457,6 +10632,8 @@ end
                             )
                             if t_converted and t_converted.strip():
                                 response_text = t_converted.strip()
+                                if action_tags_fw1:
+                                    response_text = f"{response_text}\n" + "\n".join(action_tags_fw1)
                                 logger.info("aadhiran_english_converted_to_tanglish", conv_id=conv_id, result_snippet=response_text[:80])
                         except Exception as e_conv:
                             logger.error("aadhiran_tanglish_conversion_error", error=str(e_conv))
@@ -8562,28 +10739,44 @@ end
             def _safe_split_sentences(txt: str) -> list[str]:
                 if not txt:
                     return []
-                # Protect abbreviations & honorifics from sentence splitting
-                t = re.sub(r'\b(Dr|Mr|Mrs|Ms|Prof|vs|No|St|Dept|Gen|OP|OPD)\.', r'\1§DOT§', txt, flags=re.I)
+                t = txt
+                # Protect decimals (e.g. 10.5, 200.00)
+                t = re.sub(r'(\d+)\.(\d+)', r'\1§DOT§\2', t)
+                # Protect honorifics & common abbreviations
+                t = re.sub(r'\b(Dr|Mr|Mrs|Ms|Prof|vs|No|St|Dept|Gen|OP|OPD|approx|etc|eg|ie)\.', r'\1§DOT§', t, flags=re.I)
+                # Protect initials & acronyms (e.g. C.E., B.A.M.S, V.M.T, A.B.C.)
+                t = re.sub(r'\b([A-Za-z])\.', r'\1§DOT§', t)
                 parts = re.split(r'(?<=[.!?])\s+', t.strip())
                 return [p.replace('§DOT§', '.').strip() for p in parts if p.strip()]
 
-            if is_ongoing_conversation:
+            is_inbound_pure_greeting = (
+                any(w in inbound_clean for w in ["வணக்கம்", "காலை வணக்கம்", "மாலை வணக்கம்"])
+                or any(re.search(rf'(?:\b|^){re.escape(g)}(?:\b|$)', inbound_clean) for g in ["hi", "hii", "hiii", "hello", "hey", "vanakkam", "namaste", "good morning", "good afternoon", "good evening"])
+            ) and len(inbound_clean.split()) <= 4
+            if is_ongoing_conversation and not is_inbound_pure_greeting:
                 response_text = strip_repetitive_greetings(response_text)
 
                 # Anti-Repetition Loop Interceptor:
                 # Detect if the model echoed its previous message to the customer
                 if last_assistant_msg:
+                    def _strip_brand_greeting(txt: str) -> str:
+                        t = re.sub(r'^(?:hello|hi|hey|vanakkam|namaste)[^.!?\n]*[.!?]+\s*', '', (txt or "").lower().strip())
+                        t = re.sub(r'^(?:welcome\s+to\s+[^.!?\n]*[.!?]+\s*)', '', t.strip())
+                        return re.sub(r'[^\w\s]', '', t).strip()
+
                     resp_clean = re.sub(r'[^\w\s]', '', (response_text or "").lower()).strip()
-                    prev_clean = re.sub(r'[^\w\s]', '', last_assistant_msg).strip()
-                    resp_words = resp_clean.split()
-                    prev_words = prev_clean.split()
+                    prev_clean = re.sub(r'[^\w\s]', '', (last_assistant_msg or "").lower()).strip()
+                    resp_body = _strip_brand_greeting(response_text)
+                    prev_body = _strip_brand_greeting(last_assistant_msg)
+                    resp_body_words = resp_body.split()
+                    prev_body_words = prev_body.split()
 
                     is_duplicate_response = False
-                    if not is_doctor_timing_followup and len(resp_words) >= 8 and len(prev_words) >= 8:
-                        if resp_words[:8] == prev_words[:8]:
+                    if not is_doctor_timing_followup and len(resp_body_words) >= 8 and len(prev_body_words) >= 8:
+                        if resp_body_words[:8] == prev_body_words[:8]:
                             is_duplicate_response = True
                         else:
-                            seq_ratio = difflib.SequenceMatcher(None, resp_clean, prev_clean).ratio()
+                            seq_ratio = difflib.SequenceMatcher(None, resp_body, prev_body).ratio()
                             if seq_ratio > 0.85:
                                 is_duplicate_response = True
 
@@ -8591,7 +10784,9 @@ end
                         logger.warning("repetitive_ai_response_intercepted", tenant_id=tenant_id, conv_id=conv_id, snippet=response_text[:80])
                         # If customer provided a time or slot, resolve and confirm instead of looping!
                         if has_time_or_slot_indicator:
-                            slot_target_date = today_date_str
+                            slot_target_date = target_slot_date_iso or today_date_str
+                            date_friendly = target_day_display or "today"
+                            stated_time = target_time_display or "10:00 AM"
                             time_match = re.search(r'\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b', inbound_clean, re.I)
                             if time_match:
                                 stated_time = time_match.group(1).upper()
@@ -8605,8 +10800,6 @@ end
                                 stated_time = "02:00 PM"
                             elif any(w in inbound_clean for w in ["morning", "kaalai", "kalai", "காலை"]):
                                 stated_time = "10:00 AM"
-                            else:
-                                stated_time = "10:00 AM"
 
                             if any(p in inbound_clean for p in ["day after tomorrow", "day after tmrw", "day after", "nalaiku marunal", "nalaiku marunaal", "naalaiku marunaal", "நாளை மறுநாள்"]):
                                 slot_target_date = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
@@ -8614,8 +10807,9 @@ end
                             elif "tomorrow" in inbound_clean:
                                 slot_target_date = tomorrow_date_str
                                 date_friendly = "tomorrow"
-                            else:
-                                date_friendly = "today"
+                            elif any(d in inbound_clean for d in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]):
+                                slot_target_date = target_slot_date_iso
+                                date_friendly = target_day_display
 
                             # Determine service appropriate for this tenant
                             clean_slug = (tenant_slug or "").strip().lower()
@@ -8627,14 +10821,14 @@ end
                                 services_text=services_text,
                             )
                             if clean_slug == "boldlabs":
-                                dynamic_service = "Demo / Consultation"
-                                dyn_fee = 0.0
+                                dynamic_service = "Clinic WhatsApp Automation Plan"
+                                dyn_fee = 2499.0
                             elif "abinaya" in clean_slug:
                                 dynamic_service = dyn_svc
                             elif "aadhiran" in clean_slug:
                                 dynamic_service = dyn_svc or customer_health_concern or "Consultation & Treatment"
                             elif "mindbody" in clean_slug:
-                                dynamic_service = "Consultation"
+                                dynamic_service = dyn_svc or customer_health_concern or "Consultation"
                             else:
                                 dynamic_service = dyn_svc or customer_health_concern or "Appointment"
 
@@ -8668,7 +10862,7 @@ end
                             else:
                                 if should_finalize_booking:
                                     if clean_slug == "boldlabs":
-                                        response_text = f"Got it! I have scheduled your demo for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
+                                        response_text = f"Got it! I have scheduled your onboarding walkthrough for {date_friendly} at {stated_time}. Looking forward to connecting with you!"
                                     elif is_aadhiran or "aadhiran" in clean_slug:
                                         _is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (message_text or ""))
                                         if _is_tam_script:
@@ -8686,9 +10880,9 @@ end
                                             "name": confirmed_name or customer_name_display or "Customer"
                                         }
                                 else:
-                                    host_lbl = conf_host or "our team"
+                                    host_lbl = (active_doctor_obj.get("name") if (active_doctor_obj and is_explicit_doctor_inquiry) else conf_host) or "our team"
                                     if clean_slug == "boldlabs":
-                                        response_text = f"{date_friendly.capitalize()} at {stated_time} is open for a demo! Would you like me to go ahead and book this slot for you?"
+                                        response_text = f"{date_friendly.capitalize()} at {stated_time} is open! Would you like me to reserve this time for your clinic walkthrough?"
                                     elif is_aadhiran or "aadhiran" in clean_slug:
                                         _is_tam_script = any('\u0b80' <= c <= '\u0bff' for c in (message_text or ""))
                                         if _is_tam_script:
@@ -8699,18 +10893,45 @@ end
                                         response_text = f"{date_friendly.capitalize()} at {stated_time} is available with {host_lbl}! Would you like me to go ahead and book this slot for you?"
                                     booking_action = None
                         else:
-                            # Strip the repeated intro and keep subsequent sentences ONLY if not also in last_assistant_msg
+                            # Strip sentences that were ALREADY in last_assistant_msg, keep genuinely NEW content
                             sentences = _safe_split_sentences(response_text)
-                            candidate_tail = " ".join(sentences[1:]).strip() if len(sentences) > 1 else ""
-                            tail_overlap = difflib.SequenceMatcher(None, re.sub(r'[^\w\s]', '', candidate_tail.lower()), prev_clean).ratio() if (candidate_tail and prev_clean) else 0.0
-                            if candidate_tail and len(candidate_tail) >= 10 and tail_overlap < 0.6:
-                                response_text = candidate_tail
+                            prev_sentences_clean = [
+                                re.sub(r'[^\w\s]', '', ps.lower()).strip()
+                                for ps in _safe_split_sentences(last_assistant_msg)
+                                if ps and len(ps.strip()) > 3
+                            ]
+                            prev_clean = re.sub(r'[^\w\s]', '', (last_assistant_msg or "").lower()).strip()
+                            unique_sentences = []
+                            for s in sentences:
+                                s_clean = re.sub(r'[^\w\s]', '', s.lower()).strip()
+                                if not s_clean or len(s_clean) < 8:
+                                    continue
+                                # If this sentence is an exact substring of the previous assistant message, it is a duplicate
+                                if s_clean in prev_clean:
+                                    continue
+                                # Check sequence matcher against sentences in previous message
+                                is_dup_sentence = False
+                                for ps_clean in prev_sentences_clean:
+                                    if ps_clean and difflib.SequenceMatcher(None, s_clean, ps_clean).ratio() >= 0.75:
+                                        is_dup_sentence = True
+                                        break
+                                if not is_dup_sentence:
+                                    unique_sentences.append(s.strip())
+
+                            if unique_sentences:
+                                response_text = " ".join(unique_sentences).strip()
                             else:
                                 response_text = ""
+
                             if not response_text or len(response_text) < 10:
                                 logger.info("rephrasing_duplicate_response", tenant_id=tenant_id)
-                                rephrase_prompt = active_system_prompt + "\n\nCRITICAL: Your previous response was an exact duplicate of the message before it. You MUST rephrase your response to be fresh and different, while answering the user's latest message directly."
-                                response_text, provider_used = await call_llm_cascade(
+                                rephrase_prompt = (
+                                    active_system_prompt
+                                    + f"\n\nCRITICAL CONVERSATIONAL DIRECTIVE: Your previous message was: '{last_assistant_msg}'. "
+                                    f"Do NOT repeat that message, do NOT repeat previous sentences or full addresses! "
+                                    f"Answer the user's latest question ('{message_text}') DIRECTLY, naturally, and warmly in 1-2 short sentences."
+                                )
+                                rephrase_resp, rephrase_prov = await call_llm_cascade(
                                     messages=history,
                                     system_prompt=rephrase_prompt,
                                     gemini_key=gemini_key,
@@ -8721,10 +10942,26 @@ end
                                     master_groq_key=master_keys.get("groq_key"),
                                     master_opencode_key=master_keys.get("opencode_key"),
                                     master_opencode_base_url=master_keys.get("opencode_base_url"),
-                                    temperature=0.8,
+                                    temperature=0.7,
                                     timeout_seconds=8.0,
-                                    primary_provider=primary_provider
+                                    primary_provider=primary_provider,
                                 )
+                                if rephrase_resp and rephrase_resp.strip():
+                                    response_text = rephrase_resp.strip()
+                                    provider_used = rephrase_prov
+                                else:
+                                    logger.warning("rephrasing_duplicate_response_failed_retaining_fallback", tenant_id=tenant_id)
+                                    if is_aadhiran or "aadhiran" in clean_slug:
+                                        _is_tam = any('\u0b80' <= c <= '\u0bff' for c in (message_text or ""))
+                                        response_text = "நிச்சயமாக, உங்கள் தகவலை குறித்துக் கொண்டோம். மேலும் விவரங்களுக்கு எங்களை தொடர்பு கொள்ளவும்." if _is_tam else "Kandippa sir, ungal message receive aagirukku. Ungalukku eppadi help pannalam sollunga?"
+                                    else:
+                                        response_text = f"We are happy to assist you today! How can our team help you?"
+
+            if not response_text or not str(response_text).strip():
+                if is_aadhiran or "aadhiran" in clean_slug:
+                    response_text = "Vanakkam sir! Ungalukku eppadi help pannalam sollunga?"
+                else:
+                    response_text = f"Hello from {tenant_name or 'our team'}! How can we assist you today?"
 
             # Universal safety net: Strip ANY leftover action or bracket tags so they never reach WhatsApp
             response_text = re.sub(r'\[ACTION:[^\]]+\]', '', response_text, flags=re.I).strip()
@@ -8753,15 +10990,66 @@ end
                     if _n_words and _p_words:
                         _overlap = len(_n_words & _p_words) / max(len(_n_words), 1)
                         if _overlap >= 0.75:
-                            # Strip the repeated trailing sentence from current response
-                            _sentences = _safe_split_sentences(response_text.strip())
-                            if len(_sentences) > 1:
-                                response_text = " ".join(_sentences[:-1]).strip()
-                                logger.info("trailing_cta_deduplication_stripped",
-                                            tenant_id=tenant_id,
-                                            stripped_sentence=last_sent_new[:80])
-                            # If only 1 sentence remained (no multi-sentence response), keep it as-is
+                            # Guard: Do not strip greeting responses or reassurance/team followup sentences
+                            if is_standalone_greeting or any(w in last_sent_new.lower() for w in ["get back to you", "team will reach out", "team get back", "notified our team", "connect with you"]):
+                                pass
+                            else:
+                                # Strip the repeated trailing sentence from current response
+                                _sentences = _safe_split_sentences(response_text.strip())
+                                if len(_sentences) > 1:
+                                    _remaining = " ".join(_sentences[:-1]).strip()
+                                    # Guard: Never leave a bare greeting or welcome line (e.g. "Hi Bhuvanesh!" or "Hello Ravi Chandra. Welcome to A3 Ayush Health Care Center.")
+                                    _rem_body = re.sub(r'^(?:hello|hi|hey|vanakkam|namaste)[^.!?\n]*[.!?]+\s*', '', _remaining.lower().strip())
+                                    _rem_body = re.sub(r'^(?:welcome\s+to\s+[^.!?\n]*[.!?]+\s*)', '', _rem_body.strip())
+                                    if len(_rem_body.split()) <= 4 or (len(_remaining.split()) <= 5 and any(w in _remaining.lower() for w in ["hi", "hello", "hey", "vanakkam", "வணக்கம்", "namaste"])):
+                                        pass  # Do not strip! Leaving just a greeting or bare intro is prohibited.
+                                    else:
+                                        response_text = _remaining
+                                        logger.info("trailing_cta_deduplication_stripped",
+                                                    tenant_id=tenant_id,
+                                                    stripped_sentence=last_sent_new[:80])
+                                # If only 1 sentence remained (no multi-sentence response), keep it as-is
 
+            # ── In-Message Duplicate / Consecutive Sentence Deduplication (ALL TENANTS) ──
+            if response_text:
+                _act_tags = re.findall(r'\[ACTION:[^\]]+\]', response_text)
+                _no_act = re.sub(r'\[ACTION:[^\]]+\]', '', response_text).strip()
+                _no_act = re.sub(r'(.{10,}?[.!?\n])\s*\1+', r'\1', _no_act, flags=re.IGNORECASE)
+                _in_sents = _safe_split_sentences(_no_act)
+                if len(_in_sents) >= 2:
+                    _deduped_in = []
+                    for _s in _in_sents:
+                        _sc = _s.strip()
+                        if not _sc:
+                            continue
+                        _sn = re.sub(r'(\d)\s+(\d)', r'\1\2', _sc)
+                        _sn = re.sub(r'[^\w\s]', '', _sn.lower()).strip()
+                        _sn = re.sub(r'\s+', ' ', _sn)
+                        if not _sn:
+                            continue
+                        _dup = False
+                        for _d in _deduped_in:
+                            _dn = re.sub(r'(\d)\s+(\d)', r'\1\2', _d)
+                            _dn = re.sub(r'[^\w\s]', '', _dn.lower()).strip()
+                            _dn = re.sub(r'\s+', ' ', _dn)
+                            if _sn == _dn:
+                                _dup = True
+                                break
+                            if len(_sn.split()) >= 4 and len(_dn.split()) >= 4:
+                                _s_set = set(_sn.split())
+                                _d_set = set(_dn.split())
+                                if len(_s_set & _d_set) / max(len(_s_set), len(_d_set)) >= 0.80:
+                                    _dup = True
+                                    break
+                        if not _dup:
+                            _deduped_in.append(_sc)
+                    if len(_deduped_in) < len(_in_sents):
+                        logger.info("in_message_duplicate_sentence_deduplicated",
+                                    tenant_id=tenant_id,
+                                    before_count=len(_in_sents),
+                                    after_count=len(_deduped_in))
+                        _body = " ".join(_deduped_in).strip()
+                        response_text = f"{_body}\n" + "\n".join(_act_tags) if _act_tags else _body
 
             response_text = self._sanitize_tenant_response(
                 response_text,
@@ -8780,40 +11068,89 @@ end
                 tenant_ctx=tenant_ctx,
             )
 
-            # Conversational Brevity Guard: Ensure total words never exceed conversational limit
             resp_words = (response_text or "").split()
+            inb_lower = (inbound_clean or "").lower()
+            is_lead_or_first_touch = (
+                user_turn_count <= 1
+                or any(w in inb_lower for w in [
+                    "filled in your form", "filled out your form", "more about your business",
+                    "ad referral", "when would you like to consult", "know more", "about your clinic",
+                    "what services", "tell me about", "information", "info", "form"
+                ])
+            )
+            is_feature_or_list_inquiry = any(w in inb_lower for w in ["included", "features", "list", "what is included", "what are included", "package", "packages", "details", "services", "therapies"])
             is_clinical_or_package = (
                 is_doctor_query
                 or is_symptom_or_treatment_query
+                or is_lead_or_first_touch
                 or "checkup" in clean_slug
-                or any(w in inbound_clean for w in ["package", "packages", "treatment", "doctor", "specialist"])
+                or is_boldlabs
+                or is_feature_or_list_inquiry
+                or any(w in inb_lower for w in ["treatment", "doctor", "specialist", "ayurveda", "therapy", "consult"])
             )
-            max_words_allowed = 110 if is_clinical_or_package else 85
+            has_package_breakdown = bool(
+                any(k in (response_text or "").lower() for k in [
+                    "month 1", "1st month", "month 2", "2nd month", "month 3", "3rd month",
+                    "1வது", "1 வது", "முதல் மாதம்", "2வது", "2 வது", "இரண்டாம் மாதம்", "3வது", "3 வது", "மூன்றாம் மாதம்",
+                    "disclaimer", "family support", "குடும்பத்தினரின்", "ஆதரவு", "ஆதரவை", "ஆதரவ",
+                    "பொது மருத்துவம்", "bothai", "mananalam", "kudi",
+                    "admission package", "தங்கும் சிகிச்சை"
+                ])
+                or (("55,000" in (response_text or "") or "55000" in (response_text or "")) and ("22,000" in (response_text or "") or "22000" in (response_text or "")))
+                or (("22,000" in (response_text or "") or "22000" in (response_text or "")) and ("18,000" in (response_text or "") or "18000" in (response_text or "")))
+                or (("55,000" in (response_text or "") or "55000" in (response_text or "")) and "50" in (response_text or ""))
+            )
+            if has_package_breakdown:
+                max_words_allowed = 220
+            elif is_clinical_or_package or is_lead_or_first_touch:
+                max_words_allowed = 85
+            else:
+                max_words_allowed = 65
+
             if len(resp_words) > max_words_allowed:
                 act_tags = re.findall(r'\[ACTION:[^\]]+\]', response_text)
                 no_act = re.sub(r'\[ACTION:[^\]]+\]', '', response_text).strip()
                 sents = _safe_split_sentences(no_act)
-                if len(sents) >= 2:
-                    cand_full = " ".join(sents[:3]).strip()
-                    if len(sents) <= 3 and len(cand_full.split()) <= (max_words_allowed + 15):
-                        no_act = cand_full
-                    else:
-                        if len(sents[0].split()) <= 4 and len(sents) >= 3:
-                            core_part = f"{sents[0]} {sents[1]}"
-                            tail = sents[2:]
+                if len(sents) > 1:
+                    accum = []
+                    curr_words = 0
+                    for st in sents:
+                        st_w = len(st.split())
+                        if curr_words + st_w <= max_words_allowed:
+                            accum.append(st)
+                            curr_words += st_w
                         else:
-                            core_part = sents[0]
-                            tail = sents[1:]
+                            break
+                    # If accumulation stopped early, ensure the closing question (CTA) is retained if present
+                    if len(accum) < len(sents) and sents[-1].endswith('?'):
+                        q_words = len(sents[-1].split())
+                        if curr_words + q_words > (max_words_allowed + 8) and len(accum) > 1:
+                            accum.pop()
+                        if sents[-1] not in accum:
+                            accum.append(sents[-1])
 
-                        if tail and tail[-1].endswith('?'):
-                            cand = f"{core_part} {tail[-1]}".strip()
-                        else:
-                            cand = " ".join([core_part] + tail[:1]).strip()
+                    # Guard: NEVER leave only a bare greeting or brand welcome line (e.g. "Welcome to A3 Ayush Health Care Center.")
+                    def _is_bare_intro(s_txt: str) -> bool:
+                        s_l = s_txt.lower().strip()
+                        if any(w in s_l for w in ["hello", "hi", "hey", "vanakkam", "namaste", "வணக்கம்"]) and len(s_txt.split()) <= 5:
+                            return True
+                        if any(w in s_l for w in ["welcome to", "வணக்கம்"]) and len(s_txt.split()) <= 10:
+                            return True
+                        return False
 
-                        if len(cand.split()) <= (max_words_allowed + 15):
-                            no_act = cand
-                        else:
-                            no_act = core_part.strip()
+                    non_greeting_sents = [s for s in accum if not _is_bare_intro(s)]
+                    if not non_greeting_sents and len(sents) > len(accum):
+                        for extra_s in sents[len(accum):]:
+                            accum.append(extra_s)
+                            if not _is_bare_intro(extra_s):
+                                break
+                    # Ensure closing question is always retained if original response had one
+                    if sents and sents[-1].endswith('?') and sents[-1] not in accum:
+                        accum.append(sents[-1])
+                    if accum:
+                        no_act = " ".join(accum).strip()
+                elif sents:
+                    no_act = " ".join(sents[0].split()[:max_words_allowed]).strip() + ("?" if sents[0].endswith("?") else ".")
                 response_text = f"{no_act}\n" + "\n".join(act_tags) if act_tags else no_act
 
         # Final Aadhiran Language Firewall: ensure zero English leaks to Aadhiran customers
@@ -8830,18 +11167,20 @@ end
                     "romba", "nandri", "seekkiram", "paravala", "edhuvum", "avlo", "ivlo", "panreenga",
                     "panrenga", "theriyum", "theriyala", "open-ah", "convenient-ah", "details-ah",
                     "sir", "nalaiku", "naalaikku", "inniku", "marunal", "kaalai", "maalaai", "neram",
-                    "pannunga", "pannidunga", "kedaikum"
+                    "pannunga", "pannidunga", "kedaikum", "innaku", "pothum"
                 }
                 if not bool(w_clean.intersection(t_markers)) and len(w_clean) >= 4:
                     logger.warning("aadhiran_final_firewall_intercepted_english", text=response_text[:80])
-                    if "located at" in response_text.lower():
+                    action_tags_fw2 = re.findall(r'\[ACTION:[^\]]+\]', response_text)
+                    clean_text_fw2 = re.sub(r'\[ACTION:[^\]]+\]', '', response_text).strip()
+                    if "located at" in clean_text_fw2.lower():
                         maps_suffix = f"\nGoogle Map: {google_maps_url}" if google_maps_url else ""
                         response_text = f"Namma Aadhiran Center address: {physical_address or full_location}.{maps_suffix} Ungalukku directions thevaiya sir?"
-                    elif "scheduled your" in response_text.lower() or "confirmed" in response_text.lower():
+                    elif "scheduled your" in clean_text_fw2.lower() or "confirmed" in clean_text_fw2.lower():
                         response_text = f"Super sir! Ungal appointment confirm pannitom. Namma team ungalai seekkiram connect pannuvanga!"
                     else:
                         try:
-                            conv_p = f"Convert this message to natural spoken WhatsApp Tanglish for Aadhiran Center in Tiruppur:\n\"{response_text}\""
+                            conv_p = f"Convert this message to natural spoken WhatsApp Tanglish for Aadhiran Center in Tiruppur:\n\"{clean_text_fw2}\""
                             t_c, _ = await call_llm_cascade(
                                 messages=[{"role": "user", "content": conv_p}],
                                 system_prompt="Convert English to natural colloquial WhatsApp Tanglish. Output only Tanglish.",
@@ -8859,181 +11198,235 @@ end
                                 response_text = t_c.strip()
                         except Exception as e_f:
                             logger.error("aadhiran_final_firewall_error", error=str(e_f))
+                    if action_tags_fw2:
+                        response_text = f"{response_text}\n" + "\n".join(action_tags_fw2)
 
-        # Final WhatsApp sanitization: Remove any markdown asterisks
-        if response_text and "*" in response_text:
-            response_text = response_text.replace("*", "")
+        # Final WhatsApp sanitization via PlatformEngine: strip asterisks, bullets, emojis, reasoning blocks
+        if response_text:
+            if PlatformEngine:
+                response_text = PlatformEngine.clean_outbound_message(response_text)
+            elif "*" in response_text:
+                response_text = response_text.replace("*", "")
 
-        # Multi-Bubble WhatsApp Pacing & Persistence:
-        bubbles = self._split_into_whatsapp_bubbles(response_text)
-        if not bubbles:
-            bubbles = [response_text] if response_text else []
-
-        for b_idx, bubble in enumerate(bubbles):
-            # Persist outbound message for this bubble
-            out_msg_id = await self.db_pool.fetchval(
-                """INSERT INTO messages
-                   (id, conversation_id, tenant_id, direction, content_type, body, status, ai_model_used, ai_used_fallback, processing_ms)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'pending', $5, $6, $7)
-                   RETURNING id""",
-                str(uuid.uuid4()), conv_id, tenant_id, bubble, provider_used, ai_used_fallback,
-                _llm_processing_ms if b_idx == 0 else None,
-            )
-            try:
-                await self.db_pool.execute(
-                    "UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1::uuid AND tenant_id = $2::uuid",
-                    conv_id, tenant_id
-                )
-                clean_cp = re.sub(r'\D', '', str(contact_phone))
-                await self.db_pool.execute(
-                    """UPDATE customers SET last_messaged_at = NOW(), updated_at = NOW()
-                       WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
-                    tenant_id, clean_cp or contact_phone
-                )
-            except Exception as e:
-                logger.warning("outbound_conversation_update_failed", error=str(e))
-
-            # Send via WhatsApp using client's own phone number
-            if creds and creds.get("phone_number_id") and creds.get("access_token"):
-                clean_target_phone = clean_cp or re.sub(r'\D', '', str(contact_phone))
-                cooldown_key = f"wa_cooldown:pair:{tenant_id}:{clean_target_phone}"
-                rate_key = f"wa_pair_outbound:{tenant_id}:{clean_target_phone}"
-
-                # 1. Preemptive Check: Active WhatsApp pair cooldown in effect
-                if self.redis:
-                    try:
-                        if await self.redis.get(cooldown_key):
-                            logger.warning(
-                                "wa_send_skipped_pair_cooldown_active",
-                                tenant_id=tenant_id, phone=clean_target_phone
-                            )
-                            await self.db_pool.execute(
-                                "UPDATE messages SET status = 'failed', error_code = 'pair_rate_limit_cooldown' WHERE id = $1::uuid AND tenant_id = $2::uuid",
-                                str(out_msg_id), tenant_id
-                            )
-                            continue
-
-                        # 2. Sliding window pair rate limit: Prevent runaway loops (> 12 messages in 60s)
-                        pair_count = await self.redis.incr(rate_key)
-                        if pair_count == 1:
-                            await self.redis.expire(rate_key, 60)
-                        if pair_count > 12:
-                            logger.warning(
-                                "wa_send_throttled_pair_rate_limit_preempted",
-                                tenant_id=tenant_id, phone=clean_target_phone, count=pair_count
-                            )
-                            await self.redis.setex(cooldown_key, 30, "1")  # Short 30s cooldown
-                            await self.db_pool.execute(
-                                "UPDATE messages SET status = 'failed', error_code = 'pair_rate_limit_preempted' WHERE id = $1::uuid AND tenant_id = $2::uuid",
-                                str(out_msg_id), tenant_id
-                            )
-                            continue
-                    except Exception as rate_err:
-                        logger.debug("pair_rate_check_failed", error=str(rate_err))
-
-                try:
-                    if b_idx == 0:
-                        # Ensure at least 1.0s has elapsed since typing indicator was dispatched to Meta.
-                        # This eliminates the WhatsApp client race condition where super-fast AI replies
-                        # arrive at the exact same millisecond as the typing indicator packet, leaving
-                        # the typing bubble animation stuck on screen.
-                        elapsed_since_typing = (time.monotonic() - typing_started_at) if typing_started_at else 1.0
-                        if elapsed_since_typing < 1.0:
-                            await asyncio.sleep(1.0 - elapsed_since_typing)
-                    else:
-                        # 250ms pause between multi-bubble replies to preserve delivery order on WhatsApp
-                        await asyncio.sleep(0.25)
-
-                    wa_id = await send_text(
-                        phone_number_id=creds["phone_number_id"],
-                        access_token=creds["access_token"],
-                        to=contact_phone,
-                        body=bubble,
-                    )
-                    # Update message with wa_message_id and sent status
-                    await self.db_pool.execute(
-                        "UPDATE messages SET wa_message_id = $1, status = 'sent' WHERE id = $2::uuid AND tenant_id = $3::uuid",
-                        wa_id, str(out_msg_id), tenant_id
-                    )
-                    wa_sends.labels(tenant=tenant_id, status="success").inc()
-                except WhatsAppSendError as e:
-                    err_str = str(e)
-                    is_pair_limit = "131056" in err_str or "pair rate limit" in err_str.lower()
-                    if is_pair_limit:
-                        if self.redis:
-                            await self.redis.setex(cooldown_key, 1800, "1")  # 30m cooldown
-                        await self.db_pool.execute(
-                            """UPDATE conversations
-                               SET status = 'human',
-                                   wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{ai_disabled_reason}', '"meta_pair_rate_limit_131056"')
-                               WHERE id = $1::uuid AND tenant_id = $2::uuid""",
-                            conv_id, tenant_id
-                        )
-                        logger.warning(
-                            "wa_pair_rate_limit_cooldown_activated",
-                            tenant_id=tenant_id, phone=clean_target_phone, error=err_str[:200]
-                        )
-                    else:
-                        logger.error("wa_send_failed", error=err_str, tenant_id=tenant_id)
-
-                    await self.db_pool.execute(
-                        "UPDATE messages SET status = 'failed', error_code = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
-                        err_str[:50], str(out_msg_id), tenant_id
-                    )
-                    wa_sends.labels(tenant=tenant_id, status="failed").inc()
-            else:
-                logger.warning("no_whatsapp_creds_cannot_send", tenant_id=tenant_id)
-
-        # Execute Actions: Cancellation, Reschedule, or New Booking
-        if cancel_action:
-            asyncio.create_task(
-                self._fire_and_log(
-                    self._execute_ai_cancellation(
-                        tenant_id=tenant_id,
-                        conv_id=conv_id,
-                        contact_phone=contact_phone,
-                        customer_name=customer_name,
-                        creds=creds,
-                    ),
-                    "execute_ai_cancellation",
-                    tenant_id=tenant_id,
-                    conv_id=conv_id,
-                )
-            )
-        elif reschedule_action:
-            asyncio.create_task(
-                self._fire_and_log(
-                    self._execute_ai_reschedule(
-                        tenant_id=tenant_id,
-                        conv_id=conv_id,
-                        contact_phone=contact_phone,
-                        customer_name=customer_name,
-                        booking_data=reschedule_action,
-                        creds=creds,
-                    ),
-                    "execute_ai_reschedule",
-                    tenant_id=tenant_id,
-                    conv_id=conv_id,
-                )
-            )
-        elif booking_action:
+        # Single message template confirmation policy:
+        # When an appointment booking is confirmed (booking_action is present),
+        # do NOT send the duplicate plain-text confirmation response_text!
+        # The system dispatches ONLY the official Meta approved message template confirmation,
+        # followed immediately by the location & directions (or virtual demo details).
+        if booking_action:
             if not booking_action.get("location") and customer_location:
                 booking_action["location"] = customer_location
-            asyncio.create_task(
-                self._fire_and_log(
-                    self._execute_ai_booking(
+            logger.info("single_template_confirmation_enforced", tenant_id=tenant_id, conv_id=conv_id, phone=contact_phone)
+            await self._execute_ai_booking(
+                tenant_id=tenant_id,
+                conv_id=conv_id,
+                contact_phone=contact_phone,
+                customer_name=customer_name,
+                booking_data=booking_action,
+                creds=creds,
+                channel=channel,
+                sender_id=sender_id,
+                ig_creds=ig_creds,
+            )
+        else:
+            # Multi-Bubble Pacing & Persistence:
+            bubbles = self._split_into_whatsapp_bubbles(response_text)
+            if not bubbles:
+                bubbles = [response_text] if response_text else []
+
+            for b_idx, bubble in enumerate(bubbles):
+                # Persist outbound message for this bubble
+                out_msg_id = await self.db_pool.fetchval(
+                    """INSERT INTO messages
+                       (id, conversation_id, tenant_id, channel, direction, content_type, body, status, ai_model_used, ai_used_fallback, processing_ms)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, 'pending', $6, $7, $8)
+                       RETURNING id""",
+                    str(uuid.uuid4()), conv_id, tenant_id, channel, bubble, provider_used, ai_used_fallback,
+                    _llm_processing_ms if b_idx == 0 else None,
+                )
+                try:
+                    await self.db_pool.execute(
+                        "UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                        conv_id, tenant_id
+                    )
+                    if channel != "instagram":
+                        clean_cp = re.sub(r'\D', '', str(contact_phone))
+                        await self.db_pool.execute(
+                            """UPDATE customers SET last_messaged_at = NOW(), updated_at = NOW()
+                               WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
+                            tenant_id, clean_cp or contact_phone
+                        )
+                except Exception as e:
+                    logger.warning("outbound_conversation_update_failed", error=str(e))
+
+                # Send via Instagram if channel is instagram
+                if channel == "instagram":
+                    if not ig_creds:
+                        ig_creds = await self._get_tenant_instagram_creds(tenant_id)
+                    ig_token = (ig_creds or {}).get("access_token")
+                    ig_page_id = (ig_creds or {}).get("page_id")
+                    ig_account_id = (ig_creds or {}).get("account_id")
+                    ig_recipient = sender_id or str(contact_phone).replace("ig:", "").strip()
+                    if ig_recipient and ig_recipient in (ig_page_id, ig_account_id, "17841442516939355"):
+                        logger.info("skipping_self_instagram_reply", tenant_id=tenant_id, recipient=ig_recipient)
+                        continue
+                    if ig_token and ig_recipient:
+                        try:
+                            if b_idx > 0:
+                                await asyncio.sleep(0.3)
+                            ig_mid = await send_instagram_text(
+                                access_token=ig_token,
+                                recipient_id=ig_recipient,
+                                body=bubble,
+                                page_id=ig_page_id,
+                                tenant_id=tenant_id,
+                            )
+                            if ig_mid:
+                                await self.db_pool.execute(
+                                    """UPDATE messages
+                                       SET wa_message_id = $1, ig_message_id = $2, channel = 'instagram', status = 'sent'
+                                       WHERE id = $3::uuid AND tenant_id = $4::uuid""",
+                                    f"ig_{ig_mid}", ig_mid, str(out_msg_id), tenant_id
+                                )
+                                logger.info("instagram_ai_reply_sent", tenant_id=tenant_id, recipient=ig_recipient, ig_mid=ig_mid)
+                            else:
+                                await self.db_pool.execute(
+                                    "UPDATE messages SET status = 'failed', error_code = 'instagram_send_failed' WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                                    str(out_msg_id), tenant_id
+                                )
+                        except Exception as ig_err:
+                            logger.error("instagram_ai_reply_send_failed", error=str(ig_err), tenant_id=tenant_id)
+                            await self.db_pool.execute(
+                                "UPDATE messages SET status = 'failed', error_code = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                                str(ig_err)[:50], str(out_msg_id), tenant_id
+                            )
+                    else:
+                        logger.warning("no_instagram_creds_cannot_send", tenant_id=tenant_id, recipient=ig_recipient)
+
+                # Send via WhatsApp using client's own phone number
+                elif creds and creds.get("phone_number_id") and creds.get("access_token"):
+                    clean_cp = re.sub(r'\D', '', str(contact_phone))
+                    clean_target_phone = clean_cp or str(contact_phone)
+                    cooldown_key = f"wa_cooldown:pair:{tenant_id}:{clean_target_phone}"
+                    rate_key = f"wa_pair_outbound:{tenant_id}:{clean_target_phone}"
+
+                    # 1. Preemptive Check: Active WhatsApp pair cooldown in effect
+                    if self.redis:
+                        try:
+                            if await self.redis.get(cooldown_key):
+                                logger.warning(
+                                    "wa_send_skipped_pair_cooldown_active",
+                                    tenant_id=tenant_id, phone=clean_target_phone
+                                )
+                                await self.db_pool.execute(
+                                    "UPDATE messages SET status = 'failed', error_code = 'pair_rate_limit_cooldown' WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                                    str(out_msg_id), tenant_id
+                                )
+                                continue
+
+                            # 2. Sliding window pair rate limit: Prevent runaway loops (> 12 messages in 60s)
+                            pair_count = await self.redis.incr(rate_key)
+                            if pair_count == 1:
+                                await self.redis.expire(rate_key, 60)
+                            if pair_count > 12:
+                                logger.warning(
+                                    "wa_send_throttled_pair_rate_limit_preempted",
+                                    tenant_id=tenant_id, phone=clean_target_phone, count=pair_count
+                                )
+                                await self.redis.setex(cooldown_key, 30, "1")  # Short 30s cooldown
+                                await self.db_pool.execute(
+                                    "UPDATE messages SET status = 'failed', error_code = 'pair_rate_limit_preempted' WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                                    str(out_msg_id), tenant_id
+                                )
+                                continue
+                        except Exception as rate_err:
+                            logger.debug("pair_rate_check_failed", error=str(rate_err))
+
+                    try:
+                        if b_idx == 0:
+                            # Ensure at least 1.0s has elapsed since typing indicator was dispatched to Meta.
+                            # This eliminates the WhatsApp client race condition where super-fast AI replies
+                            # arrive at the exact same millisecond as the typing indicator packet, leaving
+                            # the typing bubble animation stuck on screen.
+                            elapsed_since_typing = (time.monotonic() - typing_started_at) if typing_started_at else 1.0
+                            if elapsed_since_typing < 1.0:
+                                await asyncio.sleep(1.0 - elapsed_since_typing)
+                        else:
+                            # 250ms pause between multi-bubble replies to preserve delivery order on WhatsApp
+                            await asyncio.sleep(0.25)
+
+                        wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=bubble,
+                        )
+                        # Update message with wa_message_id and sent status
+                        await self.db_pool.execute(
+                            "UPDATE messages SET wa_message_id = $1, status = 'sent' WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                            wa_id, str(out_msg_id), tenant_id
+                        )
+                        wa_sends.labels(tenant=tenant_id, status="success").inc()
+                    except WhatsAppSendError as e:
+                        err_str = str(e)
+                        is_pair_limit = "131056" in err_str or "pair rate limit" in err_str.lower()
+                        if is_pair_limit:
+                            if self.redis:
+                                await self.redis.setex(cooldown_key, 1800, "1")  # 30m cooldown
+                            await self.db_pool.execute(
+                                """UPDATE conversations
+                                   SET status = 'human',
+                                       wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{ai_disabled_reason}', '"meta_pair_rate_limit_131056"')
+                                   WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                                conv_id, tenant_id
+                            )
+                            logger.warning(
+                                "wa_pair_rate_limit_cooldown_activated",
+                                tenant_id=tenant_id, phone=clean_target_phone, error=err_str[:200]
+                            )
+                        else:
+                            logger.error("wa_send_failed", error=err_str, tenant_id=tenant_id)
+
+                        await self.db_pool.execute(
+                            "UPDATE messages SET status = 'failed', error_code = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                            err_str[:50], str(out_msg_id), tenant_id
+                        )
+                        wa_sends.labels(tenant=tenant_id, status="failed").inc()
+                else:
+                    logger.warning("no_whatsapp_creds_cannot_send", tenant_id=tenant_id)
+
+            # Execute Actions: Cancellation or Reschedule
+            if cancel_action:
+                asyncio.create_task(
+                    self._fire_and_log(
+                        self._execute_ai_cancellation(
+                            tenant_id=tenant_id,
+                            conv_id=conv_id,
+                            contact_phone=contact_phone,
+                            customer_name=customer_name,
+                            creds=creds,
+                        ),
+                        "execute_ai_cancellation",
                         tenant_id=tenant_id,
                         conv_id=conv_id,
-                        contact_phone=contact_phone,
-                        customer_name=customer_name,
-                        booking_data=booking_action,
-                        creds=creds,
-                    ),
-                    "execute_ai_booking",
-                    tenant_id=tenant_id,
-                    conv_id=conv_id,
+                    )
                 )
-            )
+            elif reschedule_action:
+                asyncio.create_task(
+                    self._fire_and_log(
+                        self._execute_ai_reschedule(
+                            tenant_id=tenant_id,
+                            conv_id=conv_id,
+                            contact_phone=contact_phone,
+                            customer_name=customer_name,
+                            booking_data=reschedule_action,
+                            creds=creds,
+                        ),
+                        "execute_ai_reschedule",
+                        tenant_id=tenant_id,
+                        conv_id=conv_id,
+                    )
+                )
 
         # Automatically update CRM lead probability, concern extraction, and follow-up pipeline
         asyncio.create_task(
@@ -9169,8 +11562,28 @@ end
                     params.append(str(preferred_language).strip())
                     p_idx += 1
                 if lead_probability and str(lead_probability).lower() in ("hot", "warm", "cold"):
+                    target_prob = str(lead_probability).lower()
+                    if target_prob == "hot":
+                        try:
+                            c_inbound = await pool.fetchval(
+                                """SELECT COUNT(*) FROM messages m 
+                                   JOIN conversations c ON m.conversation_id = c.id 
+                                   JOIN contacts ct ON c.contact_id = ct.id 
+                                   WHERE c.tenant_id = $1::uuid 
+                                     AND (ct.phone = $2 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $3)
+                                     AND m.direction = 'inbound'""",
+                                tenant_id, phone, last10
+                            )
+                            if (c_inbound or 0) < 3:
+                                target_prob = "warm"
+                        except Exception:
+                            pass
+                    target_rate = 90 if target_prob == "hot" else (20 if target_prob == "cold" else 50)
                     updates.append(f"lead_probability = CASE WHEN COALESCE(customers.metadata->>'lead_prob_manually_set', 'false') = 'true' THEN customers.lead_probability ELSE ${p_idx} END")
-                    params.append(str(lead_probability).lower())
+                    params.append(target_prob)
+                    p_idx += 1
+                    updates.append(f"conversion_rate = CASE WHEN COALESCE(customers.metadata->>'lead_prob_manually_set', 'false') = 'true' THEN customers.conversion_rate ELSE ${p_idx} END")
+                    params.append(target_rate)
                     p_idx += 1
                 if deal_value is not None:
                     try:
@@ -9277,6 +11690,9 @@ end
         customer_name: str,
         booking_data: dict,
         creds: Optional[dict],
+        channel: str = "whatsapp",
+        sender_id: Optional[str] = None,
+        ig_creds: Optional[dict] = None,
     ):
         """Creates booking in DB, dispatches Meta WhatsApp Templates, and syncs with Google Calendar."""
         # Redis idempotency lock — prevent concurrent executions for the same conversation
@@ -9484,6 +11900,41 @@ end
                 "SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id
             )
 
+            # Resolve customer real phone: check booking_data, contact metadata, or contact_phone
+            raw_cust_phone = booking_data.get("phone") or booking_data.get("customer_phone")
+            if not raw_cust_phone and contact_id:
+                try:
+                    c_row = await self.db_pool.fetchrow(
+                        "SELECT metadata->>'shared_phone' as shared, metadata->>'canonical_phone' as canonical FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                        contact_id, tenant_id
+                    )
+                    if c_row:
+                        raw_cust_phone = c_row.get("shared") or c_row.get("canonical")
+                except Exception as c_err:
+                    logger.debug("contact_phone_lookup_failed", error=str(c_err))
+
+            if not raw_cust_phone and channel != "instagram":
+                raw_cust_phone = contact_phone
+
+            clean_customer_phone = None
+            if raw_cust_phone:
+                digits_only = re.sub(r'[^0-9]', '', str(raw_cust_phone))
+                if len(digits_only) >= 10:
+                    clean_customer_phone = f"91{digits_only[-10:]}"
+
+            if channel == "instagram" and clean_customer_phone:
+                try:
+                    ig_user_id = sender_id or str(contact_phone).replace("ig:", "").strip()
+                    await self._unify_instagram_customer_phone(
+                        tenant_id=tenant_id,
+                        sender_id=ig_user_id,
+                        phone_input=clean_customer_phone,
+                        contact_name=name,
+                        contact_id=str(contact_id) if contact_id else None,
+                    )
+                except Exception as e_uni:
+                    logger.warning("booking_instagram_phone_unify_failed", error=str(e_uni))
+
             # If email not in booking action, check contact metadata
             if not customer_email and contact_id:
                 c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
@@ -9521,7 +11972,7 @@ end
                 asyncio.create_task(
                     self._update_customer_extracted_info(
                         tenant_id=tenant_id,
-                        phone=contact_phone,
+                        phone=clean_customer_phone or contact_phone,
                         contact_id=contact_id,
                         name=name if name not in ["Valued Customer", "Client", "Customer"] else None,
                         health_concern=service_name if service_name else None,
@@ -9641,9 +12092,9 @@ end
                 booking_id = str(uuid.uuid4())
                 booking_meta = json.dumps({
                     "customer_name": name,
-                    "customer_phone": contact_phone,
+                    "customer_phone": clean_customer_phone or contact_phone,
                     "customer_email": customer_email,
-                    "source": "whatsapp_ai"
+                    "source": f"{channel}_ai"
                 })
                 await self.db_pool.execute(
                     """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, metadata, payment_status, payment_mode, location)
@@ -9664,6 +12115,7 @@ end
                 logger.debug("clear_callback_on_booking_failed", error=str(e_clear_cb))
 
             try:
+                eff_phone_for_crm = clean_customer_phone or contact_phone
                 await self.db_pool.execute(
                     """UPDATE customers
                        SET deal_value = CASE WHEN $1 > 0 THEN $1 ELSE deal_value END,
@@ -9672,10 +12124,18 @@ end
                            conversion_rate = 99,
                            lead_probability = 'hot',
                            updated_at = NOW()
-                       WHERE tenant_id = $2::uuid AND (phone = $3 OR phone LIKE $4 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $5)""",
-                    eff_price, tenant_id, contact_phone, f"%{contact_phone[-10:]}%", contact_phone[-10:] if len(contact_phone) >= 10 else contact_phone
+                       WHERE tenant_id = $2::uuid AND (
+                           phone = $3
+                           OR phone = $4
+                           OR phone LIKE $5
+                           OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $6
+                           OR (metadata->'merged_phones' ? $3)
+                       )""",
+                    eff_price, tenant_id, contact_phone, eff_phone_for_crm,
+                    f"%{contact_phone[-10:]}%",
+                    eff_phone_for_crm[-10:] if len(eff_phone_for_crm) >= 10 else eff_phone_for_crm
                 )
-                logger.info("ai_booking_customer_deal_value_saved", phone=contact_phone, deal_value=eff_price, conversion_rate=99)
+                logger.info("ai_booking_customer_deal_value_saved", phone=eff_phone_for_crm, deal_value=eff_price, conversion_rate=99)
             except Exception as e_cdeal:
                 logger.warning("save_customer_deal_value_direct_failed", error=str(e_cdeal))
 
@@ -9760,9 +12220,13 @@ end
             except Exception as b_err:
                 logger.warning("booking_push_failed", error=str(b_err))
 
-            # 1. Send Meta WhatsApp Template (booking_confirmation) and record in messages table
-            if not creds:
+            # 1. Ensure WhatsApp credentials are ready for template / alert dispatch
+            if not creds or not creds.get("phone_number_id") or not creds.get("access_token"):
                 creds = await self._get_tenant_whatsapp_creds(tenant_id)
+            if not creds or not creds.get("phone_number_id") or not creds.get("access_token"):
+                t_ctx = await self.load_tenant_context(tenant_id)
+                if t_ctx and t_ctx.get("creds"):
+                    creds = t_ctx.get("creds")
 
             if initial_booking_status != "confirmed":
                 # Slot is held in pending status awaiting customer online payment
@@ -9780,20 +12244,21 @@ end
                     if len(clean_admin_phone) == 10:
                         clean_admin_phone = f"91{clean_admin_phone}"
 
+                    display_cust_phone = clean_customer_phone or (re.sub(r'\D', '', str(contact_phone)) if not str(contact_phone).startswith("ig:") else contact_phone)
                     bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
-                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, contact_phone)
+                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, display_cust_phone)
                     if is_self:
                         logger.info("ai_booking_admin_pending_alert_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
                     else:
                         formatted_date = st_dt.strftime("%d-%m-%Y")
                         formatted_time = st_dt.strftime("%I:%M %p")
                         admin_pending_text = (
-                            f"⏳ *New Booking Request (Payment Pending)* 📅\n\n"
-                            f"• *Customer:* {name}\n"
-                            f"• *Phone:* {contact_phone}\n"
-                            f"• *Service:* {service_name}\n"
-                            f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                            f"• *Amount Due:* {fee_curr} {eff_price:g}\n\n"
+                            f"⏳ New Booking Request (Payment Pending) 📅\n\n"
+                            f"Customer: {name}\n"
+                            f"Phone: {display_cust_phone}\n"
+                            f"Service: {service_name}\n"
+                            f"Date & Time: {formatted_date} at {formatted_time}\n"
+                            f"Amount Due: {fee_curr} {eff_price:g}\n\n"
                             f"Payment link sent to customer. Booking will auto-confirm once paid."
                         )
                         try:
@@ -9808,7 +12273,58 @@ end
                             logger.warning("ai_booking_admin_pending_alert_failed", error=str(e_adm))
                 return
 
-            if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+            formatted_date = st_dt.strftime("%d-%m-%Y")
+            formatted_time = st_dt.strftime("%I:%M %p")
+            confirmation_body = f"📅 Appointment Confirmed!\n\nName: {name}\nService: {service_name}\nDate & Time: {formatted_date} at {formatted_time}"
+
+            # 1a. In-Channel Confirmation (Instagram DM)
+            if channel == "instagram":
+                if not ig_creds:
+                    ig_creds = await self._get_tenant_instagram_creds(tenant_id)
+                ig_token = (ig_creds or {}).get("access_token")
+                ig_page_id = (ig_creds or {}).get("page_id")
+                ig_account_id = (ig_creds or {}).get("account_id")
+                ig_recipient = sender_id or str(contact_phone).replace("ig:", "").strip()
+                if ig_recipient and ig_recipient in (ig_page_id, ig_account_id, "17841442516939355"):
+                    logger.info("skipping_self_instagram_confirmation", tenant_id=tenant_id, recipient=ig_recipient)
+                elif ig_token and ig_recipient:
+                    ig_conf_text = confirmation_body
+                    if clean_customer_phone:
+                        ig_conf_text += f"\n\nWe have also sent your appointment confirmation and clinic directions to your WhatsApp (+{clean_customer_phone})."
+                    try:
+                        ig_mid = await send_instagram_text(
+                            access_token=ig_token,
+                            recipient_id=ig_recipient,
+                            body=ig_conf_text,
+                            page_id=ig_page_id,
+                            tenant_id=tenant_id,
+                        )
+                        if ig_mid:
+                            conf_msg_id = str(uuid.uuid4())
+                            await self.db_pool.execute(
+                                """INSERT INTO messages (id, conversation_id, tenant_id, channel, direction, content_type, body, status, wa_message_id, ig_message_id, ai_used_fallback)
+                                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'instagram', 'outbound', 'text', $4, 'sent', $5, $6, false)""",
+                                conf_msg_id, conv_id, tenant_id, ig_conf_text, f"ig_{ig_mid}", ig_mid
+                            )
+                            await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                            logger.info("instagram_booking_confirmation_sent", tenant_id=tenant_id, recipient=ig_recipient)
+                    except Exception as ig_b_err:
+                        logger.warning("instagram_booking_confirmation_failed", tenant_id=tenant_id, error=str(ig_b_err))
+
+            # 1b. Customer WhatsApp Confirmation Template & Location
+            target_wa_phone = None
+            if channel == "instagram":
+                target_wa_phone = clean_customer_phone
+            else:
+                target_wa_phone = clean_customer_phone or (re.sub(r'\D', '', str(contact_phone)) if not str(contact_phone).startswith("ig:") else None)
+
+            clean_target_wa = None
+            if target_wa_phone:
+                clean_target_wa = re.sub(r'[^0-9]', '', str(target_wa_phone))
+                if len(clean_target_wa) == 10:
+                    clean_target_wa = f"91{clean_target_wa}"
+
+            if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test") and clean_target_wa:
                 template_name = (
                     creds.get("template_booking_confirmation") or
                     (tenant_st_row.get("template_booking_confirmation") if tenant_st_row else None) or
@@ -9842,7 +12358,7 @@ end
                                 ]
                             }
                         ]
-                    confirmation_body = f"📅 Appointment Confirmed!\n\n• Name: {name}\n• Date & Time: {formatted_date} at {formatted_time}"
+                    wa_conf_body = f"📅 Appointment Confirmed!\n\nName: {name}\nDate & Time: {formatted_date} at {formatted_time}"
                 else:
                     components = [
                         {
@@ -9855,25 +12371,25 @@ end
                             ]
                         }
                     ]
-                    confirmation_body = f"📅 Appointment Confirmed!\n\n• Name: {name}\n• Service: {service_name}\n• Date & Time: {formatted_date} at {formatted_time}"
+                    wa_conf_body = f"📅 Appointment Confirmed!\n\nName: {name}\nService: {service_name}\nDate & Time: {formatted_date} at {formatted_time}"
 
                 tmpl_wa_id = None
                 try:
                     tmpl_wa_id = await send_template(
                         phone_number_id=creds["phone_number_id"],
                         access_token=creds["access_token"],
-                        to=contact_phone,
+                        to=clean_target_wa,
                         template_name=template_name,
                         language_code="en",
                         components=components,
                     )
-                    logger.info("meta_booking_template_sent", template=template_name, to=contact_phone, wa_id=tmpl_wa_id)
+                    logger.info("meta_booking_template_sent", template=template_name, to=clean_target_wa, wa_id=tmpl_wa_id)
                     # Record outbound confirmation in messages table so it appears in CRM conversation thread
                     conf_msg_id = str(uuid.uuid4())
                     await self.db_pool.execute(
-                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
-                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, 'sent', $5, false)""",
-                        conf_msg_id, conv_id, tenant_id, confirmation_body, tmpl_wa_id
+                        """INSERT INTO messages (id, conversation_id, tenant_id, channel, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'whatsapp', 'outbound', 'template', $4, 'sent', $5, false)""",
+                        conf_msg_id, conv_id, tenant_id, wa_conf_body, tmpl_wa_id
                     )
                     await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 except Exception as e:
@@ -9882,20 +12398,20 @@ end
                         txt_wa_id = await send_text(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
-                            to=contact_phone,
-                            body=confirmation_body,
+                            to=clean_target_wa,
+                            body=wa_conf_body,
                         )
                         conf_msg_id = str(uuid.uuid4())
                         await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
-                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
-                            conf_msg_id, conv_id, tenant_id, confirmation_body, txt_wa_id
+                            """INSERT INTO messages (id, conversation_id, tenant_id, channel, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'whatsapp', 'outbound', 'text', $4, 'sent', $5, false)""",
+                            conf_msg_id, conv_id, tenant_id, wa_conf_body, txt_wa_id
                         )
                         await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                     except Exception as txt_err:
                         logger.error("confirmation_text_fallback_send_failed", error=str(txt_err))
 
-                # 1b. Automatically send Business Address or Home Collection Confirmation
+                # 1c. Automatically send Business Address or Home Collection Confirmation to target WhatsApp
                 full_location = (creds.get("full_location_text") or "").strip() if creds else ""
                 if not full_location and tenant_st_row:
                     full_location = (tenant_st_row.get("full_location_text") or tenant_st_row.get("location") or "").strip()
@@ -9910,80 +12426,112 @@ end
                     except Exception:
                         pass
 
+                # Extract and append Google Maps URL if not already present in location text
+                google_maps_url = ""
+                if creds and creds.get("google_maps_url"):
+                    google_maps_url = str(creds.get("google_maps_url")).strip()
+                if not google_maps_url and tenant_st_row and isinstance(tenant_st_row, dict) and tenant_st_row.get("google_maps_url"):
+                    google_maps_url = str(tenant_st_row.get("google_maps_url")).strip()
+                if not google_maps_url:
+                    try:
+                        tenant_st_val = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                        if tenant_st_val:
+                            if isinstance(tenant_st_val, str):
+                                try: tenant_st_val = json.loads(tenant_st_val)
+                                except: tenant_st_val = {}
+                            google_maps_url = (tenant_st_val.get("google_maps_url") or "").strip()
+                    except Exception:
+                        pass
+
+                if not google_maps_url and "aadhiran" in clean_slug:
+                    google_maps_url = "https://maps.app.goo.gl/zixd3wGegQCDdCYM8?g_st=ac"
+                elif not google_maps_url and "vetrivel" in clean_slug:
+                    google_maps_url = "https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+
+                if not full_location and "boldlabs" in clean_slug:
+                    full_location = "3/481 Muneeswarar nagar, mahatma 1st cross street, uchaparambumedu madurai - 625014"
+                elif not full_location and "aadhiran" in clean_slug:
+                    full_location = "14/18, M.G.R Nagar, 5th Street, P.N. Road East, Tiruppur – 641602"
+                elif not full_location and "vetrivel" in clean_slug:
+                    full_location = "Villupuram to Gingee Main Road, Appampattu, Meenambur post, Gingee TK, 604205"
+                elif not full_location and "smaato" in clean_slug:
+                    full_location = "Ambattur Rd, near RMK Super Market, TNHB Colony, Subash Nagar, Ayappakkam, Tamil Nadu 600053"
+                elif not full_location and "mindbody" in clean_slug:
+                    full_location = "Shantha Ayurvedic & Alternative Therapy Centre, near Bewell Hospital, T Nagar, Chennai"
+                elif not full_location and "muthra" in clean_slug:
+                    full_location = "59/1-A Vaigai street Velmurugan nagar, Madurai - 625069"
+
+                if not full_location and booking_loc:
+                    full_location = booking_loc
+
+                if not google_maps_url and "aadhiran" in clean_slug:
+                    google_maps_url = "https://maps.app.goo.gl/zixd3wGegQCDdCYM8?g_st=ac"
+                elif not google_maps_url and "vetrivel" in clean_slug:
+                    google_maps_url = "https://maps.app.goo.gl/wRNA7aMdovuSy9T38?g_st=awb"
+                elif not google_maps_url and "smaato" in clean_slug:
+                    google_maps_url = "https://maps.google.com/?q=SMAATO+MOBILE+Ayappakkam+Chennai"
+                elif not google_maps_url and "mindbody" in clean_slug:
+                    google_maps_url = "https://maps.app.goo.gl/r4kEKZYSjMEuHh3t7"
+                elif not google_maps_url and "muthra" in clean_slug:
+                    google_maps_url = "https://share.google/18vv5RAhB2PoSdmnD"
+
+                has_existing_maps = bool(re.search(r'https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|google\.com/maps|maps\.google|share\.google)[^\s]*', full_location, re.I))
+                if google_maps_url and not has_existing_maps:
+                    if full_location:
+                        full_location = f"{full_location}\n📍 Google Maps: {google_maps_url}"
+                    else:
+                        full_location = f"📍 Google Maps: {google_maps_url}"
+                # Deduplicate only identical duplicate map URLs in full_location
+                found_map_links = re.findall(r'https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|google\.com/maps|maps\.google|share\.google)[^\s]*', full_location, re.I)
+                seen_map_links = set()
+                for lk in found_map_links:
+                    if lk in seen_map_links:
+                        full_location = full_location.replace(lk, "", 1)
+                    else:
+                        seen_map_links.add(lk)
+
                 is_home_booking = bool(
                     not is_boldlabs
                     and "abinaya" in clean_slug
                     and ("home" in service_name.lower() or "home" in (notes or "").lower() or ("collection" in service_name.lower() and booking_loc))
                 )
 
-                is_virtual_booking = bool(
-                    is_boldlabs
-                    or any(w in service_name.lower() for w in ["demo", "online", "screen-share", "screenshare", "virtual", "zoom", "google meet", "video call"])
-                    or any(w in (notes or "").lower() for w in ["online", "virtual", "zoom", "google meet"])
-                )
-
-                if is_virtual_booking:
-                    virtual_msg = (
-                        f"💻 Online Meeting & Demo Details:\n\n"
-                        f"• Session: {service_name}\n"
-                        f"• Format: Online Screen-share / Google Meet\n"
-                        f"• Date & Time: {formatted_date} at {formatted_time}\n\n"
-                        f"Our team will send the direct meeting link right here on WhatsApp before the session starts."
-                    )
-                    await asyncio.sleep(1.0)
-                    try:
-                        v_wa_id = await send_text(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=contact_phone,
-                            body=virtual_msg,
-                        )
-                        v_msg_id = str(uuid.uuid4())
-                        await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
-                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
-                            v_msg_id, conv_id, tenant_id, virtual_msg, v_wa_id
-                        )
-                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                        logger.info("virtual_meeting_details_sent_to_customer", to=contact_phone)
-                    except Exception as e:
-                        logger.warning("virtual_meeting_details_send_failed", error=str(e))
-                elif is_home_booking:
+                if is_home_booking:
                     home_conf_addr = booking_loc or "Your registered address"
-                    fee_line_home = f"• Package Fee: ₹{eff_price:g} (Payable at sample collection)\n" if eff_price > 0 else ""
+                    fee_line_home = f"Package Fee: ₹{eff_price:g} (Payable at sample collection)\n" if eff_price > 0 else ""
                     fasting_line_home = (
-                        "• Fasting Note: Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n"
+                        "Fasting Note: Please ensure 8 to 12 hours of overnight fasting before sample collection (only plain water is permitted).\n"
                         if ("checkup" in service_name.lower() or "trufit" in service_name.lower())
                         else ""
                     )
                     home_msg = (
                         f"🏡 Home Sample Collection Details:\n\n"
-                        f"• Collection Address: {home_conf_addr}\n"
+                        f"Collection Address: {home_conf_addr}\n"
                         f"{fee_line_home}"
                         f"{fasting_line_home}\n"
                         f"Our technician / phlebotomist will arrive with a sealed, sanitized collection kit."
                     )
-                    await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
+                    await asyncio.sleep(2.5)  # Pause so confirmation template arrives first on WhatsApp
                     try:
                         home_wa_id = await send_text(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
-                            to=contact_phone,
+                            to=clean_target_wa,
                             body=home_msg,
                         )
                         # Record in messages table
                         home_msg_id = str(uuid.uuid4())
                         await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
-                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            """INSERT INTO messages (id, conversation_id, tenant_id, channel, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'whatsapp', 'outbound', 'text', $4, 'sent', $5, false)""",
                             home_msg_id, conv_id, tenant_id, home_msg, home_wa_id
                         )
                         await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                        logger.info("home_collection_details_sent_to_customer", to=contact_phone)
+                        logger.info("home_collection_details_sent_to_customer", to=clean_target_wa)
                     except Exception as e:
                         logger.warning("home_collection_details_send_failed", error=str(e))
                 elif full_location:
-                    # Regular in-clinic visit with verified address: send address & directions
+                    # Regular visit with verified address: send address & directions
                     clean_s = (tenant_slug or "").lower()
                     t_name_lower = (tenant_name or "").lower()
                     t_industry = (tenant_st_row.get("industry") or "").lower() if isinstance(tenant_st_row, dict) else ""
@@ -10044,90 +12592,104 @@ end
                         else ""
                     )
                     loc_msg = (
-                        f"📍 Location & Directions:\n"
+                        f"📍 Location & Directions:\n\n"
                         f"{full_location}"
                         f"{fasting_line}"
                     )
-                    await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
+                    if "*" in loc_msg:
+                        loc_msg = loc_msg.replace("*", "")
+                    await asyncio.sleep(2.5)  # Pause so confirmation template arrives first on WhatsApp
                     try:
                         loc_wa_id = await send_text(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
-                            to=contact_phone,
+                            to=clean_target_wa,
                             body=loc_msg,
                         )
                         # Record in messages table
                         loc_msg_id = str(uuid.uuid4())
                         await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
-                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            """INSERT INTO messages (id, conversation_id, tenant_id, channel, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'whatsapp', 'outbound', 'text', $4, 'sent', $5, false)""",
                             loc_msg_id, conv_id, tenant_id, loc_msg, loc_wa_id
                         )
                         await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                        logger.info("location_directions_sent_to_customer", to=contact_phone)
+                        logger.info("location_directions_sent_to_customer", to=clean_target_wa)
                     except Exception as e:
                         logger.warning("location_directions_send_failed", error=str(e))
 
-                # 2. Send Admin Notification WhatsApp Alert to Admin Number
-                admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
-                if not admin_phone:
-                    tenant_st_data = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-                    if tenant_st_data:
-                        if isinstance(tenant_st_data, str):
-                            try: tenant_st_data = json.loads(tenant_st_data)
-                            except: tenant_st_data = {}
-                        admin_phone = (tenant_st_data.get("admin_whatsapp_number") or "").strip()
+            # 2. Send Admin Notification WhatsApp Alert to Admin Number (UNCONDITIONALLY for ALL bookings)
+            admin_phone = (creds.get("admin_whatsapp_number") or "").strip() if creds else ""
+            if not admin_phone:
+                tenant_st_data = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                if tenant_st_data:
+                    if isinstance(tenant_st_data, str):
+                        try: tenant_st_data = json.loads(tenant_st_data)
+                        except: tenant_st_data = {}
+                    admin_phone = (tenant_st_data.get("admin_whatsapp_number") or "").strip()
 
-                if admin_phone:
-                    clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
-                    if len(clean_admin_phone) == 10:
-                        clean_admin_phone = f"91{clean_admin_phone}"
+            display_cust_phone = clean_customer_phone or (re.sub(r'\D', '', str(contact_phone)) if not str(contact_phone).startswith("ig:") else contact_phone)
 
-                    bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
-                    is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, contact_phone)
-                    if is_self:
-                        logger.info("admin_notification_template_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
-                    else:
-                        admin_alert_text = (
-                            f"🔔 *New Booking Confirmed!* 📅\n\n"
-                            f"• *Customer:* {name}\n"
-                            f"• *Phone:* {contact_phone}\n"
-                            f"• *Service:* {service_name}\n"
-                            + (f"• *Fee / Amount:* ₹{eff_price:g}\n" if eff_price > 0 else "")
-                            + f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
-                            + (f"• *Address:* {booking_loc}\n" if booking_loc else "")
-                            + f"• *Email:* {customer_email or 'Not provided'}\n\n"
-                            f"✅ Confirmed by WhatsApp AI Assistant & logged in CRM."
+            if admin_phone and creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
+                if len(clean_admin_phone) == 10:
+                    clean_admin_phone = f"91{clean_admin_phone}"
+
+                bot_num = str((creds or {}).get("display_phone_number") or (creds or {}).get("phone_number") or "")
+                is_self, skip_reason = is_self_or_contact_phone(clean_admin_phone, bot_num, display_cust_phone)
+                if is_self:
+                    logger.info("admin_notification_template_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
+                else:
+                    admin_alert_text = (
+                        f"🔔 New Booking Confirmed! 📅\n\n"
+                        f"Customer: {name}\n"
+                        f"Phone: {display_cust_phone}\n"
+                        f"Service: {service_name}\n"
+                        + (f"Fee / Amount: ₹{eff_price:g}\n" if eff_price > 0 else "")
+                        + f"Date & Time: {formatted_date} at {formatted_time}\n"
+                        + (f"Address: {booking_loc}\n" if booking_loc else "")
+                        + f"Email: {customer_email or 'Not provided'}\n\n"
+                        f"✅ Confirmed by AI Assistant ({channel}) & logged in CRM."
+                    )
+                    admin_template = (
+                        creds.get("template_admin_notification") or
+                        (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or
+                        "admin_notification"
+                    )
+                    admin_components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": display_cust_phone},
+                                {"type": "text", "text": service_name},
+                                {"type": "text", "text": formatted_date},
+                                {"type": "text", "text": formatted_time},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_admin_phone,
+                            template_name=admin_template,
+                            language_code="en",
+                            components=admin_components,
                         )
-                        admin_template = (
-                            creds.get("template_admin_notification") or
-                            (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or
-                            "admin_notification"
-                        )
-                        admin_components = [
-                            {
-                                "type": "body",
-                                "parameters": [
-                                    {"type": "text", "text": name},
-                                    {"type": "text", "text": contact_phone},
-                                    {"type": "text", "text": service_name},
-                                    {"type": "text", "text": formatted_date},
-                                    {"type": "text", "text": formatted_time},
-                                ]
-                            }
-                        ]
+                        logger.info("admin_notification_template_sent", template=admin_template, to=clean_admin_phone)
+                    except Exception as e:
+                        logger.warning("admin_notification_template_failed_trying_text", error=str(e), template=admin_template)
                         try:
-                            await send_template(
+                            await send_text(
                                 phone_number_id=creds["phone_number_id"],
                                 access_token=creds["access_token"],
                                 to=clean_admin_phone,
-                                template_name=admin_template,
-                                language_code="en",
-                                components=admin_components,
+                                body=admin_alert_text,
                             )
-                            logger.info("admin_notification_template_sent", template=admin_template, to=clean_admin_phone)
-                        except Exception as e:
-                            logger.warning("admin_notification_template_failed_text_suppressed", error=str(e), template=admin_template)
+                            logger.info("admin_notification_text_fallback_sent", to=clean_admin_phone)
+                        except Exception as text_e:
+                            logger.error("admin_notification_text_fallback_failed", error=str(text_e))
 
             # 3. Google Calendar Event Creation & Email Invite to Both Customer & Admin
             gcal_row = await self.db_pool.fetchrow(
@@ -10156,17 +12718,18 @@ end
                         cal_id = g_data.get("calendar_id") or "primary"
                         
                         event_body = {
-                            "summary": f"{service_name} - {name} ({contact_phone})",
+                            "summary": f"{service_name} - {name} ({display_cust_phone})",
                             "location": booking_loc or full_location or "",
                             "description": (
-                                f"WhatsApp Booking Automated By AI\n\n"
+                                f"Appointment Booking Automated By AI ({channel.title()})\n\n"
                                 f"• Client Name: {name}\n"
-                                f"• Client Phone: {contact_phone}\n"
+                                f"• Client Phone: {display_cust_phone}\n"
                                 f"• Client Email: {customer_email or 'N/A'}\n"
                                 f"• Service: {service_name}\n"
                                 + (f"• Fee: ₹{eff_price:g}\n" if eff_price > 0 else "")
                                 + f"• Scheduled Time: {st_dt.strftime('%d %B %Y at %I:%M %p')}\n"
                                 + (f"• Collection Address: {booking_loc}\n" if booking_loc else "")
+                                + f"• Channel: {channel.title()}\n"
                                 + f"• Notes: {notes}"
                             ),
                             "start": {"dateTime": st_dt.isoformat()},
@@ -10208,7 +12771,7 @@ end
                                 formatted_date=formatted_date,
                                 formatted_time=formatted_time,
                                 name=name,
-                                contact_phone=contact_phone,
+                                contact_phone=display_cust_phone,
                                 customer_email=customer_email,
                                 notes=notes,
                                 full_location=full_location,
@@ -10223,7 +12786,7 @@ end
                                 formatted_date=formatted_date,
                                 formatted_time=formatted_time,
                                 name=name,
-                                contact_phone=contact_phone,
+                                contact_phone=display_cust_phone,
                                 full_location=full_location,
                             )
                             customer_subject = f"Booking Confirmed: Your {service_name} Appointment on {formatted_date} at {formatted_time}"
@@ -10233,15 +12796,23 @@ end
                     except Exception as e:
                         logger.error("google_calendar_sync_error", error=str(e), booking_id=booking_id)
 
-            # 4. Queue automatic 2h reminder in scheduled_jobs
-            # Note: 24h reminder is omitted because Meta template 'appointment_ramainder' explicitly states 'coming up today'
+            # 4. Queue automatic 2h customer reminder & 30m admin reminder in scheduled_jobs
             try:
+                now_local = datetime.datetime.now(tz)
                 remind_2h = st_dt - datetime.timedelta(hours=2)
-                if remind_2h > datetime.datetime.now(tz):
+                if remind_2h > now_local:
                     await self.db_pool.execute(
                         """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
                            VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                         tenant_id, booking_id, remind_2h
+                    )
+
+                remind_admin_30m = st_dt - datetime.timedelta(minutes=30)
+                if remind_admin_30m > now_local:
+                    await self.db_pool.execute(
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'admin_reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, remind_admin_30m
                     )
                 logger.info("ai_booking_scheduled_jobs_queued", booking_id=booking_id)
             except Exception as e_job:
@@ -10320,18 +12891,73 @@ end
                 "too costly", "too expensive", "not needed", "vendam", "vendaam", "nahi chahiye", "wrong person"
             ]
 
-            if booking_action or any(kw in latest_user_text for kw in ["booked for you", "appointment is booked", "appointment is confirmed", "confirmed"]):
+            # Chat turn tracking: 1 turn = 1 customer message + 1 AI reply
+            # User requirement: Lead status change to hot lead ONLY when MORE THAN 4 turns (turns > 4) happen.
+            # 1 to 4 turns -> Warm lead (50%).
+            turns = 0
+            try:
+                if conv_id:
+                    counts = await self.db_pool.fetchrow(
+                        """SELECT 
+                               COUNT(*) FILTER (WHERE direction = 'inbound') as in_count,
+                               COUNT(*) FILTER (WHERE direction = 'outbound') as out_count
+                           FROM messages 
+                           WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid""",
+                        conv_id, tenant_id
+                    )
+                else:
+                    clean_phone = re.sub(r'\D', '', str(phone))
+                    last10 = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
+                    counts = await self.db_pool.fetchrow(
+                        """SELECT 
+                               COUNT(*) FILTER (WHERE m.direction = 'inbound') as in_count,
+                               COUNT(*) FILTER (WHERE m.direction = 'outbound') as out_count
+                           FROM messages m 
+                           JOIN conversations c ON m.conversation_id = c.id 
+                           JOIN contacts ct ON c.contact_id = ct.id 
+                           WHERE c.tenant_id = $1::uuid 
+                             AND (ct.phone = $2 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $3)""",
+                        tenant_id, phone, last10
+                    )
+                if counts:
+                    in_c = counts["in_count"] or 0
+                    out_c = counts["out_count"] or 0
+                    turns = min(in_c, out_c)
+            except Exception as e_cnt:
+                logger.debug("lead_turns_count_err", error=str(e_cnt))
+                if history and isinstance(history, list):
+                    h_in = sum(1 for m in history if m.get("role") == "user" or m.get("direction") == "inbound")
+                    h_out = sum(1 for m in history if m.get("role") == "assistant" or m.get("direction") == "outbound")
+                    turns = min(h_in, h_out)
+                else:
+                    turns = len(user_texts)
+
+            # 1. Lead Probability & Conversion Rate Classification:
+            # Rule: Change to 'hot' (90%) ONLY when more than 4 turns (customer message + AI reply = 1 turn) happen (turns > 4).
+            # If 1-4 turns, keep in 'warm' (50%).
+            # If opted-out/uninterested -> 'cold' (20%).
+            # If booked/confirmed -> 'hot' with status 'converted' (100%) or 'booked' (99%).
+            is_booked_or_confirmed = bool(booking_action) or any(kw in latest_user_text for kw in ["booked for you", "appointment is booked", "appointment is confirmed", "confirmed"])
+            is_cold_lead = any(kw in latest_user_text for kw in cold_keywords)
+
+            if is_booked_or_confirmed:
                 lead_prob = "hot"
                 status = "converted"
-            elif any(kw in latest_user_text for kw in cold_keywords):
+                conv_rate = 100 if booking_action else 99
+            elif is_cold_lead:
                 lead_prob = "cold"
                 status = "lost"
-            elif any(kw in user_full_text for kw in pricing_keywords + booking_keywords + callback_keywords + payment_keywords + urgency_keywords):
+                conv_rate = 20
+            elif turns > 4:
+                # More than 4 chat turns (customer message + AI reply = 1 turn) -> Hot Lead (90%)
                 lead_prob = "hot"
                 status = "new"
+                conv_rate = 90
             else:
+                # 1 to 4 chat turns -> Warm Lead (50%)
                 lead_prob = "warm"
                 status = "new"
+                conv_rate = 50
 
             # 2. Extract Requirement / Health Concern / Service from Customer Chat & Tenant Catalog
             extracted_concern = None
@@ -10380,7 +13006,9 @@ end
                 ad_ref_m = re.search(r'\[Ad Referral:\s*([^\]]+)\]', user_full_text, re.IGNORECASE)
                 if ad_ref_m:
                     extracted_concern = ad_ref_m.group(1).strip()
-                    lead_prob = "hot"
+                    if turns > 4:
+                        lead_prob = "hot"
+                        conv_rate = 90
 
                 # Match against services catalog
                 for svc in services_catalog:
@@ -10479,11 +13107,15 @@ end
                     WHEN COALESCE(customers.metadata->>'lead_prob_manually_set', 'false') = 'true' THEN customers.lead_probability 
                     ELSE $1 
                 END""",
+                """conversion_rate = CASE 
+                    WHEN COALESCE(customers.metadata->>'lead_prob_manually_set', 'false') = 'true' THEN customers.conversion_rate 
+                    ELSE $2 
+                END""",
                 "updated_at = NOW()",
                 "last_messaged_at = NOW()"
             ]
-            dynamic_params = [lead_prob]
-            idx = 2
+            dynamic_params = [lead_prob, conv_rate]
+            idx = 3
 
             is_converted_or_booked = (status == "converted" or bool(booking_action))
             if status:
@@ -10892,11 +13524,11 @@ end
                         logger.info("admin_cancellation_template_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
                     else:
                         admin_cancel_text = (
-                            f"⚠️ *Booking Cancelled Notice!* 📅\n\n"
-                            f"• *Customer:* {name}\n"
-                            f"• *Phone:* {contact_phone}\n"
-                            f"• *Service:* {service_name}\n"
-                            f"• *Original Date & Time:* {formatted_date} at {formatted_time}\n\n"
+                            f"⚠️ Booking Cancelled Notice! 📅\n\n"
+                            f"Customer: {name}\n"
+                            f"Phone: {contact_phone}\n"
+                            f"Service: {service_name}\n"
+                            f"Original Date & Time: {formatted_date} at {formatted_time}\n\n"
                             f"❌ The booking has been marked cancelled in CRM and removed from Google Calendar."
                         )
                         # Send Meta Template FIRST (immune to 24h customer window)
@@ -10941,7 +13573,17 @@ end
                                 )
                                 logger.info("admin_cancellation_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
                             except Exception as e_fb:
-                                logger.warning("admin_cancellation_fallback_failed_text_suppressed", error=str(e_fb))
+                                logger.warning("admin_cancellation_fallback_failed_trying_text", error=str(e_fb))
+                                try:
+                                    await send_text(
+                                        phone_number_id=creds["phone_number_id"],
+                                        access_token=creds["access_token"],
+                                        to=clean_admin_phone,
+                                        body=admin_cancel_text,
+                                    )
+                                    logger.info("admin_cancellation_text_fallback_sent", to=clean_admin_phone)
+                                except Exception as text_e:
+                                    logger.error("admin_cancellation_text_fallback_failed", error=str(text_e))
 
             # 5. Direct Gmail API Cancellation Email to Admin & Customer
             gcal_row = await self.db_pool.fetchrow(
@@ -11541,6 +14183,14 @@ end
                     if is_self:
                         logger.info("admin_reschedule_template_skipped", reason=skip_reason, admin_phone=clean_admin_phone)
                     else:
+                        admin_reschedule_text = (
+                            f"🗓️ Booking Rescheduled Notice! 📅\n\n"
+                            f"Customer: {name}\n"
+                            f"Phone: {contact_phone}\n"
+                            f"Service: {service_name}\n"
+                            f"New Date & Time: {formatted_date} at {formatted_time}\n\n"
+                            f"✅ Updated in CRM and Google Calendar."
+                        )
                         # Send Meta Template FIRST (immune to 24h customer window)
                         admin_template = (
                             creds.get("template_admin_reschedule_notice") or
@@ -11584,7 +14234,40 @@ end
                                 )
                                 logger.info("admin_reschedule_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
                             except Exception as e_fb:
-                                logger.warning("admin_reschedule_fallback_template_failed_text_suppressed", error=str(e_fb))
+                                logger.warning("admin_reschedule_fallback_template_failed_trying_text", error=str(e_fb))
+                                try:
+                                    await send_text(
+                                        phone_number_id=creds["phone_number_id"],
+                                        access_token=creds["access_token"],
+                                        to=clean_admin_phone,
+                                        body=admin_reschedule_text,
+                                    )
+                                    logger.info("admin_reschedule_text_fallback_sent", to=clean_admin_phone)
+                                except Exception as text_e:
+                                    logger.error("admin_reschedule_text_fallback_failed", error=str(text_e))
+
+                # Update customer reminder & admin reminder in scheduled_jobs for the new appointment time
+                try:
+                    now_local = datetime.datetime.now(tz)
+                    remind_2h = st_dt - datetime.timedelta(hours=2)
+                    if remind_2h > now_local:
+                        await self.db_pool.execute(
+                            """UPDATE scheduled_jobs
+                               SET scheduled_at = $1, status = 'pending'
+                               WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'reminder'""",
+                            remind_2h, booking_id, tenant_id
+                        )
+                    remind_admin_30m = st_dt - datetime.timedelta(minutes=30)
+                    if remind_admin_30m > now_local:
+                        await self.db_pool.execute(
+                            """UPDATE scheduled_jobs
+                               SET scheduled_at = $1, status = 'pending'
+                               WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'admin_reminder'""",
+                            remind_admin_30m, booking_id, tenant_id
+                        )
+                    logger.info("ai_reschedule_scheduled_jobs_updated", booking_id=booking_id)
+                except Exception as e_sj:
+                    logger.warning("ai_reschedule_scheduled_jobs_update_failed", error=str(e_sj))
         except Exception as e:
             logger.error("execute_ai_reschedule_failed", error=str(e), tenant_id=tenant_id)
         finally:
@@ -11596,7 +14279,79 @@ end
 
     # ── DB helpers ─────────────────────────────────────────────────────────────
 
-    async def _upsert_contact(self, tenant_id: str, phone: str, name: Optional[str]) -> str:
+    async def _upsert_contact(
+        self,
+        tenant_id: str,
+        phone: str,
+        name: Optional[str],
+        channel: str = "whatsapp",
+        ig_user_id: Optional[str] = None,
+        ig_username: Optional[str] = None
+    ) -> str:
+        if channel == "instagram" or str(phone).startswith("ig:"):
+            sender_ig_id = ig_user_id or str(phone).replace("ig:", "").strip()
+            existing_contact = await self.db_pool.fetchrow(
+                """SELECT id, name, wa_profile_name, ig_user_id, ig_username FROM contacts
+                   WHERE tenant_id = $1::uuid
+                     AND (
+                       (ig_user_id IS NOT NULL AND ig_user_id = $2)
+                       OR phone = $3
+                     )
+                   ORDER BY created_at ASC LIMIT 1""",
+                tenant_id, sender_ig_id, phone,
+            )
+            resolved_name = name
+            if (not resolved_name or resolved_name.strip() in ("", "Customer", "Instagram User") or resolved_name.startswith("Instagram User")) and ig_username:
+                resolved_name = f"@{ig_username.replace('@', '')}"
+
+            if existing_contact:
+                contact_id = str(existing_contact["id"])
+                await self.db_pool.execute(
+                    """UPDATE contacts
+                       SET channel = 'instagram',
+                           ig_user_id = COALESCE($2, ig_user_id),
+                           ig_username = COALESCE($3, ig_username),
+                           name = CASE 
+                               WHEN name IS NULL OR name = '' OR name = 'Customer' OR name LIKE 'Instagram User%' 
+                               THEN COALESCE($4, name) 
+                               ELSE name 
+                           END,
+                           wa_profile_name = CASE
+                               WHEN wa_profile_name IS NULL OR wa_profile_name = '' OR wa_profile_name = 'Customer' OR wa_profile_name LIKE 'Instagram User%'
+                               THEN COALESCE($4, wa_profile_name)
+                               ELSE wa_profile_name
+                           END,
+                           updated_at = now()
+                       WHERE id = $1::uuid AND tenant_id = $5::uuid""",
+                    existing_contact["id"], sender_ig_id, ig_username, resolved_name, tenant_id
+                )
+            else:
+                final_name = resolved_name or (f"@{ig_username.replace('@', '')}" if ig_username else "Instagram User")
+                row = await self.db_pool.fetchrow(
+                    """INSERT INTO contacts (id, tenant_id, phone, name, channel, ig_user_id, ig_username, wa_profile_name)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, 'instagram', $5, $6, $4)
+                       ON CONFLICT (tenant_id, phone)
+                       DO UPDATE SET
+                         channel = 'instagram',
+                         ig_user_id = COALESCE(EXCLUDED.ig_user_id, contacts.ig_user_id),
+                         ig_username = COALESCE(EXCLUDED.ig_username, contacts.ig_username),
+                         name = CASE 
+                           WHEN contacts.name IS NULL OR contacts.name = '' OR contacts.name = 'Customer' OR contacts.name LIKE 'Instagram User%' 
+                           THEN COALESCE(EXCLUDED.name, contacts.name)
+                           ELSE contacts.name
+                         END,
+                         wa_profile_name = CASE
+                           WHEN contacts.wa_profile_name IS NULL OR contacts.wa_profile_name = '' OR contacts.wa_profile_name = 'Customer' OR contacts.wa_profile_name LIKE 'Instagram User%'
+                           THEN COALESCE(EXCLUDED.wa_profile_name, contacts.wa_profile_name)
+                           ELSE contacts.wa_profile_name
+                         END,
+                         updated_at = now()
+                       RETURNING id""",
+                    str(uuid.uuid4()), tenant_id, phone, final_name, sender_ig_id, ig_username
+                )
+                contact_id = str(row["id"])
+            return contact_id
+
         # Check if contact already exists by normalized phone (with or without '+', matching last 10 digits, or in merged_phones)
         clean_p = re.sub(r"[^0-9]", "", phone)
         last_10 = clean_p[-10:] if len(clean_p) >= 10 else clean_p
@@ -11628,8 +14383,8 @@ end
                 )
         else:
             row = await self.db_pool.fetchrow(
-                """INSERT INTO contacts (id, tenant_id, phone, name, wa_profile_name)
-                   VALUES ($1::uuid, $2::uuid, $3, $4, $4)
+                """INSERT INTO contacts (id, tenant_id, phone, name, wa_profile_name, channel)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, $4, 'whatsapp')
                    ON CONFLICT (tenant_id, phone)
                    DO UPDATE SET
                      wa_profile_name = COALESCE(EXCLUDED.wa_profile_name, contacts.wa_profile_name),
@@ -11666,8 +14421,8 @@ end
                 )
             else:
                 await self.db_pool.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, last_messaged_at, created_at, updated_at)
-                       VALUES (gen_random_uuid(), $1::uuid, $2, COALESCE($3, 'Customer'), 'new', 'warm', now(), now(), now())
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, source, last_messaged_at, created_at, updated_at)
+                       VALUES (gen_random_uuid(), $1::uuid, $2, COALESCE($3, 'Customer'), 'new', 'warm', 'whatsapp', now(), now(), now())
                        ON CONFLICT (tenant_id, phone)
                        DO UPDATE SET
                          name = CASE WHEN customers.name IS NULL OR customers.name = 'Customer' THEN COALESCE(EXCLUDED.name, customers.name) ELSE customers.name END,
@@ -11680,7 +14435,7 @@ end
 
         return contact_id
 
-    async def _get_or_create_conversation(self, tenant_id: str, contact_id: str) -> tuple[str, str]:
+    async def _get_or_create_conversation(self, tenant_id: str, contact_id: str, channel: str = "whatsapp") -> tuple[str, str]:
         row = await self.db_pool.fetchrow(
             """SELECT id, status FROM conversations
                WHERE tenant_id = $1::uuid AND contact_id = $2::uuid
@@ -11732,15 +14487,16 @@ end
 
         new_id = str(uuid.uuid4())
         await self.db_pool.execute(
-            """INSERT INTO conversations (id, tenant_id, contact_id, status, assigned_to)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)""",
-            new_id, tenant_id, contact_id, default_status, assigned_user_id
+            """INSERT INTO conversations (id, tenant_id, contact_id, status, assigned_to, channel)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6)""",
+            new_id, tenant_id, contact_id, default_status, assigned_user_id, channel
         )
         return new_id, default_status
 
     async def _persist_message(self, tenant_id: str, conversation_id: str,
                                 wa_message_id: str, direction: str, body: str, content_type: str,
-                                media_url: Optional[str] = None):
+                                media_url: Optional[str] = None, channel: str = "whatsapp",
+                                ig_message_id: Optional[str] = None):
         clean_body = str(body).strip() if (body and str(body).strip()) else ""
         if not clean_body or clean_body == "[Message]":
             if "[unsupported" in str(clean_body).lower() or content_type == "unsupported":
@@ -11754,12 +14510,24 @@ end
             elif content_type == "interactive": clean_body = "🔘 [Interactive Selection]"
             else: clean_body = "Hello! Can I get more info on this?"
 
+        eff_wa_mid = wa_message_id
+        if channel == "instagram":
+            if ig_message_id:
+                # Stable dedup key: prefix ig_ so it never clashes with WA IDs
+                eff_wa_mid = f"ig_{ig_message_id}"
+            elif wa_message_id:
+                eff_wa_mid = wa_message_id
+            else:
+                # Both absent — generate a fresh UUID so every call produces a
+                # unique key (avoids "ig_None" collisions on re-delivery)
+                eff_wa_mid = f"ig_fallback_{uuid.uuid4()}"
+
         await self.db_pool.execute(
-            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, media_url, status)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, 'delivered')
+            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, ig_message_id, channel, direction, content_type, body, media_url, status)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9, $10, 'delivered')
                ON CONFLICT (wa_message_id) DO UPDATE SET media_url = COALESCE(messages.media_url, EXCLUDED.media_url)""",
-            str(uuid.uuid4()), conversation_id, tenant_id, wa_message_id,
-            direction, content_type, clean_body, media_url
+            str(uuid.uuid4()), conversation_id, tenant_id, eff_wa_mid, ig_message_id or (wa_message_id if channel == "instagram" else None),
+            channel, direction, content_type, clean_body, media_url
         )
         try:
             if direction == "inbound":
@@ -11818,6 +14586,93 @@ end
             try: await self.redis.setex(cache_key, 60, json.dumps(res))
             except Exception: pass
         return res
+
+    async def _get_tenant_instagram_creds(self, tenant_id: str) -> Optional[dict]:
+        cache_key = f"tenant_creds:{tenant_id}:instagram"
+        if self.redis:
+            try:
+                cached = await self.redis.get(cache_key)
+                if cached:
+                    c_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                    return json.loads(c_str) if c_str != "__none__" else None
+            except Exception:
+                pass
+
+        row = await self.db_pool.fetchrow(
+            """SELECT credential_data FROM tenant_credentials
+               WHERE tenant_id = $1::uuid AND provider = 'instagram' AND is_active = true""",
+            tenant_id,
+        )
+        if not row or not row["credential_data"]:
+            if self.redis:
+                try: await self.redis.setex(cache_key, 60, "__none__")
+                except Exception: pass
+            return None
+        data = row["credential_data"]
+        res = json.loads(data) if isinstance(data, str) else dict(data)
+        if self.redis:
+            try: await self.redis.setex(cache_key, 60, json.dumps(res))
+            except Exception: pass
+        return res
+
+    async def _get_instagram_user_profile(self, sender_id: str, access_token: str) -> dict:
+        """Fetch Instagram user profile (name, username, profile_pic) for a messaging customer (IGSID).
+        Results are cached in Redis for 7 days to avoid Meta Graph API rate limits."""
+        if not sender_id or not access_token:
+            return {}
+
+        clean_sender_id = str(sender_id).replace("ig:", "").strip()
+        cache_key = f"ig_profile:{clean_sender_id}"
+        if self.redis:
+            try:
+                cached = await self.redis.get(cache_key)
+                if cached:
+                    c_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                    if c_str == "__none__":
+                        return {}
+                    return json.loads(c_str)
+            except Exception:
+                pass
+
+        profile_data = {}
+        for base_url in ["https://graph.instagram.com/v19.0", "https://graph.facebook.com/v19.0"]:
+            for fields_param in ["name,username,profile_picture_url", "name,username"]:
+                try:
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        resp = await client.get(
+                            f"{base_url}/{clean_sender_id}",
+                            params={"fields": fields_param, "access_token": access_token}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            if data.get("username") or data.get("name"):
+                                profile_data = {
+                                    "id": str(data.get("id") or clean_sender_id),
+                                    "username": data.get("username") or "",
+                                    "name": data.get("name") or "",
+                                    # Meta returns profile_picture_url for IGSID lookups
+                                    "profile_picture_url": (
+                                        data.get("profile_picture_url")
+                                        or data.get("profile_pic")
+                                        or ""
+                                    ),
+                                }
+                                break
+                except Exception as ex:
+                    logger.debug("ig_profile_lookup_attempt_error", sender_id=clean_sender_id, base_url=base_url, error=str(ex))
+            if profile_data:
+                break
+
+        if self.redis:
+            try:
+                if profile_data:
+                    await self.redis.setex(cache_key, 604800, json.dumps(profile_data))
+                else:
+                    await self.redis.setex(cache_key, 300, "__none__")
+            except Exception:
+                pass
+
+        return profile_data
 
     async def _get_tenant_gemini_key(self, tenant_id: str) -> Optional[str]:
         cache_key = f"tenant_creds:{tenant_id}:gemini"
@@ -12010,36 +14865,17 @@ end
 
     async def _process_subscription_reminders(self):
         """
-        Polls for:
-        1. Upcoming subscription renewals (2 days before next_charge_at).
-        2. Gentle follow-up for orgs paused for 3+ days.
+        Scans strictly for paused organizations that have exceeded grace period.
+        Dispatches Paused Account Collection Follow-up to client admin
+        AND dispatches real-time financial alert to Super Admin (+91 8870341570).
+        Zero upcoming renewal countdowns are sent per user policy.
         """
         try:
             now = datetime.datetime.now(timezone.utc)
-            two_days_later = now + datetime.timedelta(days=2)
-
-            # 1. Upcoming renewal in 2 days (Stage 1)
-            rows_renewal = await self.db_pool.fetch(
-                """
-                SELECT id, name, slug, razorpay_short_url, next_charge_at
-                FROM tenants
-                WHERE org_lifecycle_stage = 'billing_active'
-                  AND subscription_status = 'active'
-                  AND next_charge_at IS NOT NULL
-                  AND next_charge_at <= $1
-                  AND next_charge_at > $2
-                  AND (reminder_stage IS NULL OR reminder_stage = 0)
-                """,
-                two_days_later, now
-            )
-            for r in rows_renewal:
-                await self._dispatch_platform_subscription_reminder(str(r["id"]), 1, r.get("razorpay_short_url") or "")
-
-            # 2. Gentle follow-up for paused orgs (Stage 4)
             three_days_ago = now - datetime.timedelta(days=3)
             rows_paused = await self.db_pool.fetch(
                 """
-                SELECT id, name, slug, razorpay_short_url
+                SELECT id, name, slug, razorpay_short_url, settings
                 FROM tenants
                 WHERE org_lifecycle_stage = 'billing_active'
                   AND subscription_status = 'paused'
@@ -12049,9 +14885,35 @@ end
                 three_days_ago
             )
             for r in rows_paused:
-                await self._dispatch_platform_subscription_reminder(str(r["id"]), 4, r.get("razorpay_short_url") or "")
+                tid = str(r["id"])
+                t_set = json.loads(r["settings"]) if isinstance(r["settings"], str) else (r["settings"] or {})
+                admin_ph = t_set.get("admin_whatsapp_number") or ""
+                client_name = r.get("name") or "Organization"
+                pay_url = r.get("razorpay_short_url") or f"https://crm.goboldlabs.com/{r.get('slug')}"
+
+                try:
+                    try:
+                        from crm_api.services.platform_billing_notifier import dispatch_account_paused_notifications
+                    except ImportError:
+                        from services.platform_billing_notifier import dispatch_account_paused_notifications
+
+                    await dispatch_account_paused_notifications(
+                        client_name=client_name,
+                        client_phone=admin_ph,
+                        amount=2630.0,
+                        pay_url=pay_url,
+                        db=self.db_pool
+                    )
+                except Exception as notif_err:
+                    logger.warning("paused_account_notification_failed", tenant_id=tid, error=str(notif_err))
+
+                await self.db_pool.execute(
+                    "UPDATE tenants SET last_reminder_sent_at = now(), reminder_stage = 4 WHERE id = $1::uuid",
+                    tid
+                )
+                logger.info("paused_collection_followup_dispatched", tenant_id=tid, slug=r.get("slug"))
         except Exception as e:
-            logger.error("subscription_reminders_check_error", error=str(e))
+            logger.error("paused_account_collection_check_error", error=str(e))
 
     async def _enforce_grace_period_expiry(self):
         """
@@ -12088,84 +14950,50 @@ end
                     slug=t.get("slug"),
                     name=t.get("name")
                 )
+
+            # 2. Instagram Add-On Expiry Enforcer (auto-locks Instagram add-on if 30-day cycle expired without renewal)
+            # Preserves 100% of Instagram chats, contacts, and credentials in the DB.
+            ig_tenants = await self.db_pool.fetch(
+                """
+                SELECT id, slug, name, settings
+                FROM tenants
+                WHERE (settings->>'instagram_addon_enabled' = 'true'
+                   OR (settings->'addons'->>'instagram_dm')::text = 'true')
+                  AND settings->>'instagram_addon_next_charge_at' IS NOT NULL
+                """
+            )
+            for t in ig_tenants:
+                tid = str(t["id"])
+                t_set = json.loads(t["settings"]) if isinstance(t["settings"], str) else (t["settings"] or {})
+                next_chg_raw = t_set.get("instagram_addon_next_charge_at")
+                if next_chg_raw:
+                    try:
+                        next_chg_dt = datetime.datetime.fromisoformat(str(next_chg_raw).replace("Z", "+00:00"))
+                        now_utc = datetime.datetime.now(timezone.utc)
+                        # Grant 3 days grace after next_charge_at before auto-locking Instagram
+                        if now_utc > (next_chg_dt + datetime.timedelta(days=3)):
+                            t_set["instagram_addon_enabled"] = False
+                            if "addons" in t_set and isinstance(t_set["addons"], dict):
+                                t_set["addons"]["instagram_dm"] = False
+                            await self.db_pool.execute(
+                                "UPDATE tenants SET settings = $1::jsonb, updated_at = now() WHERE id = $2::uuid",
+                                json.dumps(t_set), tid
+                            )
+                            logger.warning(
+                                "instagram_addon_cycle_expired_locked_data_preserved",
+                                tenant_id=tid,
+                                slug=t.get("slug")
+                            )
+                    except Exception as ig_err:
+                        logger.debug("ig_expiry_parse_error", tenant_id=tid, error=str(ig_err))
         except Exception as e:
             logger.error("grace_period_expiry_enforcer_error", error=str(e))
 
     async def _dispatch_platform_subscription_reminder(self, tenant_id: str, reminder_stage: int, payment_link: str = ""):
-        """Dispatches WhatsApp reminder from platform to tenant admin."""
-        try:
-            tenant = await self.db_pool.fetchrow(
-                "SELECT id, name, slug, razorpay_short_url FROM tenants WHERE id = $1::uuid",
-                tenant_id
-            )
-            if not tenant:
-                return
-
-            creds = await self._get_tenant_whatsapp_creds(tenant_id)
-            admin_phone = creds.get("admin_whatsapp_number", "") if creds else ""
-            clean_phone = re.sub(r'[^0-9]', '', admin_phone)
-            if not clean_phone or len(clean_phone) < 10:
-                return
-
-            if not creds or not creds.get("phone_number_id") or not creds.get("access_token") or str(creds.get("access_token", "")).startswith("EAAB_test"):
-                return
-
-            template_name = (creds.get("template_subscription_reminder") or "").strip()
-            if not template_name:
-                logger.info(
-                    "dispatch_platform_sub_reminder_skipped_no_template",
-                    tenant_id=tenant_id,
-                    stage=reminder_stage,
-                    phone=clean_phone,
-                    reason="No template_subscription_reminder configured for tenant; skipping WhatsApp dispatch to avoid Meta 24-hr policy violation."
-                )
-                await self.db_pool.execute(
-                    "UPDATE tenants SET last_reminder_sent_at = now(), reminder_stage = $1 WHERE id = $2::uuid",
-                    reminder_stage, tenant_id
-                )
-                try:
-                    pay_url = payment_link or tenant.get("razorpay_short_url") or f"https://boldlabs.ai/pay/{tenant['slug']}"
-                    org_name = tenant.get("name") or "Your Organization"
-                    await self.db_pool.execute(
-                        """INSERT INTO notifications (id, tenant_id, title, body, type, data, is_read, created_at)
-                           VALUES ($1::uuid, $2::uuid, $3, $4, 'billing', $5::jsonb, false, NOW())""",
-                        str(uuid.uuid4()), tenant_id, f"Subscription Renewal: {org_name}",
-                        f"Your subscription renewal is coming up. Payment link: {pay_url}",
-                        json.dumps({"payment_url": str(pay_url), "stage": reminder_stage})
-                    )
-                except Exception as notif_e:
-                    logger.debug("sub_reminder_inapp_notif_failed", error=str(notif_e))
-                return
-
-            pay_url = payment_link or tenant.get("razorpay_short_url") or f"https://boldlabs.ai/pay/{tenant['slug']}"
-            org_name = tenant["name"]
-
-            components = [
-                {
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": org_name},
-                        {"type": "text", "text": str(pay_url)},
-                    ]
-                }
-            ]
-
-            await self.db_pool.execute(
-                "UPDATE tenants SET last_reminder_sent_at = now(), reminder_stage = $1 WHERE id = $2::uuid",
-                reminder_stage, tenant_id
-            )
-
-            await send_template(
-                phone_number_id=creds["phone_number_id"],
-                access_token=creds["access_token"],
-                to=clean_phone,
-                template_name=template_name,
-                language_code="en",
-                components=components
-            )
-            logger.info("sub_reminder_dispatched_via_worker", tenant_id=tenant_id, stage=reminder_stage, phone=clean_phone, template=template_name)
-        except Exception as e:
-            logger.error("dispatch_platform_sub_reminder_failed", tenant_id=tenant_id, stage=reminder_stage, error=str(e))
+        """
+        Disabled per user policy: Do not send payment reminders to customers.
+        """
+        return
 
     async def _process_daily_digest(self):
         """
@@ -12281,7 +15109,8 @@ end
                    JOIN tenants t ON t.id = b.tenant_id
                        AND t.is_active = true
                        AND (
-                           t.subscription_status = 'active'
+                           t.subscription_status IS NULL
+                           OR t.subscription_status NOT IN ('cancelled', 'paused', 'expired', 'payment_failed')
                            OR (t.subscription_status = 'payment_failed'
                                AND t.grace_period_until IS NOT NULL
                                AND t.grace_period_until > NOW())
@@ -12662,12 +15491,37 @@ end
                             sent_via_template = True
                             logger.info("scheduled_admin_reminder_fallback_admin_notification_sent", to=clean_admin_phone)
                         except Exception as fb_err:
-                            logger.warning("scheduled_admin_reminder_fallback_failed", error=str(fb_err))
+                            logger.warning("scheduled_admin_reminder_fallback_failed_trying_text", error=str(fb_err))
+                            try:
+                                admin_remind_text = (
+                                    f"⏰ Upcoming Appointment Reminder\n\n"
+                                    f"Customer: {name}\n"
+                                    f"Phone: {job['phone']}\n"
+                                    f"Service: {service}\n"
+                                    f"Date & Time: {date_str} at {time_str}\n\n"
+                                    f"Scheduled via WhatsApp CRM."
+                                )
+                                await send_text(
+                                    phone_number_id=creds["phone_number_id"],
+                                    access_token=creds["access_token"],
+                                    to=clean_admin_phone,
+                                    body=admin_remind_text,
+                                )
+                                sent_via_template = True
+                                logger.info("scheduled_admin_reminder_text_fallback_sent", to=clean_admin_phone)
+                            except Exception as text_e:
+                                logger.error("scheduled_admin_reminder_text_fallback_failed", error=str(text_e))
 
-                # 2. Review Request job: Send approved review_request template
+                # 2. Review Request job: Send approved review_request template (or Google Review link)
                 elif job_type == "review_request" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                    raw_tpl = creds.get("template_review_request") or t_st.get("template_review_request")
-                    if not raw_tpl or str(raw_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
+                    t_slug = (job.get("tenant_slug") or t_st.get("slug") or "").strip()
+                    if t_st.get("enable_auto_review") is False:
+                        logger.info("scheduled_review_request_disabled_skipping", job_id=str(job["id"]), tenant=t_slug)
+                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
+                        continue
+
+                    raw_tpl = creds.get("template_review_request") or t_st.get("template_review_request") or "review_request"
+                    if str(raw_tpl).strip().lower() in ("none", "disabled", "off", "false"):
                         logger.info("scheduled_review_request_disabled_skipping", job_id=str(job["id"]))
                         await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
                         continue
@@ -12682,33 +15536,31 @@ end
 
                     t_slug = (job.get("tenant_slug") or t_st.get("slug") or "").strip()
                     _c_phone = re.sub(r'[^0-9]', '', str(job.get("phone") or job.get("contact_phone") or ""))
-                    if t_slug:
-                        import urllib.parse
-                        enc_name = urllib.parse.quote(name or "", safe="")
-                        enc_ph = urllib.parse.quote(_c_phone or "", safe="")
-                        base_url = "https://crm.goboldlabs.com"
+                    review_link = (
+                        t_st.get("google_review_link")
+                        or t_st.get("gmb_review_url")
+                        or creds.get("google_review_link")
+                        or creds.get("gmb_review_url")
+                        or t_st.get("google_maps_url")
+                        or creds.get("google_maps_url")
+                        or ""
+                    ).strip()
+                    if not review_link and job.get("tenant_id"):
                         try:
-                            cd = (t_st.get("custom_domain") or "").strip()
-                            if cd:
-                                base_url = cd if cd.startswith("http") else f"https://{cd}"
-                            else:
-                                p_name = (t_st.get("partner_name") or "").strip()
-                                if p_name:
-                                    p_cd = await self.db_pool.fetchval(
-                                        "SELECT custom_domain FROM partner_agency_templates WHERE LOWER(TRIM(partner_name)) = LOWER(TRIM($1))",
-                                        p_name
-                                    )
-                                    if p_cd and p_cd.strip():
-                                        p_cd = p_cd.strip()
-                                        base_url = p_cd if p_cd.startswith("http") else f"https://{p_cd}"
+                            gmb_row = await self.db_pool.fetchrow(
+                                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_business' AND is_active = true",
+                                job["tenant_id"]
+                            )
+                            if gmb_row and gmb_row["credential_data"]:
+                                gb_d = json.loads(gmb_row["credential_data"]) if isinstance(gmb_row["credential_data"], str) else dict(gmb_row["credential_data"])
+                                review_link = (gb_d.get("google_review_link") or gb_d.get("gmb_review_url") or gb_d.get("review_url") or "").strip()
                         except Exception:
-                            base_url = "https://crm.goboldlabs.com"
-                        base_url = base_url.rstrip("/")
-                        review_link = f"{base_url}/{t_slug}/review?name={enc_name}&phone={enc_ph}"
-                    else:
-                        review_link = (t_st.get("google_review_link") or creds.get("google_review_link") or "").strip()
-                        if not review_link or "placeid=" in review_link or "search.google.com" in review_link:
-                            review_link = "https://crm.goboldlabs.com/review"
+                            pass
+
+                    if not review_link:
+                        logger.info("scheduled_review_request_no_link_skipping", job_id=str(job["id"]))
+                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
+                        continue
 
                     template_name = str(raw_tpl).strip()
                     components = [
@@ -12896,98 +15748,19 @@ end
                 )
 
     async def _process_scheduled_campaigns(self):
-        """Find scheduled marketing campaigns that are due and dispatch them via WhatsApp."""
+        """Find scheduled marketing campaigns that are due and dispatch them via WhatsApp with Tier 1 250 limit management."""
         try:
+            from crm_api.routers.marketing import execute_campaign_batch
             due_campaigns = await self.db_pool.fetch(
-                """SELECT id, tenant_id, campaign_name, message_mode, message_text, template_name,
-                          template_params, recipient_phones, total_recipients
+                """SELECT id, tenant_id
                    FROM marketing_campaigns
-                   WHERE status = 'scheduled' AND scheduled_at <= now()
+                   WHERE status IN ('scheduled', 'paused_tier_limit') AND scheduled_at <= now()
                    LIMIT 5"""
             )
             for camp in due_campaigns:
-                camp_id = camp["id"]
-                tenant_id = str(camp["tenant_id"])
-                c_name = camp["campaign_name"] or "Campaign"
-                raw_phones = camp["recipient_phones"]
-                if isinstance(raw_phones, list):
-                    phones = raw_phones
-                else:
-                    try:
-                        phones = json.loads(raw_phones or "[]")
-                    except Exception:
-                        phones = []
-                text = camp["message_text"]
-                template_name = camp["template_name"]
-                raw_params = camp["template_params"]
-                if isinstance(raw_params, list):
-                    template_params = raw_params
-                else:
-                    try:
-                        template_params = json.loads(raw_params or "[]")
-                    except Exception:
-                        template_params = []
-
-                await self.db_pool.execute("UPDATE marketing_campaigns SET status = 'in_progress' WHERE id = $1 AND tenant_id = $2::uuid", camp_id, tenant_id)
-                creds = await self._get_tenant_whatsapp_creds(tenant_id)
-                if not creds or not creds.get("phone_number_id") or not creds.get("access_token"):
-                    await self.db_pool.execute("UPDATE marketing_campaigns SET status = 'failed' WHERE id = $1 AND tenant_id = $2::uuid", camp_id, tenant_id)
-                    continue
-
-                success_count = 0
-                for p in phones:
-                    clean_p = re.sub(r'[^0-9]', '', str(p))
-                    if not clean_p:
-                        continue
-                    try:
-                        # Broadcast campaigns must always be sent as approved Meta templates to comply with Meta 24h messaging policy
-                        active_tpl = (template_name or "").strip() or "client_followup_checkin"
-                        components = []
-                        if template_params:
-                            components.append({
-                                "type": "body",
-                                "parameters": [{"type": "text", "text": str(param)} for param in template_params]
-                            })
-                        await send_template(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=clean_p,
-                            template_name=active_tpl,
-                            language_code="en",
-                            components=components if components else None
-                        )
-                        success_count += 1
-                        await asyncio.sleep(0.1)  # 100ms delay between dispatches to avoid tripping Meta rate limits
-                    except Exception as e_send:
-                        logger.error("scheduled_campaign_item_error", phone=clean_p, error=str(e_send))
-
-                # Do NOT fabricate stats — set to 0 until real webhook data arrives
-                delivered = 0
-                read_cnt = 0
-                replied = 0
-                converted = 0
-
-                await self.db_pool.execute(
-                    """UPDATE marketing_campaigns 
-                       SET status = 'completed', sent_count = $1, delivered_count = $2, read_count = $3, replied_count = $4, converted_count = $5
-                       WHERE id = $6 AND tenant_id = $7::uuid""",
-                    success_count, delivered, read_cnt, replied, converted, camp_id, tenant_id
-                )
-
-                try:
-                    await dispatch_push_notification(
-                        pool=self.db_pool,
-                        tenant_id=tenant_id,
-                        title=f"Scheduled Campaign Sent: {c_name}",
-                        body=f"Broadcast sent to {success_count} recipients.",
-                        notif_type="marketing_completed",
-                        url="/dashboard#marketing",
-                        data={"campaign_name": c_name}
-                    )
-                except Exception:
-                    pass
-        except Exception as e_camp:
-            logger.error("process_scheduled_campaigns_failed", error=str(e_camp))
+                await execute_campaign_batch(self.db_pool, str(camp["id"]), str(camp["tenant_id"]))
+        except Exception as e:
+            logger.error("core_worker_process_scheduled_campaigns_error", error=str(e))
 
     def _build_scheduled_message(self, job: dict) -> str:
         name = job.get("contact_name") or "there"
@@ -13054,7 +15827,8 @@ end
                 JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
                 JOIN tenants t ON t.id = c.tenant_id AND t.is_active = true
                     AND (
-                        t.subscription_status = 'active'
+                        t.subscription_status IS NULL
+                        OR t.subscription_status NOT IN ('cancelled', 'paused', 'expired', 'payment_failed')
                         OR (t.subscription_status = 'payment_failed'
                             AND t.grace_period_until IS NOT NULL
                             AND t.grace_period_until > NOW())
@@ -13249,22 +16023,9 @@ end
                     if not last_user_msg:
                         continue
 
-                    # ── First-Contact Guard ──────────────────────────────────────────────────────
-                    # If the customer has sent only 1 message total (i.e. brand-new inquiry),
-                    # skip Touch 1 — they may simply not have had time to see and reply yet.
-                    # Only suppress Touch 1; Touch 2 (20h) still fires normally.
                     last_msg_at = row["last_message_at"]
                     sec_since_last = (datetime.datetime.now(timezone.utc) - last_msg_at.astimezone(timezone.utc)).total_seconds() if last_msg_at else 7200
                     is_touch_2 = (sec_since_last >= 19.5 * 3600)
-
-                    inbound_count = sum(1 for m in history if m.get("role") == "user")
-                    if inbound_count <= 1 and not is_touch_2:
-                        logger.info(
-                            "followup_skipped_first_contact_single_message",
-                            conv_id=conv_id, tenant_id=tenant_id, inbound_count=inbound_count
-                        )
-                        continue
-
 
                     # Clean voice note prefix if present
                     clean_last_user_msg = re.sub(r'^🎤\s*\[Voice Note(?:\s*-\s*[^\]]+)?\]:\s*', '', last_user_msg, flags=re.IGNORECASE).strip()
@@ -13573,11 +16334,11 @@ end
                         master_groq_key=master_keys.get("groq_key"),
                         master_opencode_key=master_keys.get("opencode_key"),
                         master_opencode_base_url=master_keys.get("opencode_base_url"),
-                        primary_provider="groq" if groq_key else "gemini",
+                        primary_provider=(creds.get("primary_model_provider") if creds else None) or ("gemini" if gemini_key else "groq"),
                         gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
                         max_tokens=2048,
                         temperature=0.15,
-                        timeout_seconds=12.0,
+                        timeout_seconds=5.0,
                         tenant_id=tenant_id,
                         single_line=False,
                     )
